@@ -1,0 +1,1128 @@
+-- 俄罗斯方块 ・ FC-16 演示卡带
+--
+-- 经典规则完整实现：
+--   7-bag 随机袋 / 简化踢墙旋转（4 态 + 统一偏移表）/ 幽灵落点投影 /
+--   Ⓧ 暂存换块（落锁后刷新）/ 三格预告 / 软降硬降计分 /
+--   触底锁定延迟（可被移动旋转重置，上限 15 次）/ 等级加速曲线 /
+--   消行闪白 + 由中心向外的碎裂动画与粒子 / 四消射线庆祝 /
+--   最高分 dset 持久化 / Korobeiniki 双段循环 BGM（Select 开关）
+--
+-- 精灵表与全部 SFX/PATTERN 数据由 _init 程序化 poke 写入（SPEC §4.2/§5.2），
+-- 卡带不携带二进制资产。方块质感：主色 + 上左高光 + 下右暗边 + 深色外圈，
+-- 全部颜色直接取自 §2.2 固定色表，不做色号算术推导。
+--
+-- 操作：⬅➡ 移动（按住 DAS 重复）　⬆/Ⓐ 顺旋　Ⓑ 反旋
+--　　　 ⬇ 软降（按住）　Ⓡ 硬降　Ⓧ 暂存　Start 暂停　Select 音乐
+
+-- ---------------------------------------------------------------- 常量
+
+local CELL = 12              -- 井内格边长（像素）
+local COLS, ROWS = 10, 20    -- 井尺寸（格）
+local WX, WY = 16, 8         -- 井内区左上（像素），井占 (16,8)-(136,248)
+local PX, PW = 146, 108      -- 右侧信息栏（x、宽）
+
+-- 每种方块的 {高光, 主色, 暗边, 外圈}（SPEC §2.2 色表直取）
+-- 1 I 青　2 O 黄　3 T 紫　4 S 绿　5 Z 红　6 J 蓝　7 L 橙　8 灰（结束收场）
+local PC = {
+  [1] = {44, 42, 41, 40},
+  [2] = {31, 30, 29, 28},
+  [3] = {55, 48, 49, 50},
+  [4] = {33, 34, 35, 36},
+  [5] = {58, 59, 60, 61},
+  [6] = {41, 40, 39, 38},
+  [7] = {20, 24, 25, 26},
+  [8] = {6, 5, 4, 2},
+}
+
+-- 基础形状：{矩阵边长, 出生态四格坐标}（x 右 y 下）
+local SHAPES = {
+  [1] = {4, {{0, 1}, {1, 1}, {2, 1}, {3, 1}}},
+  [2] = {2, {{0, 0}, {1, 0}, {0, 1}, {1, 1}}},
+  [3] = {3, {{1, 0}, {0, 1}, {1, 1}, {2, 1}}},
+  [4] = {3, {{1, 0}, {2, 0}, {0, 1}, {1, 1}}},
+  [5] = {3, {{0, 0}, {1, 0}, {1, 1}, {2, 1}}},
+  [6] = {3, {{0, 0}, {0, 1}, {1, 1}, {2, 1}}},
+  [7] = {3, {{2, 0}, {0, 1}, {1, 1}, {2, 1}}},
+}
+
+-- 预展开 4 个旋转态：顺时针在 n×n 矩阵内 (x,y) -> (n-1-y, x)
+local ROT = {}
+for p = 1, 7 do
+  local n = SHAPES[p][1]
+  ROT[p] = {[0] = SHAPES[p][2]}
+  for r = 1, 3 do
+    local prev = ROT[p][r - 1]
+    local nc = {}
+    for i = 1, 4 do
+      nc[i] = {n - 1 - prev[i][2], prev[i][1]}
+    end
+    ROT[p][r] = nc
+  end
+end
+
+-- 出生位置（矩阵左上角在井中的格坐标）；I 的格子位于矩阵第 2 行，上移一行出生
+local SX, SY = {}, {}
+for p = 1, 7 do
+  SX[p] = flr((COLS - SHAPES[p][1]) / 2)
+  SY[p] = p == 1 and -1 or 0
+end
+
+-- 简化踢墙偏移（全部方块统一尝试；±2 覆盖 I 贴壁旋转）
+local KICKS = {{0, 0}, {-1, 0}, {1, 0}, {0, -1}, {-1, -1}, {1, -1}, {-2, 0}, {2, 0}}
+
+local DAS, ARR, SOFT_INT = 10, 3, 2     -- 横移初始延迟 / 重复间隔 / 软降间隔（帧）
+local LOCK_DELAY, LOCK_RESETS = 30, 15  -- 触底锁定延迟与重置次数上限
+local LINE_SCORE = {100, 300, 500, 800} -- 1-4 消基础分（×等级）
+
+-- 下落间隔：1 级 1 秒/格，随等级指数收紧，最快 2 帧/格
+local function fall_interval(lvl)
+  return max(2, flr(60 * pow(0.82, lvl - 1)))
+end
+
+local function fmt(n) return string.format("%d", n) end
+local function fmt7(n) return string.format("%07d", n) end
+local function fmt3(n) return string.format("%03d", n) end
+
+-- ---------------------------------------------------------------- 音频数据
+
+local function u8(a, v) poke(a, v % 256) end
+
+-- 写一条 SFX（SPEC §5.2：112B = 头 16B + 32 步 × 3B）
+-- steps[i] = {音高, 波形, 音量[, 效果]}，nil 步与音高 0 均为休止
+local function write_sfx(id, speed, steps, len)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, len or #steps)
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    local s = steps[i + 1]
+    if s then
+      u8(a, s[1] or 0)
+      u8(a + 1, (s[2] or 0) * 16 + (s[3] or 0))
+      u8(a + 2, s[4] or 0)
+    else
+      u8(a, 0) u8(a + 1, 0) u8(a + 2, 0)
+    end
+  end
+end
+
+-- Korobeiniki（俄罗斯民谣，公有领域）：A 段 8 小节 + B 段 8 小节
+-- 音高值 = MIDI - 11（SPEC §5.2），音长单位为八分音符
+local MEL_A = {
+  {{65, 2}, {60, 1}, {61, 1}, {63, 2}, {61, 1}, {60, 1}}, -- E5 B4 C5 D5 C5 B4
+  {{58, 2}, {58, 1}, {61, 1}, {65, 2}, {63, 1}, {61, 1}}, -- A4 A4 C5 E5 D5 C5
+  {{60, 3}, {61, 1}, {63, 2}, {65, 2}},                   -- B4. C5 D5 E5
+  {{61, 2}, {58, 2}, {58, 4}},                            -- C5 A4 A4
+  {{0, 1}, {63, 2}, {66, 1}, {70, 2}, {68, 1}, {66, 1}},  -- 休 D5 F5 A5 G5 F5
+  {{65, 3}, {61, 1}, {65, 2}, {63, 1}, {61, 1}},          -- E5. C5 E5 D5 C5
+  {{60, 2}, {60, 1}, {61, 1}, {63, 2}, {65, 2}},          -- B4 B4 C5 D5 E5
+  {{61, 2}, {58, 2}, {58, 4}},                            -- C5 A4 A4
+}
+local MEL_B = {
+  {{65, 4}, {61, 4}},
+  {{63, 4}, {60, 4}},
+  {{61, 4}, {58, 4}},
+  {{57, 4}, {60, 2}, {0, 2}}, -- G#4 B4
+  {{65, 4}, {61, 4}},
+  {{63, 4}, {60, 4}},
+  {{61, 2}, {65, 2}, {70, 4}},
+  {{69, 6}, {0, 2}},          -- G#5 长音收束
+}
+
+-- 每小节和声：{贝斯根音, 琶音三音}
+local CHORD = {
+  {29, {53, 60, 65}}, -- Em
+  {34, {58, 61, 65}}, -- Am
+  {32, {55, 60, 63}}, -- G
+  {34, {58, 61, 65}}, -- Am
+  {27, {50, 54, 58}}, -- Dm
+  {34, {58, 61, 65}}, -- Am
+  {36, {60, 64, 67}}, -- B
+  {34, {58, 61, 65}}, -- Am
+  {34, {58, 61, 65}}, -- B 段起
+  {29, {53, 57, 60}}, -- E
+  {34, {58, 61, 65}}, -- Am
+  {29, {53, 57, 60}}, -- E
+  {34, {58, 61, 65}}, -- Am
+  {29, {53, 57, 60}}, -- E
+  {34, {58, 61, 65}}, -- Am
+  {29, {53, 57, 60}}, -- E
+}
+
+-- 旋律展开为逐步音符：speed 4 时一个八分音符 = 4 步，一小节恰 32 步
+local function flat_notes(list, wave, vol)
+  local out = {}
+  for _, nd in ipairs(list) do
+    for _ = 1, nd[2] * 4 do out[#out + 1] = {nd[1], wave, vol} end
+  end
+  return out
+end
+
+-- 琶音垫：a b c b 上下行八分音符
+local function flat_arp(tri)
+  local pat = {tri[1], tri[2], tri[3], tri[2], tri[1], tri[2], tri[3], tri[2]}
+  local out = {}
+  for _, p in ipairs(pat) do
+    for _ = 1, 4 do out[#out + 1] = {p, 0, 4} end
+  end
+  return out
+end
+
+-- 贝斯：根音八度交错的四分音符（低 高 低 高）
+local function flat_bass(root)
+  local out = {}
+  local seq = {root, root + 12, root, root + 12}
+  for _, p in ipairs(seq) do
+    for _ = 1, 8 do out[#out + 1] = {p, 11, 10} end
+  end
+  return out
+end
+
+-- 鼓组一小节：底鼓 1/3 拍、军鼓 2/4 拍、踩镲在后半拍
+local function drum_seq()
+  local st = {}
+  st[1] = {28, 11, 12, 3} st[2] = {22, 11, 9, 3}
+  st[5] = {90, 15, 4}
+  st[9] = {56, 14, 9, 3} st[10] = {50, 14, 6}
+  st[13] = {90, 15, 4}
+  st[17] = {28, 11, 12, 3} st[18] = {22, 11, 9, 3}
+  st[21] = {90, 15, 4}
+  st[25] = {56, 14, 9, 3} st[26] = {50, 14, 6}
+  st[29] = {90, 15, 4}
+  return st
+end
+
+-- 音效布局：游戏音效 0-13（走 ch0-3）；
+-- BGM 每小节四声部：旋律 20-35（ROUND）、琶音 36-51（TRIANGLE）、
+-- 贝斯 52-67（BASS）、鼓 68-83（噪声/低音）；PATTERN 0-15 首尾相接循环
+local function init_audio()
+  write_sfx(0, 1, {{48, 3, 5}, {52, 3, 6}})                          -- 移动
+  write_sfx(1, 1, {{60, 3, 8}, {67, 3, 7}})                          -- 旋转
+  write_sfx(2, 1, {{64, 6, 8}, {57, 6, 7}})                          -- 暂存
+  write_sfx(3, 1, {{46, 15, 12, 3}, {34, 15, 10, 3}, {22, 15, 8, 3}})-- 硬降
+  write_sfx(4, 1, {{30, 11, 12}, {24, 11, 10}})                      -- 锁定
+  write_sfx(5, 2, {{60, 3, 10}, {64, 3, 10}, {67, 3, 10}, {72, 3, 11}})      -- 消行
+  write_sfx(6, 2, {{60, 3, 12}, {64, 3, 12}, {67, 3, 12}, {72, 3, 12},
+    {76, 3, 12}, {79, 3, 12}, {84, 3, 12}})                                  -- 四消主奏
+  write_sfx(7, 2, {{48, 2, 9}, {52, 2, 9}, {55, 2, 9}, {60, 2, 9},
+    {64, 2, 9}, {67, 2, 9}, {72, 2, 9}})                                     -- 四消和声
+  write_sfx(8, 2, {{79, 15, 6}, {86, 15, 5}, {91, 15, 4}})           -- 四消噪声上扫
+  write_sfx(9, 3, {{67, 10, 10}, {72, 10, 10}, {76, 10, 10}, {79, 10, 11}})  -- 升级
+  write_sfx(10, 5, {{62, 6, 10, 3}, {58, 6, 10, 3}, {53, 6, 10, 3},
+    {49, 6, 10, 3}, {44, 6, 9, 3}, {38, 8, 9, 3}, {33, 12, 8, 3}})   -- 游戏结束
+  write_sfx(11, 2, {{60, 3, 9}, {67, 3, 9}})                         -- 开始
+  write_sfx(12, 2, {{64, 3, 7}, {56, 3, 7}})                         -- 暂停
+  write_sfx(13, 1, {{46, 3, 4}})                                     -- 软降轻响
+
+  for bar = 0, 15 do
+    local mel = bar < 8 and MEL_A[bar + 1] or MEL_B[bar - 7]
+    write_sfx(20 + bar, 4, flat_notes(mel, 8, 12), 32)
+    local ch = CHORD[bar + 1]
+    write_sfx(36 + bar, 4, flat_arp(ch[2]), 32)
+    write_sfx(52 + bar, 4, flat_bass(ch[1]), 32)
+    write_sfx(68 + bar, 4, drum_seq(), 32)
+    -- PATTERN（SPEC §5.2：引用填 id+1，0 为空）
+    local pb = 0x063800 + bar * 16
+    u8(pb + 4, 21 + bar)
+    u8(pb + 5, 37 + bar)
+    u8(pb + 6, 53 + bar)
+    u8(pb + 7, 69 + bar)
+    local fl = 0
+    if bar == 0 then fl = 1 end        -- BEGIN：循环起点
+    if bar == 15 then fl = fl + 2 end  -- END：回到 BEGIN
+    u8(pb + 8, fl)
+  end
+end
+
+-- ---------------------------------------------------------------- 精灵烘焙
+
+-- 12×12 方块格：外圈深色 + 上左高光 + 下右暗边 + 中心主色 + 左上高光点
+local function bake_cell(id, hi, main, sh, edge)
+  local base = id * 256
+  for y = 0, 11 do
+    for x = 0, 11 do
+      local c
+      if x == 0 or y == 0 or x == 11 or y == 11 then
+        c = edge
+      elseif x == 1 or y == 1 then
+        c = hi
+      elseif x == 10 or y == 10 then
+        c = sh
+      else
+        c = main
+      end
+      poke(base + y * 16 + x, c)
+    end
+  end
+  poke(base + 2 * 16 + 2, hi)
+  poke(base + 2 * 16 + 3, hi)
+  poke(base + 3 * 16 + 2, hi)
+end
+
+-- ---------------------------------------------------------------- 状态
+
+local state = "title" -- title | play | pause | over
+local t = 0
+local board = {}      -- board[y][x] = 0 或方块号 1-8
+local bag, queue = {}, {}
+local cur             -- {p, r, x, y}：当前方块（矩阵左上角格坐标）
+local hold, can_hold
+local score, best, lines, level
+local grav_t, lock_t, lock_resets, soft_t
+local das_dir, das_t
+local clearing        -- {rows, t, n}：消行动画
+local lock_flash      -- {cells, t}：落锁白闪
+local parts, pops     -- 粒子与飘字
+local shake, lvl_flash, new_best
+local over_t, over_row
+local music_on, bgm_on
+local tpieces         -- 标题画面背景落块
+
+local toggle_music -- 前向声明（play_step 先于其定义使用）
+
+-- ---------------------------------------------------------------- 粒子与飘字
+
+local function spawn_burst(px, py, cols, n)
+  for _ = 1, n do
+    parts[#parts + 1] = {
+      x = px + rnd(-3, 3), y = py + rnd(-2, 2),
+      vx = rnd(-1.8, 1.8), vy = rnd(-3.2, -0.6),
+      c = cols[flr(rnd(#cols)) + 1],
+      life = 16 + flr(rnd(16)),
+    }
+  end
+  while #parts > 180 do table.remove(parts, 1) end
+end
+
+local function update_parts()
+  for i = #parts, 1, -1 do
+    local q = parts[i]
+    q.x = q.x + q.vx
+    q.y = q.y + q.vy
+    q.vy = q.vy + 0.18
+    q.life = q.life - 1
+    if q.life <= 0 or q.y > 262 then table.remove(parts, i) end
+  end
+end
+
+local function update_pops()
+  for i = #pops, 1, -1 do
+    pops[i].t = pops[i].t + 1
+    if pops[i].t > 42 then table.remove(pops, i) end
+  end
+end
+
+-- ---------------------------------------------------------------- 核心规则
+
+local function collide(p, r, x, y)
+  for i = 1, 4 do
+    local c = ROT[p][r][i]
+    local bx, by = x + c[1], y + c[2]
+    if bx < 0 or bx > COLS - 1 or by > ROWS - 1 then return true end
+    if by >= 0 and board[by][bx] ~= 0 then return true end
+  end
+  return false
+end
+
+local function game_over()
+  state = "over"
+  over_t = 0
+  over_row = ROWS - 1
+  cur = nil
+  clearing = nil
+  if score > best then -- 纯下落得分也要计入最高分
+    best = score
+    new_best = true
+    dset(0, best)
+    fflush()
+  end
+  if bgm_on then
+    music(-1, 900)
+    bgm_on = false
+  end
+  sfx(10, 3)
+end
+
+-- 7-bag：袋子摸空才重新洗牌，保证每 7 块内七种各出现一次
+local function refill()
+  while #queue < 5 do
+    if #bag == 0 then
+      bag = {1, 2, 3, 4, 5, 6, 7}
+      for i = 7, 2, -1 do
+        local j = flr(rnd(i)) + 1
+        bag[i], bag[j] = bag[j], bag[i]
+      end
+    end
+    queue[#queue + 1] = table.remove(bag)
+  end
+end
+
+local function spawn_next()
+  refill()
+  local p = table.remove(queue, 1)
+  cur = {p = p, r = 0, x = SX[p], y = SY[p]}
+  grav_t, lock_t, lock_resets, soft_t = 0, 0, 0, SOFT_INT
+  if collide(p, 0, cur.x, cur.y) then
+    game_over()
+  end
+end
+
+-- 落锁后的计分、升级与飘字
+local function apply_score(n, rows)
+  local gain = LINE_SCORE[n] * level
+  score = score + gain
+  lines = lines + n
+  local txt = "+" .. fmt(gain)
+  pops[#pops + 1] = {
+    txt = txt, x = flr(WX + 60 - tw(txt) / 2),
+    y = WY + rows[1] * CELL + 2, t = 0,
+  }
+  if n == 4 then
+    shake = max(shake, 12)
+    sfx(6, 1) sfx(7, 2) sfx(8, 3)
+    pops[#pops + 1] = {txt = "四消！", big = true, x = 0, y = WY + rows[1] * CELL - 8, t = 0}
+  else
+    sfx(5, 1)
+    if n >= 2 then shake = max(shake, 4) end
+  end
+  local nl = 1 + flr(lines / 10)
+  if nl > level then
+    level = nl
+    lvl_flash = 45
+    sfx(9, 2)
+  end
+  if score > best then
+    best = score
+    new_best = true
+    dset(0, best)
+    fflush()
+  end
+end
+
+local function lock_piece()
+  sfx(4, 0)
+  local top_out = false
+  local flash = {}
+  for i = 1, 4 do
+    local c = ROT[cur.p][cur.r][i]
+    local bx, by = cur.x + c[1], cur.y + c[2]
+    if by < 0 then
+      top_out = true
+    else
+      board[by][bx] = cur.p
+      flash[#flash + 1] = {bx, by}
+    end
+  end
+  lock_flash = {cells = flash, t = 4}
+  can_hold = true
+  cur = nil
+  if top_out then
+    game_over()
+    return
+  end
+  local rows = {}
+  for y = 0, ROWS - 1 do
+    local full = true
+    for x = 0, COLS - 1 do
+      if board[y][x] == 0 then full = false break end
+    end
+    if full then rows[#rows + 1] = y end
+  end
+  if #rows > 0 then
+    apply_score(#rows, rows)
+    clearing = {rows = rows, t = 0, n = #rows}
+  else
+    spawn_next()
+  end
+end
+
+local function collapse_rows(rows)
+  local set = {}
+  for _, ry in ipairs(rows) do set[ry] = true end
+  local kept = {}
+  for y = 0, ROWS - 1 do
+    if not set[y] then kept[#kept + 1] = board[y] end
+  end
+  local nb = {}
+  for _ = 1, #rows do
+    local row = {}
+    for x = 0, COLS - 1 do row[x] = 0 end
+    nb[#nb + 1] = row
+  end
+  for i = 1, #kept do nb[#nb + 1] = kept[i] end
+  for y = 0, ROWS - 1 do board[y] = nb[y + 1] end
+end
+
+-- 消行动画：前 12 帧整行闪白，之后格子由中心向外逐列碎裂成粒子
+local function update_clearing()
+  local ct = clearing.t + 1
+  clearing.t = ct
+  for _, ry in ipairs(clearing.rows) do
+    for x = 0, COLS - 1 do
+      local v = board[ry][x]
+      if v ~= 0 and ct >= flr(12 + abs(x - 4.5) * 1.4) then
+        spawn_burst(WX + x * CELL + 6, WY + ry * CELL + 6,
+          {PC[v][1], PC[v][2], PC[v][3], 7}, 2)
+        board[ry][x] = 0
+      end
+    end
+  end
+  if ct >= 22 then
+    local rows = clearing.rows
+    clearing = nil
+    collapse_rows(rows)
+    spawn_next()
+  end
+end
+
+-- 触底时的移动/旋转重置锁定计时（有次数上限，防止无限拖延）
+local function manip_reset()
+  if lock_t > 0 and lock_resets < LOCK_RESETS then
+    lock_t = 0
+    lock_resets = lock_resets + 1
+  end
+end
+
+local function try_move(dx)
+  if collide(cur.p, cur.r, cur.x + dx, cur.y) then return end
+  cur.x = cur.x + dx
+  sfx(0, 0)
+  manip_reset()
+end
+
+local function try_rotate(dir)
+  local nr = (cur.r + dir) % 4
+  for _, k in ipairs(KICKS) do
+    if not collide(cur.p, nr, cur.x + k[1], cur.y + k[2]) then
+      cur.r = nr
+      cur.x = cur.x + k[1]
+      cur.y = cur.y + k[2]
+      sfx(1, 0)
+      manip_reset()
+      return
+    end
+  end
+end
+
+local function ghost_y()
+  local y = cur.y
+  while not collide(cur.p, cur.r, cur.x, y + 1) do y = y + 1 end
+  return y
+end
+
+local function do_hold()
+  if not can_hold then return end
+  can_hold = false
+  sfx(2, 0)
+  local p = cur.p
+  if hold then
+    local h = hold
+    hold = p
+    cur = {p = h, r = 0, x = SX[h], y = SY[h]}
+    grav_t, lock_t, lock_resets, soft_t = 0, 0, 0, SOFT_INT
+    if collide(h, 0, cur.x, cur.y) then game_over() end
+  else
+    hold = p
+    cur = nil
+    spawn_next()
+  end
+end
+
+local function hard_drop()
+  local gy = ghost_y()
+  local dist = gy - cur.y
+  if dist > 0 then score = score + dist * 2 end
+  cur.y = gy
+  shake = max(shake, 3)
+  sfx(3, 0)
+  for i = 1, 4 do
+    local c = ROT[cur.p][cur.r][i]
+    local by = gy + c[2]
+    if by >= 0 then
+      spawn_burst(WX + (cur.x + c[1]) * CELL + 6, WY + by * CELL + 11,
+        {PC[cur.p][1], PC[cur.p][2]}, 1)
+    end
+  end
+  lock_piece()
+end
+
+-- 横移：按下立即走一格，充电 DAS 帧后每 ARR 帧重复；换向时重新充电
+local function das_step()
+  local L, R = btn(0), btn(1)
+  if btnp(0) and not R then
+    das_dir, das_t = -1, 0
+    try_move(-1)
+    return
+  elseif btnp(1) and not L then
+    das_dir, das_t = 1, 0
+    try_move(1)
+    return
+  end
+  if das_dir == 0 then
+    -- 尚未锁定方向（如两键同帧按下）：恢复单键时重新起充
+    if L and not R then
+      das_dir, das_t = -1, 0
+    elseif R and not L then
+      das_dir, das_t = 1, 0
+    end
+    return
+  end
+  if (das_dir == -1 and not L) or (das_dir == 1 and not R) then
+    -- 充电方向已松开：切换到仍按住的另一方向
+    if L and not R then
+      das_dir, das_t = -1, 0
+      try_move(-1)
+    elseif R and not L then
+      das_dir, das_t = 1, 0
+      try_move(1)
+    else
+      das_dir = 0
+    end
+    return
+  end
+  das_t = das_t + 1
+  if das_t > DAS and (das_t - DAS) % ARR == 0 then try_move(das_dir) end
+end
+
+-- 软降：每 SOFT_INT 帧下落一格并 +1 分；贴地时加速锁定计时
+local function soft_step()
+  if btn(3) then
+    soft_t = soft_t + 1
+    if soft_t >= SOFT_INT then
+      soft_t = 0
+      if not collide(cur.p, cur.r, cur.x, cur.y + 1) then
+        cur.y = cur.y + 1
+        score = score + 1
+        grav_t = 0
+        lock_t = 0
+        sfx(13, 0)
+      else
+        lock_t = lock_t + 1
+      end
+    end
+  else
+    soft_t = SOFT_INT -- 保证下一次按下立即响应
+  end
+end
+
+-- 重力与锁定：触底后累计 LOCK_DELAY 帧锁定；离地即清零
+local function gravity_step()
+  if not cur then return end
+  if collide(cur.p, cur.r, cur.x, cur.y + 1) then
+    lock_t = lock_t + 1
+    if lock_t >= LOCK_DELAY then lock_piece() end
+  else
+    lock_t = 0
+    grav_t = grav_t + 1
+    if grav_t >= fall_interval(level) then
+      grav_t = 0
+      cur.y = cur.y + 1
+    end
+  end
+end
+
+local function play_step()
+  if btnp(10) then toggle_music() end
+  if not cur then return end
+  if btnp(6) then do_hold() end
+  if not cur then return end
+  if btnp(2) or btnp(4) then try_rotate(1) end
+  if btnp(5) then try_rotate(-1) end
+  das_step()
+  if not cur then return end
+  soft_step()
+  if btnp(9) then
+    hard_drop()
+    return
+  end
+  gravity_step()
+end
+
+-- ---------------------------------------------------------------- 流程
+
+function toggle_music()
+  music_on = not music_on
+  dset(1, music_on and 0 or 1)
+  fflush()
+  if music_on then
+    music(0, 400, 0xF0) -- ch4-7 交给音乐，ch0-3 留给音效
+    bgm_on = true
+  else
+    music(-1, 400)
+    bgm_on = false
+  end
+end
+
+local function reset_game()
+  board = {}
+  for y = 0, ROWS - 1 do
+    board[y] = {}
+    for x = 0, COLS - 1 do board[y][x] = 0 end
+  end
+  bag, queue = {}, {}
+  refill()
+  score, lines, level = 0, 0, 1
+  hold, can_hold = nil, true
+  clearing = nil
+  lock_flash = nil
+  parts, pops = {}, {}
+  shake, lvl_flash = 0, 0
+  new_best = false
+  das_dir, das_t, soft_t = 0, 0, SOFT_INT
+  spawn_next()
+end
+
+local function start_game()
+  sfx(11, 0)
+  reset_game()
+  state = "play"
+  if music_on and not bgm_on then
+    music(0, 500, 0xF0)
+    bgm_on = true
+  end
+end
+
+local function update_title()
+  for i = 1, #tpieces do
+    local q = tpieces[i]
+    q.y = q.y + q.sp
+    if q.y > 262 then
+      q.p = 1 + flr(rnd(7))
+      q.x = rnd(6, 236)
+      q.y = -30 - rnd(50)
+      q.sp = 0.25 + rnd(0.75)
+      q.ph = rnd(1)
+    end
+  end
+  if btnp(4) then start_game() end
+  if btnp(10) then toggle_music() end
+end
+
+-- 结束收场：从底行向上每 2 帧把已有格子灰化，随后浮出结算面板
+local function update_over()
+  over_t = over_t + 1
+  if over_row >= 0 then
+    if over_t % 2 == 0 then
+      for x = 0, COLS - 1 do
+        if board[over_row][x] ~= 0 then board[over_row][x] = 8 end
+      end
+      over_row = over_row - 1
+    end
+    return
+  end
+  if over_t > 52 then
+    if btnp(4) then
+      start_game()
+    elseif btnp(11) then
+      state = "title"
+      if music_on and not bgm_on then
+        music(0, 500, 0xF0)
+        bgm_on = true
+      end
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制
+
+local function draw_page()
+  cls(14)
+  fillp(0x0842) -- 稀疏点阵底纹
+  rectfill(0, 0, 256, 256, 13 * 256 + 14)
+  fillp()
+  local s = "TETRIS"
+  for i = 1, #s do
+    print(s:sub(i, i), 3, 26 + (i - 1) * 36, 10)
+  end
+end
+
+-- 井框：斜面金属边（上左亮、下右暗）+ 深色外描边 + 井内暗底与细网格
+local function draw_frame()
+  rect(11, 3, 130, 250, 0)
+  rectfill(12, 4, 128, 2, 4)
+  rectfill(12, 4, 2, 248, 4)
+  rectfill(12, 250, 128, 2, 1)
+  rectfill(138, 4, 2, 248, 1)
+  rectfill(14, 6, 124, 244, 2)
+  rectfill(WX, WY, COLS * CELL, ROWS * CELL, 14)
+  for x = 1, COLS - 1 do
+    line(WX + x * CELL, WY, WX + x * CELL, WY + ROWS * CELL, 13)
+  end
+  for y = 1, ROWS - 1 do
+    line(WX, WY + y * CELL, WX + COLS * CELL, WY + y * CELL, 13)
+  end
+end
+
+local function draw_board()
+  for y = 0, ROWS - 1 do
+    local row = board[y]
+    for x = 0, COLS - 1 do
+      local v = row[x]
+      if v ~= 0 then
+        sspr((v % 16) * 16, flr(v / 16) * 16, 12, 12,
+          WX + x * CELL, WY + y * CELL)
+      end
+    end
+  end
+  if clearing and clearing.t < 12 and flr(clearing.t / 3) % 2 == 0 then
+    for _, ry in ipairs(clearing.rows) do
+      rectfill(WX, WY + ry * CELL, COLS * CELL, CELL, 7)
+    end
+  end
+end
+
+-- 四消庆祝射线（圈制三角函数，确定性与帧号绑定）
+local function draw_rays(cx, cy, col)
+  for i = 0, 11 do
+    if i % 2 == 0 then
+      local a = t * 0.008 + i / 12
+      trifill(cx, cy,
+        cx + cos(a - 0.016) * 70, cy + sin(a - 0.016) * 70,
+        cx + cos(a + 0.016) * 70, cy + sin(a + 0.016) * 70, col)
+    end
+  end
+end
+
+-- 幽灵落点：外圈描边 + 极稀疏主色抖动填充
+local function draw_ghost()
+  if not cur then return end
+  local gy = ghost_y()
+  if gy <= cur.y then return end
+  local col = PC[cur.p]
+  fillp(0x1111)
+  for i = 1, 4 do
+    local c = ROT[cur.p][cur.r][i]
+    if gy + c[2] >= 0 then
+      local px = WX + (cur.x + c[1]) * CELL
+      local py = WY + (gy + c[2]) * CELL
+      rect(px, py, CELL, CELL, col[4])
+      rectfill(px + 2, py + 2, CELL - 4, CELL - 4, col[2] * 256 + 14)
+    end
+  end
+  fillp()
+end
+
+local function draw_cur()
+  if not cur then return end
+  for i = 1, 4 do
+    local c = ROT[cur.p][cur.r][i]
+    sspr((cur.p % 16) * 16, 0, 12, 12,
+      WX + (cur.x + c[1]) * CELL, WY + (cur.y + c[2]) * CELL)
+  end
+end
+
+local function draw_lock_flash()
+  if not lock_flash then return end
+  for _, c in ipairs(lock_flash.cells) do
+    rectfill(WX + c[1] * CELL, WY + c[2] * CELL, CELL, CELL, 7)
+  end
+end
+
+local function draw_parts()
+  for i = 1, #parts do
+    local q = parts[i]
+    rectfill(flr(q.x), flr(q.y), 2, 2, q.c)
+  end
+end
+
+local function draw_pops()
+  for _, p in ipairs(pops) do
+    if p.big then
+      local x = flr(76 - tw(p.txt) / 2)
+      local y = flr(p.y - p.t * 0.4)
+      rectfill(WX + 6, y - 3, 108, 22, 1)
+      print(p.txt, x + 1, y + 1, 1)
+      print(p.txt, x, y, flr(p.t / 3) % 2 == 0 and 31 or 7)
+    else
+      local y = flr(p.y - p.t * 0.55)
+      print(p.txt, p.x + 1, y + 1, 1)
+      print(p.txt, p.x, y, p.t < 14 and 31 or (p.t < 28 and 30 or 29))
+    end
+  end
+end
+
+-- 预览小方块（暂存/预告用）：暗底 + 主色 + 上左高光
+local function mini_bbox(p)
+  local cells = ROT[p][0]
+  local minx, maxx, miny, maxy = 9, 0, 9, 0
+  for i = 1, 4 do
+    local c = cells[i]
+    minx = min(minx, c[1]) maxx = max(maxx, c[1])
+    miny = min(miny, c[2]) maxy = max(maxy, c[2])
+  end
+  return cells, minx, miny, (maxx - minx + 1), (maxy - miny + 1)
+end
+
+local function draw_mini(cx, cy, p, s)
+  local cells, minx, miny, bw, bh = mini_bbox(p)
+  local x0 = flr(cx - bw * s / 2)
+  local y0 = flr(cy - bh * s / 2)
+  local col = PC[p]
+  for i = 1, 4 do
+    local c = cells[i]
+    local x = x0 + (c[1] - minx) * s
+    local y = y0 + (c[2] - miny) * s
+    rectfill(x, y, s, s, col[4])
+    rectfill(x, y, s - 1, s - 1, col[2])
+    rectfill(x, y, s - 1, 1, col[1])
+    rectfill(x, y, 1, s - 1, col[1])
+  end
+end
+
+-- 暂存不可用时的空心样式
+local function draw_mini_outline(cx, cy, p, s, c)
+  local cells, minx, miny, bw, bh = mini_bbox(p)
+  local x0 = flr(cx - bw * s / 2)
+  local y0 = flr(cy - bh * s / 2)
+  for i = 1, 4 do
+    local q = cells[i]
+    rect(x0 + (q[1] - minx) * s, y0 + (q[2] - miny) * s, s, s, c)
+  end
+end
+
+local function stat_row(label, val, y, c)
+  print(label, PX + 6, y, 9)
+  print(val, PX + PW - 6 - tw(val), y, c)
+end
+
+local function draw_panel()
+  rectfill(PX, 4, PW, 248, 13)
+  rect(PX, 4, PW, 248, 11)
+  rectfill(PX + 1, 5, PW - 2, 1, 9)
+  rectfill(PX + 1, 250, PW - 2, 1, 11)
+
+  -- 暂存（HOLD）
+  print("暂存 Ⓧ", PX + 6, 6, 9)
+  print("♪", PX + PW - 22, 6, music_on and 30 or 10)
+  rrectfill(PX + 28, 26, PW - 56, 26, 4, 12)
+  if hold then
+    if can_hold then
+      draw_mini(PX + PW / 2, 39, hold, 8)
+    else
+      draw_mini_outline(PX + PW / 2, 39, hold, 8, 10)
+    end
+  end
+
+  -- 预告（NEXT）
+  line(PX + 6, 58, PX + PW - 6, 58, 11)
+  print("预告", PX + 6, 62, 9)
+  local ys = {89, 117, 145}
+  for i = 1, 3 do
+    rrectfill(PX + 28, ys[i] - 11, PW - 56, 22, 4, 12)
+    if queue[i] then draw_mini(PX + PW / 2, ys[i], queue[i], 6) end
+  end
+  rect(PX + 28, 78, PW - 56, 22, 42) -- 下一块高亮框
+
+  -- 战绩
+  line(PX + 6, 162, PX + PW - 6, 162, 11)
+  stat_row("分数", fmt7(score), 168, 7)
+  stat_row("等级", fmt(level), 190, 42)
+  stat_row("行数", fmt3(lines), 208, 34)
+  stat_row("最高", fmt7(best), 226, 30)
+end
+
+local function draw_lvl_banner()
+  local s = "等级 " .. fmt(level)
+  local x = flr(WX + 60 - tw(s) / 2)
+  rectfill(x - 8, 60, tw(s) + 16, 24, 1)
+  rect(x - 8, 60, tw(s) + 16, 24, 11)
+  print(s, x, 64, flr(lvl_flash / 4) % 2 == 0 and 31 or 42)
+end
+
+local function draw_pause()
+  fillp(0xa5a5) -- 棋盘抖动压暗全屏
+  rectfill(0, 0, 256, 256, 14 * 256 + 0)
+  fillp()
+  local bx, by, bw, bh = 28, 66, 200, 140
+  rectfill(bx, by, bw, bh, 15)
+  rect(bx, by, bw, bh, 48)
+  rectfill(bx + 2, by + 2, bw - 4, 1, 55)
+  rectfill(bx + 2, by + bh - 3, bw - 4, 1, 50)
+  local s = "暂停"
+  print(s, 128 - tw(s) / 2 + 1, 75, 1)
+  print(s, 128 - tw(s) / 2, 74, 7)
+  local hints = {
+    "⬅➡移动　⬆Ⓐ旋转",
+    "Ⓑ反转　Ⓧ暂存",
+    "⬇软降　Ⓡ硬降",
+    "Select 音乐　Start 继续",
+  }
+  for i = 1, 4 do
+    local h = hints[i]
+    print(h, (256 - tw(h)) / 2, 102 + (i - 1) * 20, 9)
+  end
+end
+
+local function draw_over_panel()
+  fillp(0x8421) -- 稀疏压暗，灰化后的井仍隐约可见
+  rectfill(0, 0, 256, 256, 14 * 256 + 0)
+  fillp()
+  local bx, by, bw, bh = 44, 56, 168, 152
+  rectfill(bx, by, bw, bh, 15)
+  rect(bx, by, bw, bh, 48)
+  rectfill(bx + 2, by + 2, bw - 4, 1, 55)
+  rectfill(bx + 2, by + bh - 3, bw - 4, 1, 50)
+
+  local s = "游戏结束"
+  print(s, 128 - tw(s) / 2 + 1, 67, 1)
+  print(s, 128 - tw(s) / 2, 66, 63)
+
+  s = "分数 " .. fmt(score)
+  print(s, (256 - tw(s)) / 2, 98, 7)
+  s = "最高 " .. fmt(best)
+  print(s, (256 - tw(s)) / 2, 118, 30)
+  if new_best and flr(t / 6) % 2 == 0 then
+    s = "★ 新纪录 ★"
+    print(s, (256 - tw(s)) / 2, 140, 31)
+  end
+  if flr(t / 16) % 2 == 0 then
+    s = "Ⓐ再来一局"
+    print(s, (256 - tw(s)) / 2, 168, 7)
+  end
+  s = "Start 回标题"
+  print(s, (256 - tw(s)) / 2, 190, 9)
+end
+
+-- 标题画面：背景落块 + 彩色大标题 + 操作说明
+local function draw_title()
+  cls(14)
+  fillp(0x0842)
+  rectfill(0, 0, 256, 256, 13 * 256 + 14)
+  fillp()
+  for i = 1, #tpieces do
+    local q = tpieces[i]
+    spr(q.p, flr(q.x + sin(t * 0.012 + q.ph) * 7), flr(q.y))
+  end
+
+  -- 标题板（斜面紫匾）
+  rectfill(24, 44, 208, 40, 51)
+  rectfill(24, 44, 208, 2, 53)
+  rectfill(24, 44, 2, 40, 53)
+  rectfill(24, 82, 208, 2, 50)
+  rectfill(230, 44, 2, 40, 50)
+  local chars = {"俄", "罗", "斯", "方", "块"}
+  local tcol = {43, 31, 55, 33, 58}
+  for i = 1, 5 do
+    local x = 88 + (i - 1) * 16
+    local y = 56 + flr(sin(t * 0.05 + i * 0.12) * 2)
+    print(chars[i], x + 2, y + 2, 1)
+    print(chars[i], x, y, tcol[i])
+  end
+
+  local s = "经典拼块　下落成行"
+  print(s, (256 - tw(s)) / 2, 94, 9)
+  s = "最高分 " .. fmt(best)
+  print(s, (256 - tw(s)) / 2, 118, 30)
+
+  if flr(t / 20) % 2 == 0 then
+    s = "按 Ⓐ 开始游戏"
+    print(s, (256 - tw(s)) / 2 + 1, 143, 1)
+    print(s, (256 - tw(s)) / 2, 142, 7)
+  end
+
+  local hints = {
+    "⬅➡移动　⬆Ⓐ旋转　Ⓑ反转",
+    "⬇软降　Ⓡ硬降　Ⓧ暂存",
+    "Start 暂停　Select 音乐",
+  }
+  for i = 1, 3 do
+    local h = hints[i]
+    print(h, (256 - tw(h)) / 2, 170 + (i - 1) * 20, 9)
+  end
+  s = "FrostMiKu ・ FC-16"
+  print(s, (256 - tw(s)) / 2, 236, 10)
+end
+
+-- ---------------------------------------------------------------- 生命周期
+
+function _init()
+  for p = 1, 8 do
+    bake_cell(p, PC[p][1], PC[p][2], PC[p][3], PC[p][4])
+  end
+  init_audio()
+  best = dget(0)
+  music_on = dget(1) == 0 -- 槽位 1：0 = 开（默认）
+  bgm_on = false
+  if music_on then
+    music(0, 500, 0xF0)
+    bgm_on = true
+  end
+  state = "title"
+  t = 0
+  parts, pops = {}, {}
+  shake, lvl_flash = 0, 0
+  lock_flash = nil
+  tpieces = {}
+  for i = 1, 9 do
+    tpieces[i] = {
+      p = 1 + flr(rnd(7)), x = rnd(6, 236), y = rnd(-220, 230),
+      sp = 0.25 + rnd(0.75), ph = rnd(1),
+    }
+  end
+end
+
+function _update()
+  t = t + 1
+  if shake > 0 then shake = shake - 1 end
+  if lvl_flash > 0 then lvl_flash = lvl_flash - 1 end
+  if lock_flash then
+    lock_flash.t = lock_flash.t - 1
+    if lock_flash.t <= 0 then lock_flash = nil end
+  end
+  update_parts()
+  update_pops()
+
+  if state == "title" then
+    update_title()
+  elseif state == "play" then
+    if btnp(11) then
+      state = "pause"
+      sfx(12, 0)
+    elseif clearing then
+      update_clearing()
+    else
+      play_step()
+    end
+  elseif state == "pause" then
+    if btnp(11) then
+      state = "play"
+      das_dir, das_t = 0, 0
+      sfx(12, 0)
+    end
+    if btnp(10) then toggle_music() end
+  elseif state == "over" then
+    update_over()
+  end
+end
+
+function _draw()
+  pal()
+  camera(0, 0)
+  if state == "title" then
+    draw_title()
+    return
+  end
+  if shake > 0 then -- 硬降/四消震屏（与帧号绑定，保持确定性）
+    local a = min(5, shake * 0.7)
+    camera(flr(sin(t * 0.11) * a), flr(cos(t * 0.17) * a * 0.6))
+  end
+  draw_page()
+  draw_frame()
+  clip(WX, WY, COLS * CELL, ROWS * CELL)
+  draw_board()
+  if clearing and clearing.n == 4 and clearing.t < 22 then
+    draw_rays(WX + 60, WY + clearing.rows[1] * CELL + 6,
+      flr(t / 3) % 2 == 0 and 31 or 30)
+  end
+  draw_ghost()
+  draw_cur()
+  draw_lock_flash()
+  clip()
+  draw_parts()
+  draw_pops()
+  draw_panel()
+  if lvl_flash > 0 then draw_lvl_banner() end
+  camera(0, 0)
+  if state == "pause" then draw_pause() end
+  if state == "over" and over_t > 48 then draw_over_panel() end
+end

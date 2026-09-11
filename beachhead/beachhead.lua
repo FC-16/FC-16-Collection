@@ -1,0 +1,2516 @@
+--=============================================================================
+-- 抢滩登陆战 2002 · FC-16 卡带
+--
+-- 纯 Lua 自制软件 3D 管线（本机无任何内置 3D 支持）：
+--   · 世界空间 → 相机空间（yaw 旋转）→ 透视投影（俯仰以视平线剪切实现）
+--   · 盒体模型 → 三角形离散化 → 世界法线平面着色（4 档手调明暗表）
+--   · 画家算法：实体按视深排序 + 实体内面片排序，trifill 光栅化
+--   · 地面为 mode-7 透视纹理：逐扫描线 tline 采样 4096×4096 地图纹理
+--   · 射击为真实 3D 射线与球体求交（部位命中：头部 / 躯干）
+-- 玩法：滩头堡垒机枪 + 反坦克炮，顶住一波波登陆步兵、登陆艇、坦克、
+--       直升机、战斗轰炸机与军舰的进攻。
+--=============================================================================
+
+-- 常量 -----------------------------------------------------------------------
+local CX, CY = 128, 128
+local FOCAL = 200            -- 透视焦距（像素）
+local CAMH = 4.5             -- 相机（枪位）离地高度，世界单位
+local FAR = 780              -- 地面最大绘制距离
+local SHORE_Z = -140         -- 海岸线世界 z（北侧为海）
+local TS = 1.0               -- 世界单位 → 纹理像素 比例（1 格 = 16 单位）
+local TEXC = 2048            -- 纹理画布中心（像素），对应世界原点
+local MAPMEM, SFXMEM = 0x040000, 0x060000
+
+-- 主机数值函数局部化（热路径省全局查找）
+local sin, cos, sqrt, flr, abs, min, max = sin, cos, sqrt, flr, abs, min, max
+local rnd, atan2 = rnd, atan2
+
+-- 调色板色号（ENDESGA-64 固定顺序，语义名仅便于阅读）
+local PAL = {
+  black = 0, dgray = 2, gray = 3, lgray = 4, palgray = 5, white = 7,
+  skyhaze = 8, sky1 = 9, sky2 = 10, sky3 = 11, sky4 = 12, skytop = 13,
+  brown = 16, brick = 17, rust = 18, wet = 19, sandd = 20, skin = 21,
+  sandl = 22, sand = 23, orange = 24, red = 25, dred = 26, fred = 27,
+  amber = 28, gold = 29, yellow = 30, pale = 31, green = 34,
+  seadeep = 38, seadark = 39, sea = 40, sealite = 41, cyan = 42, foam = 44,
+  salmon = 58, red2 = 59, blood = 60,
+}
+
+-- 材质明暗表：{逆光, 侧光, 顺光, 高光}，全部手工指定色号（禁止色号算术）
+local MAT = {
+  uniform = { 37, 36, 35, 34 },   -- 敌军橄榄军服
+  skin    = { 18, 19, 20, 21 },   -- 皮肤
+  helmet  = { 30, 35, 36, 37 },   -- 头盔
+  gun     = { 1, 2, 3, 4 },       -- 枪械金属
+  armor   = { 2, 3, 4, 5 },       -- 坦克装甲灰
+  armor2  = { 37, 36, 35, 33 },   -- 装甲绿
+  track   = { 0, 1, 2, 3 },       -- 履带炭黑
+  hull    = { 11, 12, 3, 4 },     -- 登陆艇舰体灰蓝
+  wood    = { 17, 18, 19, 20 },   -- 补给木箱
+  navy    = { 10, 11, 12, 12 },   -- 军舰舰体
+  jet     = { 3, 4, 5, 6 },       -- 战机银灰
+  helo    = { 3, 4, 5, 6 },       -- 直升机
+  charred = { 0, 1, 2, 2 },       -- 焚毁残骸
+  canopy  = { 37, 38, 39, 40 },   -- 座舱玻璃
+  redmark = { 59, 59, 58, 57 },   -- 敌军识别标志
+}
+
+-- 平行光方向分量（已归一化）
+local LX, LY, LZ = 0.4467, 0.7444, 0.4963
+
+-- 工具 -----------------------------------------------------------------------
+local function wrap(a) return a - flr(a + 0.5) end       -- 圈制归一 (-0.5,0.5]
+-- 朝向 F(t) = (sin t, -cos t)；heading 求使 F(t) ∥ (vx, vz) 的 t：
+-- 需 sin t = vx、cos t = -vz，而 atan2(dx, dy) 的 cos ∝ dx、sin ∝ dy
+local function heading(vx, vz) return atan2(-vz, vx) end
+
+-- 音频 -----------------------------------------------------------------------
+-- SFX 布局：每条 112B = 头 16B + 32 步 × 3B（pitch / wave<<4|vol / fx）
+local function wr_sfx(id, speed, steps, ls, le, loop)
+  local b = SFXMEM + id * 112
+  poke(b, speed)
+  poke(b + 1, #steps)
+  poke(b + 2, ls or 0)
+  poke(b + 3, le or #steps)
+  poke(b + 4, loop and 1 or 0)
+  for i = 1, #steps do
+    local s = steps[i]
+    local o = b + 13 + i * 3
+    poke(o, s[1])
+    poke(o + 1, s[2] * 16 + s[3])
+    poke(o + 2, s[4] or 0)
+  end
+end
+
+local S_MG, S_CANNON, S_EXPL, S_HIT, S_RICO, S_RIFLE, S_RELOAD, S_EMPTY,
+  S_WAVE, S_SUPPLY, S_HELO, S_WHISTLE, S_ROCKET, S_TANKF, S_DEATH, S_JET
+    = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+
+local helo_channel_on = false
+
+local function init_audio()
+  -- 机枪：短促噪声爆
+  wr_sfx(S_MG, 1, { { 88, 15, 13 }, { 70, 15, 9 }, { 52, 15, 4 } })
+  -- 反坦克炮：低频噪声下坠
+  wr_sfx(S_CANNON, 2, { { 60, 14, 15, 3 }, { 42, 14, 11, 3 }, { 30, 14, 6, 3 } })
+  -- 爆炸
+  wr_sfx(S_EXPL, 2, {
+    { 55, 14, 15, 3 }, { 46, 14, 14, 3 }, { 36, 14, 10, 3 },
+    { 28, 14, 7, 3 }, { 22, 14, 4, 3 }, { 18, 14, 2, 3 },
+  })
+  -- 命中反馈
+  wr_sfx(S_HIT, 1, { { 76, 13, 8 }, { 72, 13, 4 } })
+  -- 跳弹
+  wr_sfx(S_RICO, 1, { { 92, 8, 6, 2 }, { 95, 8, 3, 2 } })
+  -- 敌军步枪（远处闷响）
+  wr_sfx(S_RIFLE, 2, { { 52, 14, 6, 3 }, { 40, 14, 3, 3 } })
+  -- 装填
+  wr_sfx(S_RELOAD, 3,
+    { { 48, 3, 8 }, { 0, 3, 0 }, { 44, 3, 8 }, { 0, 3, 0 }, { 52, 3, 10 } })
+  -- 空仓
+  wr_sfx(S_EMPTY, 3, { { 40, 3, 5 }, { 36, 3, 3 } })
+  -- 波次开始号角
+  wr_sfx(S_WAVE, 4, {
+    { 50, 6, 10 }, { 0, 6, 0 }, { 50, 6, 10 }, { 0, 6, 0 },
+    { 53, 6, 11 }, { 55, 6, 12 }, { 0, 6, 0 }, { 58, 6, 13 },
+  })
+  -- 补给送达
+  wr_sfx(S_SUPPLY, 3, { { 62, 0, 9 }, { 66, 0, 9 }, { 69, 0, 10 }, { 74, 0, 12 } })
+  -- 直升机旋翼（循环）
+  wr_sfx(S_HELO, 2,
+    { { 20, 15, 9 }, { 24, 15, 7 }, { 20, 15, 9 }, { 23, 15, 6 } }, 1, 4, true)
+  -- 炮弹来袭哨音
+  wr_sfx(S_WHISTLE, 3,
+    { { 80, 1, 6, 3 }, { 70, 1, 6, 3 }, { 58, 1, 5, 3 }, { 46, 1, 4, 3 } })
+  -- 火箭发射
+  wr_sfx(S_ROCKET, 2, { { 34, 14, 11, 1 }, { 44, 14, 9, 1 }, { 52, 14, 6, 1 } })
+  -- 坦克开炮
+  wr_sfx(S_TANKF, 3, { { 44, 14, 12, 3 }, { 34, 14, 9, 3 }, { 26, 14, 5, 3 } })
+  -- 敌兵倒地
+  wr_sfx(S_DEATH, 3, { { 34, 7, 8, 3 }, { 28, 7, 5, 3 } })
+  -- 喷气机掠空
+  wr_sfx(S_JET, 2, {
+    { 30, 14, 6, 1 }, { 38, 14, 8, 1 }, { 46, 14, 11, 1 }, { 54, 14, 9, 1 },
+    { 44, 14, 6, 3 },
+  })
+  -- BGM：A 小调战地进行曲，4 通道（贝斯 / 主旋律 / 和声垫 / 鼓）
+  -- 谱面记法：'C4' 起音（音名 + 八度），'-' 延音，'.' 休止；每条恰 32 步（一小节）
+  local NOTE_SEMI = { C = 0, D = 2, E = 4, F = 5, G = 7, A = 9, B = 11 }
+  local function melody(spec, wave, vol)
+    local steps = {}
+    local cur = 0
+    local i = 1
+    while i <= #spec do
+      local ch = spec:sub(i, i)
+      if ch == "-" then
+        add(steps, { cur, wave, vol })
+      elseif ch == "." then
+        cur = 0
+        add(steps, { 0, wave, 0 })
+      else
+        cur = NOTE_SEMI[ch] + 12 * (tonumber(spec:sub(i + 1, i + 1)) + 1) - 11
+        add(steps, { cur, wave, vol })
+        i = i + 1
+      end
+      i = i + 1
+    end
+    return steps
+  end
+
+  -- 鼓声部：低音鼓在重拍、军鼓在反拍，小节尾可选军鼓填充
+  local function drum_bar(fill)
+    local steps = {}
+    for i = 1, 32 do
+      local s = (i - 1) % 8
+      if s == 0 then
+        add(steps, { 17, 11, 13 })    -- 低音鼓（BASS 波形低音）
+      elseif s == 4 then
+        add(steps, { 70, 15, 9 })     -- 军鼓（短噪声）
+      else
+        add(steps, { 0, 15, 0 })
+      end
+    end
+    if fill then
+      steps[30] = { 72, 15, 10 }
+      steps[31] = { 74, 15, 12 }
+    end
+    return steps
+  end
+
+  -- 小节素材库：12 小节 × 4 通道（贝斯 / 主旋律 / 和声垫 / 鼓）= SFX 16-63。
+  -- A 段平缓行军（Am 巡逻），B 段副歌抢滩（低音八度泵、旋律翻高），
+  -- F 段总攻（speed 3 提速 25%，十六分驱动）。
+  local BARS = {
+    { sp = 4, fill = false,      -- A1 Am 主歌
+      bass = "A1---A1---A2---A1---A1---A2---A1---G1---",
+      lead = "E4-------C4-------A3-------B3---C4--D4",
+      pad  = "A3-------------------------------" },
+    { sp = 4, fill = false,      -- A2 Em 答题
+      bass = "E1---E1---E2---E1---E1---E2---E1---D1---",
+      lead = "G4-------E4-------D4-------B3---C4--B3",
+      pad  = "G3-------------------------------" },
+    { sp = 4, fill = false,      -- A3 F→G 属准备
+      bass = "F1---F1---F2---F1---G1---G1---G2---G1---",
+      lead = "A4-------F4-------G4-------A4---B4--C5",
+      pad  = "F3---------------G3---------------" },
+    { sp = 4, fill = true,       -- A4 Am 回句 + 军鼓填充
+      bass = "A1---A1---E2---E2---F2---F2---G2---G2---",
+      lead = "A3---C4---E4---D4---C4---B3---A3---....",
+      pad  = "A3---------------F3-------G3-------" },
+    { sp = 4, fill = false,      -- B1 F 副歌
+      bass = "F1-F1-F2-F1-F1-F1-F2-F1-F1-F1-F2-F1-F1-F1-F2-F2-",
+      lead = "C5-------A4-------F4-------A4-C5-A4---",
+      pad  = "F3---------------C4---------------" },
+    { sp = 4, fill = false,      -- B2 C 副歌
+      bass = "C2-C2-C1-C2-C2-C2-C1-C2-C2-C2-C1-C2-C2-C2-G1-G1-",
+      lead = "E4-G4-C5-G4-E4-G4-C5---G4-------E4---D4---",
+      pad  = "E3-------------------------------" },
+    { sp = 4, fill = false,      -- B3 G 张力
+      bass = "G1-G1-G2-G1-G1-G1-G2-G1-G1-G1-G2-G1-E2-E2-E2-E2-",
+      lead = "D4-------B4-------G4-------B4---D4--B3",
+      pad  = "G3---------------B3---------------" },
+    { sp = 4, fill = true,       -- B4 Am 副歌收束
+      bass = "A1-A2-A1-A2-E2-E2-G2-G2-A1-A2-A1-A2-E2-G2-A2-A2-",
+      lead = "A4-------E4-------C4-------B3C4D4E4D4C4B3C4",
+      pad  = "A3-------E3-------F3-------G3-------" },
+    { sp = 3, fill = false,      -- F1 Am 总攻驱动
+      bass = "A1-A1-A2-A1-A1-A1-A2-A1-A1-A1-A2-A1-G1-G1-G2-G1-",
+      lead = "A4-C4-E4-C4-A4-C4-E4-C4-G4-E4-B3-E4-G4-E4-A4-C4-",
+      pad  = "A3---------------E3---------------" },
+    { sp = 3, fill = true,       -- F2 F→G 总攻
+      bass = "F1-F1-F2-F1-F1-F1-F2-F1-G1-G1-G2-G1-G1-G1-G2-G1-",
+      lead = "F4-A4-C5-A4-F4-A4-C5-A4-G4-B4-D4-B4-G4-B4-D4-B4-",
+      pad  = "F3---------------G3---------------" },
+    { sp = 3, fill = false,      -- F3 Em 压暗
+      bass = "E1-E1-E2-E1-E1-E1-E2-E1-E1-E1-E2-E1-D2-D2-D2-D2-",
+      lead = "E4-G4-B4-G4-E4-G4-B4-G4-F4-E4-D4-E4-B3-------",
+      pad  = "E3---------------D3---------------" },
+    { sp = 3, fill = true,       -- F4 Am 总攻收束
+      bass = "A1-A2-A1-A2-A1-A2-A1-A2-E2-E2-E2-E2-G2-G2-G2-G2-",
+      lead = "A4-C4-E4-A4-G4-C4-E4-G4-F4-A4-D4-F4-E4-B3-C4-B3-",
+      pad  = "A3-------C4-------E3-------G3-------" },
+  }
+  for bi, bar in ipairs(BARS) do
+    local base = 16 + (bi - 1) * 4                 -- 音乐 SFX 从 16 号起
+    wr_sfx(base, bar.sp, melody(bar.bass, 11, 12))
+    wr_sfx(base + 1, bar.sp, melody(bar.lead, 3, 9))
+    wr_sfx(base + 2, bar.sp, melody(bar.pad, 12, 6))
+    wr_sfx(base + 3, bar.sp, drum_bar(bar.fill))
+  end
+  -- 三套歌单：只写 pattern 表，END 反查最近 BEGIN 各自循环（SFX 全量复用）
+  local SONGS = {
+    { 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3 },                    -- 第 1-2 波 滩头守备 12 小节
+    { 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7 },        -- 第 3-5 波 抢滩 16 小节
+    { 8, 9, 10, 11, 8, 9, 10, 11, 4, 5, 6, 7, 8, 9, 10, 11 },  -- 第 6+ 波 总攻（提速）
+  }
+  local pat = 0
+  for _, song in ipairs(SONGS) do
+    for si, bar in ipairs(song) do
+      local base = 16 + bar * 4
+      local pb = 0x063800 + pat * 16
+      for c = 0, 3 do
+        poke(pb + c, base + c + 1)                 -- ch0-3 归音乐
+      end
+      poke(pb + 8, (si == 1 and 1 or 0) + (si == #song and 2 or 0))
+      pat = pat + 1
+    end
+  end
+end
+
+-- 地面纹理与地图 -------------------------------------------------------------
+-- 瓦片：0 深海 1 浪带A 2 浪带B 3 浅海 4 白浪 5 湿沙 6 干沙 7 沙斑 8 砾石 9 弹坑 10 岸沫
+local function init_ground()
+  local function tile_pixels(t, fn)
+    local ox, oy = (t % 16) * 16, flr(t / 16) * 16
+    for ty = 0, 15 do
+      for tx = 0, 15 do
+        sset(ox + tx, oy + ty, fn(tx, ty))
+      end
+    end
+  end
+  srand(16)
+  tile_pixels(0, function() return PAL.seadeep end)
+  tile_pixels(1, function(_, y)
+    return (y == 3 or y == 11) and PAL.seadark or PAL.seadeep
+  end)
+  tile_pixels(2, function(_, y)
+    return (y == 6 or y == 14) and PAL.sea or PAL.seadark
+  end)
+  tile_pixels(3, function(x, y)
+    return (x + y) % 7 == 0 and PAL.sealite or PAL.seadark
+  end)
+  tile_pixels(4, function(x, y)
+    return (x * 3 + y) % 5 == 0 and PAL.foam or PAL.seadark
+  end)
+  tile_pixels(5, function(x, y)
+    return (x + y * 2) % 6 == 0 and PAL.sandd or PAL.wet
+  end)
+  tile_pixels(6, function(x, y)
+    return (x * 2 + y) % 5 == 0 and PAL.sandl or PAL.sand
+  end)
+  tile_pixels(7, function(x, y)
+    return (x + y) % 4 == 0 and PAL.orange or PAL.sand
+  end)
+  tile_pixels(8, function(x, y)
+    local d = (x - 8) * (x - 8) + (y - 9) * (y - 9)
+    if d < 10 then return PAL.brown end
+    if d < 18 then return PAL.brick end
+    return (x - y) % 7 == 0 and PAL.sandd or PAL.sand
+  end)
+  tile_pixels(9, function(x, y)
+    local d = (x - 8) * (x - 8) + (y - 8) * (y - 8)
+    if d < 6 then return PAL.dgray end
+    if d < 20 then return PAL.brown end
+    return PAL.sandd
+  end)
+  tile_pixels(10, function(x, y)
+    return (x * 2 + y * 3) % 7 < 2 and PAL.foam or PAL.sea
+  end)
+  -- 地图默认深海，再铺沙滩与浪带（TS=1.0：1 纹理像素 = 1 世界单位，1 格 = 16 单位）
+  memset(MAPMEM, 0, 0x20000)
+  local cc = 128
+  -- 岸线在世界 z=-140 → 格行 119；沙滩 x ∈ [-176, +176]，z ∈ [-144, +80]
+  for gx = cc - 11, cc + 10 do
+    for gz = 119, 133 do
+      local t
+      if gz == 119 then
+        t = rnd() < 0.5 and 10 or (rnd() < 0.5 and 5 or 4)   -- 岸沫与湿沙
+      elseif gz <= 121 then
+        t = 5                                                -- 湿沙带
+      elseif rnd() < 0.2 then
+        t = 7
+      elseif rnd() < 0.1 then
+        t = 8
+      else
+        t = 6
+      end
+      mset(gx, gz, t)
+    end
+  end
+  for gx = 0, 255 do                     -- 浅水
+    mset(gx, 118, rnd() < 0.5 and 3 or 4)
+    mset(gx, 117, 3)
+  end
+  for i = 1, 8 do                        -- 阵地前沿弹坑
+    mset(cc + flr(rnd(-5, 5)), 124 + flr(rnd(0, 3)), 9)
+  end
+  for gz = 90, 116 do                    -- 远海浪带（整行，任意朝向可见）
+    local wz = (gz - cc) * 16
+    local t
+    if wz > -330 then
+      t = (gz % 2 == 0) and 1 or 2
+    elseif gz % 2 == 0 then
+      t = 1
+    else
+      t = 0
+    end
+    if t ~= 0 then
+      for gx = 0, 255 do mset(gx, gz, t) end
+    end
+  end
+end
+
+-- 标题大字（帧缓冲 → 精灵 2× 采集）--------------------------------------------
+local function capture_text(str, w, srow)
+  cls(0)
+  print(str, 0, 0, 7)
+  for ty = 0, 15 do
+    for tx = 0, w - 1 do
+      sset(tx, srow + ty, pget(tx, ty))
+    end
+  end
+end
+
+-- 相机与投影 -----------------------------------------------------------------
+local CAM = { yaw = 0, elev = 0.02, hor = 128 }
+local SHX, SHY = 0, 0         -- 屏幕震动
+
+local CA, SA = 1, 0           -- 相机旋转矩阵缓存
+local function cam_basis()
+  CA, SA = cos(CAM.yaw), sin(CAM.yaw)
+end
+
+local function update_camera()
+  CAM.hor = CY + sin(CAM.elev) / cos(CAM.elev) * FOCAL
+end
+
+-- 世界点 → 屏幕（nil = 背后）
+local function project_point(x, y, z)
+  local dy = y - CAMH
+  local zc = x * SA - z * CA
+  if zc <= 0.5 then return nil end
+  local xc = x * CA + z * SA
+  local inv = FOCAL / zc
+  return CX + xc * inv + SHX, CAM.hor + SHY - dy * inv, zc
+end
+
+-- 玩家 ----------------------------------------------------------------------
+local P = {
+  hp = 100, ammo = 400, belt = 100, shells = 18,
+  reloading = false, reload_t = 0,
+  mg_t = 0, cannon_t = 0, recoil = 0,
+  score = 0, kill = 0, dmg_flash = 0, heal_flash = 0,
+  hit_mark = 0, hit_kill = false, hit_x = 0, hit_y = 0, hit_z = 0,
+}
+local HI = 0
+local DRAW_COST = 0   -- 上一帧绘制期 VM 指令数（驱动自适应 LOD）
+
+-- 实体 ----------------------------------------------------------------------
+local ENT, PART, PROJ = {}, {}, {}
+local WAVE, WAVE_T, SPAWNQ = 0, 0, {}
+local song_pat = 0    -- 当前难度歌单的起始 pattern（暂停恢复需要）
+local ST, STT = "title", 0   -- title/intro/play/clear/over/pause
+local STT_BANNER = nil
+local DEBUG_BUDGET = false
+local AI = {}                -- 实体状态机表（在武器函数之后填充）
+local set_state              -- 状态切换（实现随 AI 一起定义）
+
+local function box(x, y, z, hx, hy, hz, mat)
+  return { x = x, y = y, z = z, hx = hx, hy = hy, hz = hz, mat = mat, ang = 0 }
+end
+
+local TPL = {}
+-- 士兵：躯干/头盔/脸/双腿/步枪（腿由动画改偏移）
+TPL.soldier = {
+  parts = {
+    box(0, 1.05, 0, 0.26, 0.36, 0.17, "uniform"),   -- 1 躯干
+    box(0, 1.58, 0.01, 0.15, 0.14, 0.15, "helmet"), -- 2 头盔
+    box(0, 1.18, -0.28, 0.05, 0.06, 0.34, "gun"),   -- 3 步枪
+    box(-0.12, 0.38, 0, 0.09, 0.38, 0.11, "uniform"), -- 4/5 双腿
+    box(0.12, 0.38, 0, 0.09, 0.38, 0.11, "uniform"),
+  },
+}
+-- 坦克：车体/履带/炮塔/炮管/标志（炮塔组绕 pivot 转向玩家）
+TPL.tank = {
+  parts = {
+    box(0, 0.95, 0, 1.25, 0.42, 2.1, "armor"),
+    box(-1.34, 0.45, 0, 0.24, 0.22, 2.4, "track"),
+    box(1.34, 0.45, 0, 0.24, 0.22, 2.4, "track"),
+    box(0, 1.45, 0.25, 0.82, 0.28, 1.0, "armor2"),
+    box(0, 1.52, -1.5, 0.08, 0.08, 1.3, "gun"),
+    box(0, 1.75, 0.25, 0.3, 0.05, 0.3, "redmark"),
+  },
+}
+-- 轮式装甲车：运兵 / 机枪平台（模型前向为 -z，与坦克一致）
+TPL.apc = {
+  parts = {
+    box(0, 0.85, 0, 1.05, 0.45, 2.3, "armor2"),        -- 1 车体
+    box(0, 1.5, -0.7, 0.72, 0.3, 1.1, "armor2"),       -- 2 驾驶舱
+    box(0, 1.55, -1.3, 0.28, 0.28, 0.9, "armor"),      -- 3 机枪座（含枪管）
+    box(-0.95, 0.4, 0, 0.22, 0.4, 2.2, "track"),       -- 4 左侧轮裙
+    box(0.95, 0.4, 0, 0.22, 0.4, 2.2, "track"),        -- 5 右侧轮裙
+    box(0, 1.0, 2.2, 0.72, 0.06, 0.35, "armor2"),      -- 6 后舱盖（deploy 时放平成跳板）
+  },
+}
+-- 直升机：机身/尾梁/尾桨×2/主旋翼/旋翼轴/短翼（前向 -z，尾梁在 +z）
+TPL.helo = {
+  parts = {
+    box(0, 0, 0.2, 1.0, 0.95, 2.6, "helo"),
+    box(0, 0.35, 3.2, 0.16, 0.45, 1.4, "helo"),
+    box(0.16, 0.7, 4.3, 0.04, 0.85, 0.06, "gun"),
+    box(-0.16, 0.7, 4.3, 0.04, 0.85, 0.06, "gun"),
+    box(0, 1.75, 0.2, 4.8, 0.05, 0.3, "gun"),
+    box(0, 1.35, 0.2, 0.1, 0.4, 0.1, "gun"),
+    box(0, -0.2, 0.6, 2.0, 0.12, 0.5, "helo"),
+  },
+}
+-- 战斗机：轻甲高速，掠袭时对阵地机枪扫射
+TPL.fighter = {
+  parts = {
+    box(0, 0, 0, 0.65, 0.5, 3.2, "jet"),
+    box(0, 0.05, 0.5, 3.6, 0.08, 0.9, "jet"),
+    box(0, 0.75, 2.5, 0.07, 0.75, 0.6, "jet"),
+    box(0, -0.55, 0.4, 0.5, 0.2, 1.6, "gun"),
+    box(0, 0.25, -1.2, 0.4, 0.15, 0.5, "canopy"),
+  },
+}
+-- 轰炸机：双发中型，临空沿航迹投下串列炸弹
+TPL.bomber = {
+  parts = {
+    box(0, 0, 0, 1.0, 0.85, 4.6, "jet"),           -- 机身
+    box(0, 0.1, 0.4, 4.4, 0.1, 1.3, "jet"),        -- 主翼
+    box(-1.6, -0.15, -0.4, 0.3, 0.3, 1.1, "gun"),  -- 左发动机短舱
+    box(1.6, -0.15, -0.4, 0.3, 0.3, 1.1, "gun"),   -- 右发动机短舱
+    box(0, 0.9, 3.0, 0.08, 0.9, 0.8, "jet"),       -- 垂尾
+    box(0, 0.5, -2.6, 0.45, 0.28, 0.9, "canopy"),  -- 座舱
+  },
+}
+-- 运输机：上单翼双发，飞越阵地上空放伞兵
+TPL.transport = {
+  parts = {
+    box(0, 0, 0, 1.15, 1.15, 5.2, "hull"),         -- 机身
+    box(0, 1.55, 0.6, 4.6, 0.1, 1.5, "hull"),      -- 上单翼
+    box(-1.9, 1.15, -0.2, 0.32, 0.32, 1.3, "gun"), -- 左发动机短舱
+    box(1.9, 1.15, -0.2, 0.32, 0.32, 1.3, "gun"),  -- 右发动机短舱
+    box(0, 1.5, 4.4, 0.08, 1.2, 0.9, "hull"),      -- 垂尾
+    box(0, -0.4, -2.2, 0.8, 0.5, 1.4, "hull"),     -- 机头
+  },
+}
+-- 登陆艇
+TPL.craft = {
+  parts = {
+    box(0, 0.6, 0, 2.2, 0.7, 4.0, "hull"),
+    box(0, 0.5, -3.8, 2.0, 0.55, 0.3, "hull"),
+    box(0, 1.6, 2.6, 1.0, 0.5, 1.0, "hull"),
+    box(0, 1.0, 1.0, 0.35, 0.35, 0.35, "gun"),
+  },
+}
+-- 军舰
+TPL.ship = {
+  parts = {
+    box(0, 1.2, 0, 3.2, 1.2, 11.0, "navy"),
+    box(0, 3.2, 2.0, 1.6, 1.0, 4.0, "navy"),
+    box(0, 4.8, 1.5, 0.6, 0.6, 1.4, "armor"),
+    box(0, 2.6, -5.5, 1.2, 0.5, 1.6, "armor2"),
+    box(0, 2.9, -6.9, 0.09, 0.09, 1.1, "gun"),
+    box(0, 7.0, 2.2, 0.12, 2.0, 0.12, "gun"),
+  },
+}
+TPL.crate = { parts = { box(0, 0.62, 0, 0.8, 0.6, 0.8, "wood") } }
+-- 尸体（俯卧）
+TPL.corpse = {
+  parts = {
+    box(0, 0.14, 0, 0.55, 0.12, 0.28, "uniform"),
+    box(0, 0.14, 0.4, 0.16, 0.12, 0.14, "helmet"),
+  },
+}
+-- 坦克残骸
+TPL.wreck = {
+  parts = {
+    box(0, 0.9, 0, 1.3, 0.45, 2.15, "charred"),
+    box(-1.34, 0.45, 0.1, 0.24, 0.2, 2.2, "track"),
+    box(1.34, 0.45, -0.1, 0.24, 0.2, 2.2, "track"),
+    box(0, 1.4, 0.2, 0.85, 0.25, 0.95, "charred"),
+  },
+}
+-- 轮式装甲车残骸（烧毁车体，机枪与后舱盖被掀飞）
+TPL.wreck_apc = {
+  parts = {
+    box(0, 0.75, 0.1, 0.95, 0.4, 2.05, "charred"),
+    box(0, 1.24, -0.75, 0.64, 0.26, 0.95, "charred"),
+    box(-0.9, 0.35, 0, 0.2, 0.32, 1.9, "track"),
+    box(0.9, 0.35, 0, 0.2, 0.32, 1.9, "track"),
+  },
+}
+
+local function copy_parts(tpl)
+  local out = {}
+  for i, p in ipairs(tpl.parts) do
+    out[i] = { x = p.x, y = p.y, z = p.z, hx = p.hx, hy = p.hy, hz = p.hz,
+               mat = p.mat, ang = p.ang or 0 }
+  end
+  return out
+end
+
+local function spawn(kind, x, z, opts)
+  opts = opts or {}
+  local e = { kind = kind, x = x, z = z, y = 0, dir = heading(-x, -z), t = 0,
+              ft = rnd(60, 180), ph = rnd(),
+              parts = copy_parts(
+                kind == "wreck" and opts.apc and TPL.wreck_apc or TPL[kind]),
+              flash = 0 }
+  if kind == "soldier" then
+    e.hp, e.spd, e.score, e.r = 2, rnd(3.6, 4.4), 100, 0.5
+    e.hitbox = { { 1.05, 0.5 }, { 1.55, 0.22 } }   -- 躯干 / 头
+  elseif kind == "tank" then
+    e.hp, e.spd, e.score, e.r = 14, 3.6, 1000, 2.6
+    e.hitbox = { { 1.0, 2.2 } }
+    e.ft = 140                                     -- 首轮装填
+  elseif kind == "apc" then
+    e.hp, e.spd, e.score, e.r = 6, rnd(3.9, 4.5), 400, 2.2
+    e.hitbox = { { 0.9, 1.8 } }
+    e.ft = rnd(90, 160)                            -- 首轮点射延迟
+    e.burst = 0
+  elseif kind == "helo" then
+    e.hp, e.spd, e.score, e.r = 6, 11, 800, 2.0
+    e.y = rnd(22, 30); e.alt0 = e.y
+    e.hitbox = { { 0.2, 2.0 } }
+  elseif kind == "bomber" then
+    e.hp, e.spd, e.score, e.r = 8, 40, 800, 2.2
+    e.y = rnd(36, 48)
+    e.hitbox = { { 0, 2.4 } }
+    e.dir = 0.5 + rnd(-0.05, 0.05)   -- 由北向南
+    e.left = 3                       -- 串列炸弹
+  elseif kind == "fighter" then
+    e.hp, e.spd, e.score, e.r = 3, rnd(46, 54), 500, 1.5
+    e.y = rnd(30, 44)
+    e.hitbox = { { 0, 1.6 } }
+    e.dir = 0.5 + rnd(-0.06, 0.06)
+    e.burst = 0
+  elseif kind == "transport" then
+    e.hp, e.spd, e.score, e.r = 10, 30, 700, 2.6
+    e.y = rnd(40, 52)
+    e.hitbox = { { 0, 2.6 } }
+    e.dir = 0.5 + rnd(-0.04, 0.04)
+    e.left = 5                       -- 伞兵数
+  elseif kind == "ship" then
+    e.hp, e.score, e.r = 40, 3000, 8.0
+    e.spd = 0; e.hitbox = { { 2.0, 7.0 } }
+    e.ft = rnd(120, 300)
+  elseif kind == "craft" then
+    e.hp, e.score, e.r = 10, 500, 3.2
+    e.spd = 7.5; e.hitbox = { { 0.8, 3.0 } }
+  elseif kind == "crate" then
+    e.hp, e.score, e.r = 1, 0, 1.1
+    e.spd = 0; e.y = 62
+  else -- corpse / wreck
+    e.hp, e.score, e.r = 999, 0, 1
+    e.spd = 0
+  end
+  for k, v in pairs(opts) do e[k] = v end
+  local init = AI[kind].initial
+  set_state(e, type(init) == "function" and init(e) or init)
+  add(ENT, e)
+  return e
+end
+
+-- 实体绘制管线（顶点暂存复用，避免每帧分配）------------------------------------
+-- 盒体是凸多面体：背面剔除后可见面（≤3）在投影上互不重叠，因此部件内无需
+-- 面片排序，部件之间由远→近的画家序保证遮挡，全部 trifill 直接内联发射。
+local SXv, SYv = {}, {}            -- 屏幕坐标（每部件 8 角）
+local PORD = {}                    -- 部件排序键（深度×16+部件号）
+local PTW = {}                     -- 部件中心世界坐标缓存 [pi*3+1..3]
+
+-- 盒体 8 角符号位（x,y,z）与 6 面（+x -x +y -y +z -z 的四边形角序）
+local CORN = { -1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1,
+               -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1 }
+local FACES = { { 3, 7, 6, 2 }, { 5, 8, 4, 1 }, { 8, 7, 3, 4 },
+                { 2, 6, 5, 1 }, { 6, 7, 8, 5 }, { 4, 3, 2, 1 } }
+
+local function cmp_pord(a, b) return a > b end
+local function cmp_dl(a, b) return a._d > b._d end
+
+-- 变换并光栅化一个实体（调用方按视深远→近排序）。
+-- 盒体部件的 6 个面法线即 ±(模型 x/y/z 轴)：每部件求 3 个轴与世界光照、
+-- 相机朝向的点积，即可完成全部背面剔除与 4 档平面着色（无叉积、无归一化）。
+local function draw_entity(e)
+  local parts = e.parts
+  local np = #parts
+  local d = e._d
+  -- 距离 LOD：远处士兵画双三角剪影，更远直接跳过；
+  -- 帧成本超限时压缩全模型距离（自适应降压，下一帧生效）
+  if e.kind == "soldier" then
+    if d > 230 then return end
+    local bd = 48
+    if DRAW_COST > 190000 then bd = 130 end
+    if DRAW_COST > 215000 then bd = 80 end
+    if d > bd then
+      local sx, sy = project_point(e.x, e.y + 0.9, e.z)
+      if sx then
+        local h = 0.9 * FOCAL / d
+        local w = 0.34 * FOCAL / d
+        trifill(sx - w, sy + h, sx - w, sy - h, sx + w, sy - h, 36)
+        trifill(sx - w, sy + h, sx + w, sy - h, sx + w, sy + h, 36)
+        circfill(sx, sy - h - 0.13 * FOCAL / d, max(1, 0.15 * FOCAL / d), 30)
+      end
+      return
+    end
+  elseif (e.kind == "corpse" or e.kind == "wreck") and d > 260 then
+    return
+  elseif (e.kind == "tank" or e.kind == "apc") and d > 520 then
+    return
+  end
+  if e.kind == "soldier" and e.st == "kneel" and d > 48 then
+    np = 2   -- 跪姿远处：躯干 / 头盔（枪管与折叠腿均不足 1px）
+  end
+  local eca, esa = cos(e.dir), sin(e.dir)
+  local ex, ey, ez = e.x, e.y, e.z
+  -- 第一遍：部件中心 → 相机深度，产出排序键（部件级画家算法）
+  local cnt = 0
+  for pi = 1, np do
+    local p = parts[pi]
+    local pca, psa = 1, 0
+    local ang = p.ang
+    if ang ~= 0 then pca, psa = cos(ang), sin(ang) end
+    p._pca, p._psa = pca, psa
+    local rx = p.x * pca - p.z * psa
+    local rz = p.x * psa + p.z * pca
+    local wx = ex + rx * eca - rz * esa
+    local wz = ez + rx * esa + rz * eca
+    local czc = wx * SA - wz * CA
+    local cxc = wx * CA + wz * SA
+    -- 部件投影半尺寸不足 0.7px 时跳过（远处轮子 / 枪管 / 舱盖自动隐去）
+    local ms = p.hx
+    if p.hy > ms then ms = p.hy end
+    if p.hz > ms then ms = p.hz end
+    local cull_px = DRAW_COST > 190000 and 2.5 or 1.2
+    if czc > 0.8 and abs(cxc) < czc * 0.8 + 26 and ms * FOCAL / czc > cull_px then
+      cnt = cnt + 1
+      PORD[cnt] = flr(czc * 16) * 16 + pi
+      local o = pi * 3
+      PTW[o + 1], PTW[o + 2], PTW[o + 3] = wx, wz, ey + p.y
+    end
+  end
+  if cnt == 0 then return end
+  if cnt > 1 then table.sort(PORD, cmp_pord) end
+  local hor = CAM.hor + SHY
+  for oi = 1, cnt do
+    local key = PORD[oi]
+    local pi = key % 16
+    local p = parts[pi]
+    local pca, psa = p._pca, p._psa
+    local po = pi * 3
+    local wcx, wcz, wcy = PTW[po + 1], PTW[po + 2], PTW[po + 3]
+    -- 世界空间轴向量（y 轴恒为 (0,1,0)）
+    local axx = pca * eca - psa * esa
+    local axz = pca * esa + psa * eca
+    local azx = -psa * eca - pca * esa
+    local azz = -psa * esa + pca * eca
+    -- 光照点积（单位轴，直接入 4 档着色）
+    local ndx = axx * LX + axz * LZ
+    local ndz = azx * LX + azz * LZ
+    local ndy = LY
+    -- 相机空间中心与轴（用于背面剔除）
+    local ccx = wcx * CA + wcz * SA
+    local ccz = wcx * SA - wcz * CA
+    local ccy = wcy - CAMH
+    local cax = axx * CA + axz * SA
+    local caz = axx * SA - axz * CA
+    local cbx = azx * CA + azz * SA
+    local cbz = azx * SA - azz * CA
+    -- 8 角投影：世界 = 中心 ± hx·ax ± hz·az，wy 直接加 ±hy
+    local hx, hy, hz = p.hx, p.hy, p.hz
+    for c = 0, 7 do
+      local ci = c * 3
+      local sx, sy, sz = CORN[ci + 1], CORN[ci + 2], CORN[ci + 3]
+      local wx = wcx + sx * hx * axx + sz * hz * azx
+      local wz = wcz + sx * hx * axz + sz * hz * azz
+      local wy = wcy + sy * hy
+      local zc = wx * SA - wz * CA
+      local inv = FOCAL / zc
+      local vi = c + 1
+      SXv[vi] = CX + (wx * CA + wz * SA) * inv + SHX
+      SYv[vi] = hor - (wy - CAMH) * inv
+    end
+    -- 6 面剔除 + 着色 + 发射
+    local shade = MAT[p.mat]
+    for fi = 1, 6 do
+      local visible
+      local nd
+      if fi <= 2 then                       -- ±x
+        local dotx = cax * ccx + caz * ccz
+        visible = (fi == 1) == (dotx < 0)
+        nd = (fi == 1) and ndx or -ndx
+      elseif fi <= 4 then                   -- ±y
+        visible = (fi == 3) == (ccy < 0)
+        nd = (fi == 3) and ndy or -ndy
+      else                                  -- ±z
+        local dotz = cbx * ccx + cbz * ccz
+        visible = (fi == 5) == (dotz < 0)
+        nd = (fi == 5) and ndz or -ndz
+      end
+      if visible then
+        local col
+        if nd < -0.4 then
+          col = shade[1]
+        elseif nd < 0.12 then
+          col = shade[2]
+        elseif nd < 0.62 then
+          col = shade[3]
+        else
+          col = shade[4]
+        end
+        local q = FACES[fi]
+        local a, b2, c3, d2 = q[1], q[2], q[3], q[4]
+        trifill(SXv[a], SYv[a], SXv[b2], SYv[b2], SXv[c3], SYv[c3], col)
+        trifill(SXv[a], SYv[a], SXv[c3], SYv[c3], SXv[d2], SYv[d2], col)
+      end
+    end
+  end
+  for i = 1, cnt do PORD[i] = nil end
+end
+
+-- 天空 -----------------------------------------------------------------------
+local CLOUDS = {}
+local function init_sky()
+  srand(7)
+  for i = 1, 7 do
+    CLOUDS[i] = { az = rnd(-0.5, 0.5), e = rnd(0.05, 0.22), w = rnd(14, 34) }
+  end
+end
+
+local function draw_sky(t)
+  local hor = CAM.hor + SHY
+  if hor <= 0 then return end
+  -- 分层渐变（自天顶向视平线变亮）
+  local bands = {
+    { 0, 6, PAL.skyhaze }, { 6, 16, PAL.sky1 }, { 16, 34, PAL.sky2 },
+    { 34, 60, PAL.sky3 }, { 60, 100, PAL.sky4 }, { 100, 400, PAL.skytop },
+  }
+  for i = 1, #bands do
+    local b = bands[i]
+    local y1 = min(256, flr(hor - b[1]))
+    local y0 = max(0, flr(hor - b[2]))
+    if y1 > y0 then
+      rectfill(0, y0, 256, y1 - y0, b[3])
+    end
+  end
+  -- 远方岛屿剪影
+  for _, isl in ipairs({ { 0.13, 46, 7 }, { -0.31, 30, 5 } }) do
+    local d = wrap(isl[1] - CAM.yaw)
+    if abs(d) < 0.22 then
+      local sx = CX + sin(d) / max(cos(d), 0.35) * FOCAL + SHX
+      local hw, hh = isl[2], isl[3]
+      trifill(sx - hw, hor, sx, hor - hh, sx + hw, hor, PAL.sky3)
+      trifill(sx - hw * 0.5, hor, sx, hor - hh * 1.4, sx + hw * 0.5, hor, PAL.sky2)
+    end
+  end
+  -- 太阳
+  do
+    local d = wrap(0.62 - CAM.yaw)
+    if abs(d) < 0.3 then
+      local sx = CX + sin(d) / max(cos(d), 0.4) * FOCAL + SHX
+      local sy = hor - sin(0.06) / cos(0.06) * FOCAL
+      circfill(sx, sy, 17, PAL.amber)
+      circfill(sx, sy, 12, PAL.gold)
+      circfill(sx - 2, sy - 2, 7, PAL.pale)
+    end
+  end
+  -- 云（固定于世界方位，仅随转头产生视差）
+  for i = 1, #CLOUDS do
+    local cl = CLOUDS[i]
+    local d = wrap(cl.az - CAM.yaw)
+    if abs(d) < 0.24 then
+      local sx = CX + sin(d) / max(cos(d), 0.35) * FOCAL + SHX
+      local sy = hor - sin(cl.e) / cos(cl.e) * FOCAL
+      local w = cl.w
+      ovalfill(sx, sy, w, w * 0.3, PAL.skyhaze)
+      ovalfill(sx - w * 0.4, sy + 1, w * 0.5, w * 0.22, PAL.skyhaze)
+      ovalfill(sx + w * 0.45, sy + 2, w * 0.45, w * 0.2, PAL.sky1)
+    end
+  end
+end
+
+-- 地面（mode-7 透视纹理）------------------------------------------------------
+local HAZE_Z = 420   -- 超过此距离画为海雾色带
+
+local function draw_ground(t)
+  local hor = CAM.hor + SHY
+  if hor >= 255 then return end
+  local scroll = sin(t * 0.02) * 2.5   -- 海浪缓慢推移（纹理像素）
+  local haze_s, haze_e
+  local y = max(0, flr(hor) + 1)
+  while y <= 255 do
+    local z = CAMH * FOCAL / (y - hor)
+    if z > HAZE_Z then
+      -- 远景雾带只出现在紧贴视平线的若干行（行采样由远及近单调）
+      if not haze_s then haze_s = y end
+      haze_e = y
+    else
+      local scale = z / FOCAL
+      local xl, xr = -128 * scale, 127 * scale
+      -- 相机系 → 世界（yaw 旋转）：世界 = R*x + F*z
+      local wxl = xl * CA + z * SA
+      local wzl = xl * SA - z * CA
+      local wxr = xr * CA + z * SA
+      local wzr = xr * SA - z * CA
+      -- 海浪推移按行中心离岸距离渐入，避免岸线接缝跳变
+      local wzmid = -CA * z
+      local fade = (SHORE_Z - wzmid) / 25
+      if fade > 1 then fade = 1 elseif fade < 0 then fade = 0 end
+      local voff = scroll * fade
+      tline(SHX, y + SHY, 255 + SHX, y + SHY,
+            wxl * TS + TEXC, wzl * TS + TEXC + voff,
+            (wxr - wxl) * TS / 255, (wzr - wzl) * TS / 255)
+    end
+    y = y + 1
+  end
+  if haze_s then
+    rectfill(0, haze_s, 256, haze_e - haze_s + 1, PAL.sky3)
+  end
+end
+
+-- 粒子 -----------------------------------------------------------------------
+local TRACERS = {}   -- 曳光（绘制阶段消费）：{x0,y0,x1,y1,c,life}
+
+local function p_spawn(x, y, z, vx, vy, vz, life, size, kind)
+  add(PART, { x = x, y = y, z = z, vx = vx, vy = vy, vz = vz,
+              life = life, max = life, size = size, kind = kind })
+end
+
+local FIRE_RAMP = { 7, 31, 30, 29, 28, 27, 25, 26 }
+local SMOKE_RAMP = { 3, 2, 1, 0 }
+local DUST_RAMP = { 22, 23, 20, 19 }
+local SPLASH_RAMP = { 7, 44, 42, 40 }
+
+local function update_particles()
+  for i = #PART, 1, -1 do
+    local p = PART[i]
+    p.life = p.life - 1
+    if p.life <= 0 then
+      deli(PART, i)
+    else
+      p.x = p.x + p.vx * 0.1667
+      p.y = p.y + p.vy * 0.1667
+      p.z = p.z + p.vz * 0.1667
+      local k = p.kind
+      if k == "smoke" then
+        p.vy = p.vy * 0.98 + 0.02
+        p.vx, p.vz = p.vx * 0.98, p.vz * 0.98
+      elseif k == "fire" then
+        p.vy = p.vy * 0.94 - 0.05
+      elseif k == "debris" then
+        p.vy = p.vy - 0.55
+        if p.y < 0 then
+          p.y = 0
+          p.vy = -p.vy * 0.3
+          p.vx, p.vz = p.vx * 0.6, p.vz * 0.6
+        end
+      elseif k == "blood" then
+        p.vy = p.vy - 0.5
+        if p.y < 0 then p.life = 0 end
+      elseif k == "spark" then
+        p.vy = p.vy - 0.3
+      end
+    end
+  end
+end
+
+local function draw_particles()
+  for i = 1, #PART do
+    local p = PART[i]
+    local k = p.kind
+    local sx, sy, zc = project_point(p.x, p.y, p.z)
+    if sx then
+      local lf = p.life / p.max
+      local col
+      if k == "fire" then
+        col = FIRE_RAMP[max(1, min(8, flr((1 - lf) * 7.99) + 1))]
+      elseif k == "flash" then
+        col = PAL.pale
+      elseif k == "smoke" then
+        col = SMOKE_RAMP[max(1, min(4, flr((1 - lf) * 3.99) + 1))]
+      elseif k == "dust" then
+        col = DUST_RAMP[max(1, min(4, flr((1 - lf) * 3.99) + 1))]
+      elseif k == "splash" then
+        col = SPLASH_RAMP[max(1, min(4, flr((1 - lf) * 3.99) + 1))]
+      elseif k == "blood" then
+        col = PAL.blood
+      else
+        col = PAL.gold
+      end
+      local r = p.size * FOCAL / zc
+      if k == "smoke" or k == "dust" then
+        r = r * (1.6 - lf * 0.6)
+      end
+      if r < 0.6 then
+        pset(sx, sy, col)
+      else
+        circfill(sx, sy, r, col)
+      end
+    end
+  end
+end
+
+-- 伤害（前向声明，explode 会用到）----------------------------------------------
+local damage_player, splash_damage
+
+local function explode(x, y, z, big, dmg)
+  local n = big and 16 or 9
+  for i = 1, n do
+    local a = rnd(1)
+    p_spawn(x, y + rnd(0.5, 2), z,
+            sin(a) * rnd(2, big and 9 or 5), rnd(3, big and 12 or 7),
+            -cos(a) * rnd(2, big and 9 or 5), rnd(24, 46),
+            rnd(0.5, big and 1.6 or 0.9), "fire")
+  end
+  for i = 1, (big and 10 or 5) do
+    local a = rnd(1)
+    p_spawn(x, y + rnd(1, 3), z,
+            sin(a) * rnd(1, 3), rnd(2, 5), -cos(a) * rnd(1, 3),
+            rnd(50, 90), rnd(0.9, big and 2.2 or 1.2), "smoke")
+  end
+  for i = 1, 6 do
+    local a = rnd(1)
+    p_spawn(x, y + 0.5, z, sin(a) * rnd(4, 12), rnd(4, 10), -cos(a) * rnd(4, 12),
+            rnd(20, 40), 0.3, "debris")
+  end
+  p_spawn(x, y + 1, z, 0, 0.5, 0, 5, big and 4 or 2.4, "flash")
+  sfx(big and S_EXPL or S_TANKF, big and 4 or 5)
+  local d = sqrt(x * x + z * z)
+  if d < (big and 12 or 7) and dmg and dmg > 0 then
+    damage_player(dmg * (1 - d / (big and 12 or 7)), x, max(y, 0.5), z)
+  end
+  local sh = min(5, 26 / (d + 4))
+  SHX = SHX + rnd(-sh, sh)
+  SHY = SHY + rnd(-sh, sh)
+end
+
+-- 弹道 -----------------------------------------------------------------------
+local function spawn_proj(kind, x, y, z, vx, vy, vz, dmg)
+  add(PROJ, { kind = kind, x = x, y = y, z = z, vx = vx, vy = vy, vz = vz,
+              dmg = dmg, t = 0 })
+end
+
+local function tank_fire(e)
+  local mx = e.x + sin(e.dir) * 3.4
+  local mz2 = e.z - cos(e.dir) * 3.4
+  local dx, dy, dz = -mx, CAMH - 2.9, -mz2
+  local d = sqrt(dx * dx + dz * dz)
+  local t = d / 46
+  spawn_proj("shell", mx, 2.9, mz2, dx / t, dy / t + 0.5 * 26 * t, dz / t, 22)
+  sfx(S_TANKF, 5)
+  p_spawn(mx, 2.9, mz2, sin(e.dir), 1, -cos(e.dir), 8, 1.2, "fire")
+end
+
+local function ship_fire(e)
+  local t = sqrt(e.x * e.x + (e.z + 6) * (e.z + 6)) / 55
+  spawn_proj("shell", e.x, 4.2, e.z + 6,
+             -e.x / t, (CAMH - 4.2) / t + 0.5 * 26 * t, -(e.z + 6) / t, 26)
+  sfx(S_TANKF, 6)
+end
+
+local function helo_fire(e)
+  local dx, dy, dz = -e.x, CAMH - e.y, -e.z
+  local d = sqrt(dx * dx + dy * dy + dz * dz)
+  local s = 34
+  spawn_proj("rocket", e.x, e.y - 1, e.z, dx / d * s, dy / d * s, dz / d * s, 14)
+  sfx(S_ROCKET, 4)
+end
+
+local function update_projectiles()
+  for i = #PROJ, 1, -1 do
+    local pr = PROJ[i]
+    pr.t = pr.t + 1
+    local hit = false
+    -- 敌方坦克炮与航弹走重力弧线；火箭弹与玩家炮弹直线飞行
+    if pr.kind == "shell" or pr.kind == "bomb" then
+      pr.vy = pr.vy - 26 * 0.1667
+    end
+    pr.x = pr.x + pr.vx * 0.1667
+    pr.y = pr.y + pr.vy * 0.1667
+    pr.z = pr.z + pr.vz * 0.1667
+    if pr.t % 2 == 0 then
+      p_spawn(pr.x, pr.y, pr.z, 0, 0.4, 0, 12, 0.24, "smoke")
+    end
+    if pr.kind == "pshell" then
+      -- 玩家炮弹：实体命中检测
+      for j = 1, #ENT do
+        local e = ENT[j]
+        if e.hp > 0 and e.kind ~= "corpse" and e.kind ~= "wreck"
+            and e.kind ~= "crate" then
+          local dx, dz = pr.x - e.x, pr.z - e.z
+          if dx * dx + dz * dz < (e.r + 1.5) * (e.r + 1.5)
+              and pr.y > e.y - 1 and pr.y < e.y + 8 then
+            hit = true
+            break
+          end
+        end
+      end
+    else
+      -- 敌方弹：接近玩家爆炸
+      if pr.x * pr.x + (pr.y - CAMH) * (pr.y - CAMH) + pr.z * pr.z < 6.5 then
+        hit = true
+      end
+      if pr.t > 240 then hit = true end
+    end
+    if not hit and pr.y <= 0.1 then
+      hit = true
+      if pr.z < SHORE_Z then
+        for s = 1, 5 do
+          p_spawn(pr.x + rnd(-0.5, 0.5), 0.2, pr.z + rnd(-0.5, 0.5),
+                  rnd(-1, 1), rnd(4, 8), rnd(-1, 1), rnd(14, 24),
+                  rnd(0.4, 0.9), "splash")
+        end
+      else
+        for s = 1, 5 do
+          p_spawn(pr.x + rnd(-0.5, 0.5), 0.2, pr.z + rnd(-0.5, 0.5),
+                  rnd(-1.5, 1.5), rnd(2, 5), rnd(-1.5, 1.5), rnd(16, 28),
+                  rnd(0.5, 1), "dust")
+        end
+      end
+    end
+    if hit then
+      if pr.kind == "pshell" then
+        explode(pr.x, max(pr.y, 0.3), pr.z, true, 0)
+        splash_damage(pr.x, pr.y, pr.z, 11, 16)
+      else
+        explode(pr.x, max(pr.y, 0.2), pr.z, pr.kind ~= "rocket", pr.dmg)
+      end
+      deli(PROJ, i)
+    elseif pr.t > 400 or abs(pr.x) > 900 or abs(pr.z) > 900 then
+      deli(PROJ, i)
+    end
+  end
+end
+
+-- 伤害与击杀 -----------------------------------------------------------------
+local function index_of(t, v)
+  for i = 1, #t do
+    if t[i] == v then return i end
+  end
+  return 1
+end
+
+local function kill_entity(e, i)
+  P.score = P.score + e.score
+  P.kill = P.kill + 1
+  if e.kind == "soldier" then
+    sfx(S_DEATH)
+    spawn("corpse", e.x, e.z)
+  elseif e.kind == "tank" then
+    explode(e.x, 1.5, e.z, true, 0)
+    spawn("wreck", e.x, e.z, { dir = e.dir })
+  elseif e.kind == "apc" then
+    explode(e.x, 1.2, e.z, true, 0)
+    spawn("wreck", e.x, e.z, { dir = e.dir, apc = true })
+  elseif e.kind == "helo" then
+    set_state(e, "falling")        -- 螺旋坠落，落地爆炸后由状态机移除
+    return
+  elseif e.kind == "jet" then
+    explode(e.x, e.y, e.z, true, 0)
+  elseif e.kind == "ship" then
+    explode(e.x, 2, e.z, true, 0)
+    explode(e.x + 3, 4, e.z + 2, true, 0)
+  elseif e.kind == "craft" then
+    explode(e.x, 1.2, e.z, true, 0)
+  end
+  deli(ENT, i)
+end
+
+local function damage_entity(e, i, dmg)
+  if e.hp <= 0 then return end
+  e.hp = e.hp - dmg
+  e.flash = 3
+  if e.hp <= 0 then
+    kill_entity(e, i)
+  else
+    local on_hit = AI[e.kind].on_hit
+    if on_hit then on_hit(e) end
+  end
+end
+
+splash_damage = function(x, y, z, radius, dmg)
+  for i = #ENT, 1, -1 do
+    local e = ENT[i]
+    if e.hp > 0 and e.kind ~= "corpse" and e.kind ~= "wreck"
+        and e.kind ~= "crate" then
+      local dx, dy, dz = e.x - x, e.y - y + 1, e.z - z
+      local d = sqrt(dx * dx + dy * dy + dz * dz)
+      if d < radius + e.r then
+        damage_entity(e, i, dmg * (1 - d / (radius + e.r)) + 1)
+      end
+    end
+  end
+end
+
+damage_player = function(dmg, sx, sy, sz)
+  if ST ~= "play" then return end
+  P.hp = P.hp - dmg
+  P.dmg_flash = min(1.4, P.dmg_flash + dmg * 0.05 + 0.25)
+  P.hit_x, P.hit_y, P.hit_z = sx or 0, sy or 0, sz or 0
+  if P.hp <= 0 then
+    P.hp = 0
+    ST = "over"
+    STT = 0
+    music(-1, 400)
+    explode(0, CAMH, -3, true, 0)
+    P.dmg_flash = 0.9       -- 终局红闪随后自然衰减
+    if P.score > HI then
+      HI = P.score
+      dset(0, HI)
+    end
+  end
+end
+
+-- 射线-球命中判定（弹道磁吸）：有效半径 = 实体半径 + 随距离放大的吸附余量
+-- （约 ±0.7° 角度容差），微小瞄准过冲仍算命中；返回沿射线的距离（无命中 nil）
+local function ray_hits(ox, oy, oz, dx, dy, dz, cx, cy, cz, r)
+  local lx, ly, lz = ox - cx, oy - cy, oz - cz
+  local tb = -(lx * dx + ly * dy + lz * dz)   -- 球心在射线上的投影距离
+  if tb <= 0 then return nil end
+  local mx, my, mz = lx + dx * tb, ly + dy * tb, lz + dz * tb
+  local rr = r + 0.3 + tb * 0.012
+  if mx * mx + my * my + mz * mz > rr * rr then return nil end
+  return tb
+end
+
+
+-- 武器 -----------------------------------------------------------------------
+local function aim_dir(spread)
+  local yw = CAM.yaw + (spread and rnd(-spread, spread) or 0)
+  local el = CAM.elev + (spread and rnd(-spread, spread) or 0)
+  local ce = cos(el)
+  return sin(yw) * ce, sin(el), -cos(yw) * ce
+end
+-- 当前准星是否压在目标上（磁吸范围内），驱动准星变色反馈
+local function aim_on_target()
+  local dx, dy, dz = aim_dir(0)
+  for i = 1, #ENT do
+    local e = ENT[i]
+    if e.hp > 0 and e.kind ~= "corpse" and e.kind ~= "wreck" and e.hitbox then
+      for hi = 1, #e.hitbox do
+        local hb = e.hitbox[hi]
+        if ray_hits(0, CAMH, 0, dx, dy, dz, e.x, e.y + hb[1], e.z, hb[2]) then
+          return true
+        end
+      end
+    end
+  end
+  return false
+end
+
+
+local function fire_mg()
+  if P.reloading then return end
+  if P.ammo <= 0 then
+    sfx(S_EMPTY, 4)
+    return
+  end
+  P.ammo = P.ammo - 1
+  P.belt = P.belt - 1
+  P.mg_t = 6
+  P.recoil = 3
+  sfx(S_MG)
+  if P.belt <= 0 then
+    P.reloading = true
+    P.reload_t = 90
+    sfx(S_RELOAD, 4)
+  end
+  local dx, dy, dz = aim_dir(0.0042)
+  local best, best_t, best_part, best_i = nil, 9999, 1, 1
+  for i = 1, #ENT do
+    local e = ENT[i]
+    if e.hp > 0 and e.kind ~= "corpse" and e.kind ~= "wreck" then
+      local hbs = e.hitbox or {}
+      for hi = 1, #hbs do
+        local hb = hbs[hi]
+        local t = ray_hits(0, CAMH, 0, dx, dy, dz, e.x, e.y + hb[1], e.z, hb[2])
+        if t and t < best_t and t < 520 then
+          best, best_t, best_part, best_i = e, t, hi, i
+        end
+      end
+    end
+  end
+  if best then
+    local hx, hy, hz = dx * best_t, CAMH + dy * best_t, dz * best_t
+    P.hit_mark = 6
+    local dmg = 1
+    if best.kind == "soldier" and best_part == 2 then
+      dmg = 2   -- 头部命中
+    end
+    P.hit_kill = best.hp <= dmg
+    damage_entity(best, best_i, dmg)
+    sfx(S_HIT, 4)
+    for s = 1, 3 do
+      p_spawn(hx, hy, hz, rnd(-2, 2), rnd(0, 3), rnd(-2, 2), rnd(10, 18), 0.3,
+              best.kind == "soldier" and "blood" or "spark")
+    end
+    local tx, ty = project_point(hx, hy, hz)
+    if tx then
+      add(TRACERS, { 118 + rnd(-3, 3), 244, tx, ty, PAL.gold, 2 })
+    end
+  else
+    -- 落点特效
+    if dy < 0 then
+      local t = (0 - CAMH) / dy
+      if t > 0 and t < 560 then
+        local gx, gz = dx * t, dz * t
+        if gz < SHORE_Z then
+          p_spawn(gx, 0.15, gz, 0, 2.5, 0, 10, 0.45, "splash")
+          if rnd() < 0.3 then sfx(S_RICO, 4) end
+        else
+          p_spawn(gx, 0.15, gz, 0, 1.8, 0, 9, 0.4, "dust")
+        end
+      end
+    end
+  end
+end
+
+local function fire_cannon()
+  if P.cannon_t > 0 then return end
+  if P.shells <= 0 then
+    sfx(S_EMPTY, 4)
+    return
+  end
+  P.shells = P.shells - 1
+  P.cannon_t = 45
+  P.recoil = 6
+  sfx(S_CANNON)
+  -- 直射弹道：炮弹沿准星射线匀速直飞，无下坠，落点即准星所指位置
+  local dx, dy, dz = aim_dir(0)
+  local s = 11
+  spawn_proj("pshell", dx * 2.5, CAMH + dy * 2.5 - 0.6, dz * 2.5,
+             dx * s, dy * s, dz * s, 0)
+  p_spawn(dx * 3, CAMH + dy * 3 - 0.6, dz * 3, dx * 2, 0.5, dz * 2, 7, 1.4, "fire")
+  SHX = SHX + rnd(-2, 2)
+  SHY = SHY + 2
+end
+
+-- 实体 AI --------------------------------------------------------------------
+local function soldier_shoot(e)
+  sfx(S_RIFLE)
+  local sx, sy = project_point(e.x, e.y + 1.2, e.z)
+  if sx then
+    local gx, gy = 128 + rnd(-34, 34), 250 + rnd(-8, 0)
+    add(TRACERS, { sx, sy, gx, gy, PAL.gold, 2 })
+    add(TRACERS, { sx, sy, sx + (gx - sx) * 0.2, sy + (gy - sy) * 0.2, 7, 1 })
+  end
+  if rnd() < 0.3 then
+    damage_player(rnd() < 0.25 and 4 or 2, e.x, e.y + 1.2, e.z)
+  end
+end
+
+-- 战斗机掠袭扫射
+local function fighter_fire(e)
+  sfx(S_RIFLE)
+  local sx, sy = project_point(e.x, e.y, e.z)
+  if sx then
+    local gx, gy = 128 + rnd(-30, 30), 240 + rnd(-12, 0)
+    add(TRACERS, { sx, sy, gx, gy, PAL.gold, 2 })
+  end
+  if rnd() < 0.3 then
+    damage_player(2, e.x, e.y, e.z)
+  end
+end
+
+-- 装甲车机枪点射（射速高、单发伤害低；与坦克的火炮形成对比）
+local function apc_fire(e)
+  sfx(S_RIFLE)
+  local sx, sy = project_point(e.x, e.y + 1.5, e.z)
+  if sx then
+    local gx, gy = 128 + rnd(-40, 40), 250 + rnd(-10, 0)
+    add(TRACERS, { sx, sy, gx, gy, PAL.gold, 2 })
+  end
+  if rnd() < 0.3 then
+    damage_player(2, e.x, e.y, e.z)
+  end
+end
+
+-- =============================================================================
+-- 实体状态机
+-- 每类实体一张状态表 AI[kind]：
+--   initial  初始状态名（可为函数，按出生条件选择）
+--   states   { 名字 = { enter = f(e), update = f(e) -> 下一状态名或 nil } }
+--   on_hit   受击未毁时调用（坦克 / 装甲车借此横移规避）
+-- 状态内约定：e.stt 本状态帧龄，e.t 总帧龄，e.ft 开火计时，e.ph 相位种子；
+-- 置 e.dead = true 交由主循环移除。
+-- =============================================================================
+
+local function face_player(e)
+  e.dir = heading(-e.x, -e.z)
+end
+
+local function ease_face(e, k)   -- 车体逐渐转向玩家（弧线机动）
+  e.dir = e.dir + wrap(heading(-e.x, -e.z) - e.dir) * k
+end
+
+local function move_forward(e, s)
+  e.x = e.x + sin(e.dir) * s * 0.1667
+  e.z = e.z - cos(e.dir) * s * 0.1667
+end
+
+local function dist_player(e)
+  return sqrt(e.x * e.x + e.z * e.z)
+end
+
+set_state = function(e, st)
+  e.st = st
+  e.stt = 0
+  local sdef = AI[e.kind] and AI[e.kind].states[st]
+  if sdef and sdef.enter then sdef.enter(e) end
+end
+
+local function soldier_anim(e, phase, amp)
+  local parts = e.parts
+  local s = sin(phase)
+  parts[4].z = s * amp
+  parts[5].z = -s * amp
+  parts[1].y = 1.05 + abs(s) * 0.045
+end
+
+-- 步兵：涉水登陆 → 冲锋 → 跪射三轮 → 起身继续逼近（hold_d 逐轮收缩）
+AI.soldier = {
+  initial = function(e)
+    if e.y > 1 then return "chute" end   -- 运输机空降
+    return e.z < SHORE_Z + 2 and "wade" or "advance"
+  end,
+  states = {
+    chute = {
+      -- 伞降：短暂坠落 → 开伞缓降摆荡 → 着陆转入地面战斗
+      update = function(e)
+        if e.stt < 12 then
+          e.y = e.y - (0.3 + e.stt * 0.12)
+        else
+          e.chute = true
+          e.y = e.y - 0.14
+          e.x = e.x + sin(e.t * 0.03 + e.ph * 11) * 0.35
+          e.dir = heading(-e.x, -e.z)
+        end
+        if e.y <= 0 then
+          e.y = 0
+          for s = 1, 4 do
+            p_spawn(e.x + rnd(-0.6, 0.6), 0.2, e.z + rnd(-0.6, 0.6),
+                    rnd(-1.5, 1.5), rnd(1, 2.5), rnd(-1.5, 1.5), rnd(12, 20),
+                    rnd(0.4, 0.7), "dust")
+          end
+          return "advance"
+        end
+      end,
+    },
+    wade = {
+      update = function(e)
+        face_player(e)
+        soldier_anim(e, e.t * 0.09, 0.12)
+        move_forward(e, e.spd * 0.55)
+        if e.t % 14 == 0 then
+          p_spawn(e.x, 0.1, e.z, 0, rnd(2, 3.5), 0, rnd(10, 16),
+                  rnd(0.3, 0.5), "splash")
+        end
+        if e.z > SHORE_Z + 2 then return "advance" end
+      end,
+    },
+    advance = {
+      update = function(e)
+        face_player(e)
+        e.ph = e.ph + 0.13
+        soldier_anim(e, e.ph, 0.24)
+        move_forward(e, e.spd)
+        if dist_player(e) < (e.hold_d or 26) then return "kneel" end
+      end,
+    },
+    kneel = {
+      enter = function(e)
+        local parts = e.parts
+        parts[4].z, parts[5].z = 0.1, -0.1
+        parts[4].y, parts[5].y = 0.22, 0.22
+        parts[4].hy, parts[5].hy = 0.22, 0.22
+        parts[1].y = 0.92
+        e.ft = rnd(50, 110)
+        e.shots = 0
+      end,
+      update = function(e)
+        face_player(e)
+        e.ft = e.ft - 1
+        if e.ft <= 0 then
+          e.shots = e.shots + 1
+          if e.shots >= 3 then
+            local parts = e.parts
+            parts[4].y, parts[5].y = 0.38, 0.38
+            parts[4].hy, parts[5].hy = 0.38, 0.38
+            e.hold_d = max(10, (e.hold_d or 26) - 6)
+            return "advance"
+          end
+          e.ft = rnd(110, 210)
+          soldier_shoot(e)
+        end
+      end,
+    },
+  },
+}
+
+-- 坦克炮塔组（4/5/6 号部件）持续指向玩家，返回车体与目标线的角差
+local function track_turret(e)
+  local diff = wrap(heading(-e.x, -e.z) - e.dir)
+  e.parts[4].ang = diff
+  e.parts[5].ang = diff
+  e.parts[6].ang = diff
+  return diff
+end
+
+-- 受击横移：车体摆向斜向机动，炮塔全程咬住玩家，计时结束回到战斗状态
+local function jink_states(speed_k, jt_lo, jt_hi, resume_d, near_st, far_st)
+  return {
+    enter = function(e)
+      e.jdir = e.dir + (rnd() < 0.5 and 0.45 or -0.45)
+      e.jt = rnd(jt_lo, jt_hi)
+    end,
+    update = function(e)
+      track_turret(e)
+      e.ft = e.ft - 1
+      e.dir = e.dir + wrap(e.jdir - e.dir) * 0.1
+      move_forward(e, e.spd * speed_k)
+      e.jt = e.jt - 1
+      if e.jt <= 0 then
+        return dist_player(e) < resume_d and near_st or far_st
+      end
+    end,
+  }
+end
+
+-- 坦克：逐渐抵近 → 进入射程停车、炮塔瞄准 → 装填完毕开火；
+-- 被命中则横移规避，射击准备完成后再次攻击
+AI.tank = {
+  initial = "approach",
+  states = {
+    approach = {
+      update = function(e)
+        ease_face(e, 0.08)
+        move_forward(e, e.spd)
+        if dist_player(e) < 64 then return "aim" end
+      end,
+    },
+    aim = {
+      update = function(e)
+        local diff = track_turret(e)
+        ease_face(e, 0.06)
+        e.ft = e.ft - 1
+        if e.ft <= 0 and abs(diff) < 0.06 then
+          e.ft = 220
+          tank_fire(e)
+        end
+      end,
+    },
+    jink = jink_states(0.65, 45, 75, 74, "aim", "approach"),
+  },
+  on_hit = function(e)
+    if e.st ~= "jink" then set_state(e, "jink") end
+  end,
+}
+
+-- 装甲车：高速抵近 → 停车放下后舱盖、放出步兵（仅一次）→ 就地机枪压制；
+-- 距离拉远会再次抵近，被命中同样横移
+AI.apc = {
+  initial = "approach",
+  states = {
+    approach = {
+      update = function(e)
+        ease_face(e, 0.1)
+        move_forward(e, e.spd)
+        if dist_player(e) < 55 then
+          return e.deployed and "hold" or "deploy"
+        end
+      end,
+    },
+    deploy = {
+      enter = function(e)
+        e.door = 0
+        e.ft = 34
+      end,
+      update = function(e)
+        e.door = min(1, e.door + 1 / 30)
+        local parts = e.parts
+        parts[6].y = 1.0 - e.door * 0.92
+        parts[6].z = 2.2 + e.door * 1.0
+        e.ft = e.ft - 1
+        if e.ft == 26 or e.ft == 18 or e.ft == 10 then
+          local a = e.dir + rnd(-0.35, 0.35)
+          spawn("soldier",
+                e.x - sin(e.dir) * 3.6 + sin(a) * rnd(-0.6, 0.6),
+                e.z + cos(e.dir) * 3.6 - cos(a) * rnd(-0.6, 0.6))
+        end
+        if e.ft <= 0 then
+          e.deployed = true
+          return "hold"
+        end
+      end,
+    },
+    hold = {
+      update = function(e)
+        if dist_player(e) > 95 then return "approach" end
+        face_player(e)
+        e.ft = e.ft - 1
+        if e.ft <= 0 then
+          if e.burst > 0 then
+            e.burst = e.burst - 1
+            e.ft = 4
+            apc_fire(e)
+          else
+            e.burst = 3
+            e.ft = rnd(110, 200)
+          end
+        end
+      end,
+    },
+    jink = jink_states(0.8, 30, 50, 95, "hold", "approach"),
+  },
+  on_hit = function(e)
+    if e.st == "hold" or e.st == "approach" then
+      set_state(e, "jink")
+    end
+  end,
+}
+
+-- 直升机：掠进 → 悬停游走投火箭；被击落进入螺旋坠落
+AI.helo = {
+  initial = "approach",
+  states = {
+    approach = {
+      update = function(e)
+        face_player(e)
+        move_forward(e, e.spd)
+        if dist_player(e) < 95 then return "hover" end
+      end,
+    },
+    hover = {
+      update = function(e)
+        face_player(e)
+        e.y = e.alt0 + sin(e.t * 1.3 + e.ph * 7) * 1.2
+        local d = max(1, dist_player(e))
+        local px, pz = -e.z / d, e.x / d
+        local sdir = sin(e.t * 0.23 + e.ph * 20)
+        e.x = e.x + px * sdir * 3 * 0.1667
+        e.z = e.z + pz * sdir * 3 * 0.1667
+        e.ft = e.ft - 1
+        if e.ft <= 0 then
+          e.ft = 260
+          helo_fire(e)
+        end
+      end,
+    },
+    falling = {
+      update = function(e)
+        e.y = e.y - (0.04 + e.stt * 0.004)
+        e.dir = e.dir + 0.015
+        move_forward(e, 2)
+        if e.t % 3 == 0 then
+          p_spawn(e.x, e.y + 1, e.z, rnd(-1, 1), 2, rnd(-1, 1), 26, 0.8, "smoke")
+        end
+        if e.y <= 0.5 then
+          explode(e.x, 0.5, e.z, true, 10)
+          e.dead = true
+        end
+      end,
+    },
+  },
+}
+
+-- 战斗机：蛇形高速掠袭，抵近时对阵地扫射一个点射后脱离
+AI.fighter = {
+  initial = "ingress",
+  states = {
+    ingress = {
+      update = function(e)
+        move_forward(e, e.spd)
+        e.x = e.x + sin(e.t * 0.05 + e.ph * 9) * 0.8   -- 蛇形机动
+        if e.burst > 0 then
+          e.ft = e.ft - 1
+          if e.ft <= 0 then
+            e.burst = e.burst - 1
+            e.ft = 3
+            fighter_fire(e)
+          end
+        elseif dist_player(e) < 110 then
+          e.burst = 5
+          e.ft = 0
+        end
+        if e.z > 60 then return "egress" end   -- 掠过阵地上空后脱离
+      end,
+    },
+    egress = {
+      update = function(e)
+        move_forward(e, e.spd)
+        if dist_player(e) > 420 then e.dead = true end
+      end,
+    },
+  },
+}
+
+-- 轰炸机：沿航迹向阵地串列投下 3 颗炸弹后脱离
+AI.bomber = {
+  initial = "ingress",
+  states = {
+    ingress = {
+      update = function(e)
+        move_forward(e, e.spd)
+        if not e.dropped and e.z > -130 then
+          e.dropped = true
+          e.ft = 0
+          sfx(S_JET, 3)
+        end
+        if e.dropped and e.left > 0 then
+          e.ft = e.ft - 1
+          if e.ft <= 0 then
+            e.left = e.left - 1
+            e.ft = 40
+            spawn_proj("bomb", e.x, e.y - 1, e.z,
+                       sin(e.dir) * e.spd * 0.9, 0, -cos(e.dir) * e.spd * 0.9, 24)
+          end
+        end
+        if e.dropped and e.left == 0 and dist_player(e) > 100 then
+          return "egress"
+        end
+        if dist_player(e) > 450 then e.dead = true end
+      end,
+    },
+    egress = {
+      update = function(e)
+        move_forward(e, e.spd)
+        if dist_player(e) > 420 then e.dead = true end
+      end,
+    },
+  },
+}
+
+-- 运输机：飞越阵地上空依次放出伞兵后脱离
+AI.transport = {
+  initial = "ingress",
+  states = {
+    ingress = {
+      update = function(e)
+        move_forward(e, e.spd)
+        if not e.dropped and e.z > -70 then
+          e.dropped = true
+          e.ft = 0
+          sfx(S_JET, 3)
+        end
+        if e.dropped and e.left > 0 then
+          e.ft = e.ft - 1
+          if e.ft <= 0 then
+            e.left = e.left - 1
+            e.ft = 6
+            spawn("soldier", e.x + rnd(-4, 4), e.z + rnd(-3, 1),
+                  { y = e.y - 1.5 })
+          end
+        end
+        if e.dropped and e.left == 0 and dist_player(e) > 120 then
+          return "egress"
+        end
+        if dist_player(e) > 450 then e.dead = true end
+      end,
+    },
+    egress = {
+      update = function(e)
+        move_forward(e, e.spd)
+        if dist_player(e) > 420 then e.dead = true end
+      end,
+    },
+  },
+}
+
+-- 军舰：锚泊远程炮击
+AI.ship = {
+  initial = "bombard",
+  states = {
+    bombard = {
+      update = function(e)
+        e.ft = e.ft - 1
+        if e.ft <= 0 then
+          e.ft = rnd(280, 420)
+          ship_fire(e)
+          sfx(S_WHISTLE, 5)
+        end
+      end,
+    },
+  },
+}
+
+-- 登陆艇：抢滩 → 放下前舱板卸兵 → 倒车离岸
+AI.craft = {
+  initial = "sea",
+  states = {
+    sea = {
+      update = function(e)
+        face_player(e)
+        move_forward(e, e.spd)
+        if rnd() < 0.1 then
+          p_spawn(e.x + rnd(-2, 2), 0, e.z + rnd(2, 4), 0, 1.5, 1, 12, 0.5, "splash")
+        end
+        if e.z > SHORE_Z - 4 then return "land" end
+      end,
+    },
+    land = {
+      enter = function(e)
+        e.door = 0
+        e.ft = 60
+      end,
+      update = function(e)
+        e.door = min(1, e.door + 1 / 40)
+        local parts = e.parts
+        parts[2].y = 0.5 - e.door * 0.35
+        parts[2].z = -3.8 - e.door * 1.2
+        e.ft = e.ft - 1
+        if e.ft == 48 or e.ft == 36 or e.ft == 24 or e.ft == 12 then
+          local a = e.dir + rnd(-0.4, 0.4)
+          spawn("soldier", e.x + sin(a) * 4.5, e.z - cos(a) * 4.5)
+        end
+        if e.ft <= 0 then return "leave" end
+      end,
+    },
+    leave = {
+      enter = function(e)
+        e.spd = 6
+      end,
+      update = function(e)
+        local parts = e.parts
+        e.door = max(0, e.door - 1 / 40)
+        parts[2].y = 0.5 - e.door * 0.35
+        parts[2].z = -3.8 - e.door * 1.2
+        local d = max(1, dist_player(e))
+        e.x = e.x + e.x / d * e.spd * 0.1667
+        e.z = e.z + e.z / d * e.spd * 0.1667
+        if d > 420 then e.dead = true end
+      end,
+    },
+  },
+}
+
+-- 补给箱：空投 → 落地拾取
+AI.crate = {
+  initial = "drop",
+  states = {
+    drop = {
+      update = function(e)
+        e.y = e.y - 3.2 * 0.1667
+        if e.y <= 0 then
+          e.y = 0
+          for s = 1, 6 do
+            p_spawn(e.x + rnd(-1, 1), 0.2, e.z + rnd(-1, 1), rnd(-2, 2), rnd(1, 3),
+                    rnd(-2, 2), 20, 0.6, "dust")
+          end
+          return "landed"
+        end
+      end,
+    },
+    landed = {
+      update = function(e)
+        if e.stt > 40 then
+          P.ammo = min(600, P.ammo + 150)
+          P.shells = min(30, P.shells + 5)
+          P.hp = min(100, P.hp + 20)
+          P.heal_flash = 1
+          sfx(S_SUPPLY)
+          STT_BANNER = { "补给已送达", 100, PAL.green }
+          e.dead = true
+        end
+      end,
+    },
+  },
+}
+
+AI.corpse = {
+  initial = "idle",
+  states = {
+    idle = {
+      update = function(e)
+        if e.stt > 480 then e.dead = true end
+      end,
+    },
+  },
+}
+
+AI.wreck = {
+  initial = "idle",
+  states = {
+    idle = {
+      update = function(e)
+        if e.t % 12 == 0 and dist_player(e) < 200 then
+          p_spawn(e.x + rnd(-0.8, 0.8), 1.6, e.z + rnd(-0.8, 0.8), rnd(-0.3, 0.3),
+                  rnd(1, 2.2), rnd(-0.3, 0.3), rnd(50, 90), rnd(0.8, 1.4), "smoke")
+        end
+        if rnd() < 0.02 then
+          p_spawn(e.x + rnd(-0.5, 0.5), 1.4, e.z, rnd(-0.5, 0.5), rnd(2, 4),
+                  rnd(-0.5, 0.5), 14, 0.6, "fire")
+        end
+        if e.stt > 600 then e.dead = true end
+      end,
+    },
+  },
+}
+
+-- 状态机主驱动：动画、状态推进与移除
+local function update_entities()
+  local helo_alive = false
+  for i = #ENT, 1, -1 do
+    local e = ENT[i]
+    e.t = e.t + 1
+    if e.flash > 0 then e.flash = e.flash - 1 end
+    local k = e.kind
+    if k == "helo" then
+      helo_alive = true
+      local parts = e.parts
+      parts[5].ang = (parts[5].ang + 0.11) % 1      -- 主旋翼
+      parts[3].ang = (parts[3].ang + 0.35) % 1      -- 尾桨
+      parts[4].ang = parts[3].ang * 2
+    end
+    local def = AI[k]
+    if def then
+      e.stt = e.stt + 1
+      local nxt = def.states[e.st].update(e)
+      if nxt then set_state(e, nxt) end
+    end
+    if e.dead then deli(ENT, i) end
+  end
+  -- 直升机旋翼环境声（专用通道，避开音乐通道）
+  if helo_alive ~= helo_channel_on then
+    helo_channel_on = helo_alive
+    if helo_alive then
+      sfx(S_HELO, 6)
+    else
+      sfx(-1, 6)
+    end
+  end
+end
+
+-- 波次 -----------------------------------------------------------------------
+local function wave_composition(n)
+  local q = {}
+  local cnt = {}
+  local dur = 16 * 60 + n * 4 * 60
+  local function push(t, kind, opts)
+    add(q, { t = t, kind = kind, opts = opts })
+    cnt[kind] = (cnt[kind] or 0) + 1
+  end
+  for i = 1, min(10, 4 + n * 2) do
+    local az = rnd(-0.16, 0.16) + (n >= 3 and rnd(-0.1, 0.1) or 0)
+    push(rnd(0, dur * 0.8), "soldier",
+         { x = sin(az) * rnd(150, 240), z = -cos(az) * rnd(150, 240) })
+  end
+  for i = 1, (n >= 2 and min(3, flr(n / 2)) or 0) do
+    local az = rnd(-0.13, 0.13)
+    push(i * 240 + rnd(0, 120), "apc", { x = sin(az) * 380, z = -cos(az) * 380 })
+  end
+  for i = 1, (n >= 2 and 1 + flr((n - 2) / 3) or 0) do
+    local az = rnd(-0.13, 0.13)
+    push(i * 260 + rnd(0, 120), "craft", { x = sin(az) * 400, z = -cos(az) * 400 })
+  end
+  for i = 1, (n >= 2 and flr(n / 2) or 0) do
+    local az = rnd(-0.15, 0.15)
+    push(rnd(300, dur), "tank", { x = sin(az) * 260, z = -cos(az) * 260 })
+  end
+  for i = 1, (n >= 3 and flr((n - 1) / 3) or 0) do
+    local az = rnd(-0.2, 0.2)
+    push(rnd(200, dur * 0.9), "helo", { x = sin(az) * 330, z = -cos(az) * 330 })
+  end
+  if n >= 3 then
+    for i = 1, min(3, 1 + flr((n - 3) / 2)) do
+      push(rnd(150, dur * 0.9), "fighter", { x = rnd(-90, 90), z = -360 })
+    end
+  end
+  if n >= 4 then
+    for i = 1, min(2, flr((n - 2) / 3)) do
+      push(rnd(200, dur * 0.85), "bomber", { x = rnd(-70, 70), z = -360 })
+    end
+  end
+  if n >= 5 then
+    for i = 1, min(2, 1 + flr((n - 5) / 4)) do
+      push(rnd(300, dur * 0.8), "transport", { x = rnd(-50, 50), z = -400 })
+    end
+  end
+  if n >= 6 and n % 3 == 0 then
+    local az = rnd() < 0.5 and rnd(0.05, 0.12) or rnd(-0.12, -0.05)
+    push(120, "ship", { x = sin(az) * 360, z = -cos(az) * 360 })
+  end
+  push(dur * 0.45, "crate", { x = rnd(-40, 40), z = rnd(-70, -25) })
+  return q, cnt
+end
+
+local WAVE_DESC = ""
+
+local function start_wave(n)
+  WAVE = n
+  local cnt
+  SPAWNQ, cnt = wave_composition(n)
+  WAVE_T = 0
+  local names = { soldier = "步兵", apc = "装甲车", tank = "坦克",
+                  helo = "直升机", fighter = "战斗机", bomber = "轰炸机",
+                  transport = "运输机", ship = "军舰" }
+  local bits = {}
+  for _, k in ipairs({ "soldier", "apc", "tank", "helo", "fighter",
+                       "bomber", "transport", "ship" }) do
+    if (cnt[k] or 0) > 0 then
+      add(bits, names[k] .. "×" .. cnt[k])
+    end
+  end
+  WAVE_DESC = table.concat(bits, "  ")
+  ST = "intro"
+  STT = 0
+  song_pat = WAVE >= 6 and 28 or WAVE >= 3 and 12 or 0
+  music(song_pat, 600, 0x0F)
+  sfx(S_WAVE)
+end
+
+local function alive_enemies()
+  local n = #SPAWNQ > 0 and 1 or 0
+  for i = 1, #ENT do
+    local k = ENT[i].kind
+    if k ~= "corpse" and k ~= "wreck" and k ~= "crate" then n = n + 1 end
+  end
+  return n
+end
+
+local function update_wave()
+  WAVE_T = WAVE_T + 1
+  for i = #SPAWNQ, 1, -1 do
+    if WAVE_T >= SPAWNQ[i].t then
+      local s = SPAWNQ[i]
+      spawn(s.kind, s.opts.x or 0, s.opts.z or -300, s.opts)
+      deli(SPAWNQ, i)
+    end
+  end
+  if ST == "play" and alive_enemies() == 0 then
+    ST = "clear"
+    STT = 0
+    P.score = P.score + 1000 + WAVE * 250
+    music(-1, 500)
+    sfx(S_SUPPLY)
+  end
+end
+
+-- 输入与玩家 -----------------------------------------------------------------
+local snap_from, snap_to, snap_t = 0, 0, -1
+local rot_ramp, el_ramp = 0, 0   -- 长按加速：短按微调、按住约半秒升到全速
+
+local function update_player()
+  local rot = 0
+  if btn(0) then rot = rot - 1 end
+  if btn(1) then rot = rot + 1 end
+  if snap_t >= 0 then
+    snap_t = snap_t + 1
+    local f = snap_t / 10
+    if f >= 1 then
+      CAM.yaw = snap_to
+      snap_t = -1
+    else
+      CAM.yaw = snap_from + (snap_to - snap_from) * f
+    end
+  else
+    if rot == 0 then
+      rot_ramp = 0
+    else
+      rot_ramp = min(30, rot_ramp + 1)
+      -- 起步 5 帧超微调（约 0.3°/帧），之后照常加速
+      local k = rot_ramp <= 5 and 0.0009
+        or (0.0018 + 0.0062 * (rot_ramp - 5) / 25)
+      CAM.yaw = CAM.yaw + rot * k
+    end
+    if btnp(8) then
+      snap_from, snap_to, snap_t = CAM.yaw, CAM.yaw - 0.25, 0
+    elseif btnp(9) then
+      snap_from, snap_to, snap_t = CAM.yaw, CAM.yaw + 0.25, 0
+    end
+  end
+  CAM.yaw = wrap(CAM.yaw)
+  local el = 0
+  if btn(2) then el = el + 1 end
+  if btn(3) then el = el - 1 end
+  if el == 0 then
+    el_ramp = 0
+  else
+    el_ramp = min(24, el_ramp + 1)
+    local k = el_ramp <= 4 and 0.0008
+      or (0.0015 + 0.0035 * (el_ramp - 4) / 20)
+    CAM.elev = max(-0.065, min(0.243, CAM.elev + el * k))
+  end
+  if P.mg_t > 0 then P.mg_t = P.mg_t - 1 end
+  if P.cannon_t > 0 then P.cannon_t = P.cannon_t - 1 end
+  if P.recoil > 0 then P.recoil = P.recoil - 0.5 end
+  if btn(4) and P.mg_t <= 0 then fire_mg() end
+  if btn(5) then fire_cannon() end
+  if btnp(6) and not P.reloading and P.belt < 100 and P.ammo > 0 then
+    P.reloading = true
+    P.reload_t = 90
+    sfx(S_RELOAD, 4)
+  end
+  if P.reloading then
+    P.reload_t = P.reload_t - 1
+    if P.reload_t <= 0 then
+      P.reloading = false
+      P.belt = min(100, P.ammo)
+    end
+  end
+  if P.dmg_flash > 0 then P.dmg_flash = P.dmg_flash - 0.035 end
+  if P.heal_flash > 0 then P.heal_flash = P.heal_flash - 0.03 end
+  if P.hit_mark > 0 then P.hit_mark = P.hit_mark - 1 end
+  SHX = SHX * 0.82
+  SHY = SHY * 0.82
+end
+
+-- HUD ------------------------------------------------------------------------
+local function draw_crosshair()
+  local on = aim_on_target()
+  local cc = on and PAL.gold or 7
+  local spread = 5 + min(6, P.recoil * 1.4)
+  if on then spread = min(spread, 4) end
+  line(CX - spread - 4, CY, CX - spread + 1, CY, cc)
+  line(CX + spread - 1, CY, CX + spread + 4, CY, cc)
+  line(CX, CY - spread - 4, CX, CY - spread + 1, cc)
+  line(CX, CY + spread - 1, CX, CY + spread + 4, cc)
+  pset(CX, CY, cc)
+  if P.hit_mark > 0 then
+    local hc = P.hit_kill and PAL.red2 or 7
+    line(CX - 7, CY - 7, CX - 3, CY - 3, hc)
+    line(CX + 7, CY - 7, CX + 3, CY - 3, hc)
+    line(CX - 7, CY + 7, CX - 3, CY + 3, hc)
+    line(CX + 7, CY + 7, CX + 3, CY + 3, hc)
+  end
+end
+
+local function draw_hud()
+  rectfill(0, 234, 256, 22, PAL.black)
+  rectfill(0, 234, 256, 1, PAL.dgray)
+  print("生命", 6, 240, 7)
+  rectfill(40, 239, 74, 7, PAL.dgray)
+  local hpw = flr(P.hp / 100 * 72)
+  local hpc = P.hp > 60 and 34 or (P.hp > 30 and 30 or 59)
+  if hpw > 0 then rectfill(41, 240, hpw, 5, hpc) end
+  print("机枪", 126, 240, 7)
+  print(string.format("%03d", P.ammo), 158, 240, P.ammo < 60 and PAL.red2 or PAL.pale)
+  local belt4 = flr(P.belt / 100 * 24)
+  if belt4 > 0 then rectfill(158, 248, belt4, 2, 29) end
+  print("炮", 196, 240, 7)
+  print(string.format("%02d", P.shells), 210, 240,
+        P.shells <= 3 and PAL.red2 or PAL.pale)
+  print("第 " .. WAVE .. " 波", 6, 6, 7)
+  local sc = string.format("%06d", P.score)
+  print(sc, 250 - #sc * 8, 6, PAL.gold)
+  -- 俯仰表
+  line(247, 40, 247, 196, PAL.dgray)
+  local ey = 196 - (CAM.elev + 0.065) / 0.308 * 156
+  rectfill(244, ey - 1, 6, 3, 7)
+  rectfill(241, 196 - flr(0.065 / 0.308 * 156) - 1, 12, 1, PAL.lgray)
+  if P.reloading then
+    print("装填中", CX - 20, 146, PAL.gold)
+    rectfill(CX - 20, 158, 40, 3, PAL.dgray)
+    rectfill(CX - 19, 159, flr((90 - P.reload_t) / 90 * 38), 1, 30)
+  end
+  draw_crosshair()
+end
+
+-- 阵地枪械（屏幕空间 2D）-------------------------------------------------------
+local function draw_gun()
+  local rc = P.recoil
+  local bob = sin(time() * 1.1) * 1.2
+  -- 居中机枪：枪身 / 散热套 / 枪管 / 双脚架
+  local mx = 128 + CAM.elev * 20
+  local my = 216 + bob + rc * 0.5
+  line(112, 256, mx - 4, my + 12, 3)
+  line(144, 256, mx + 4, my + 12, 3)
+  rectfill(mx - 5, my + 10, 10, 24, 4)
+  rectfill(mx - 2, my - 8, 4, 20, 3)
+  circfill(mx, my, 5, 4)
+  circfill(mx, my, 2, 5)
+  rectfill(mx - 8, my + 14, 5, 4, 2)      -- 弹匣
+  -- 反坦克炮（右下，斜指画面中心）
+  local bx, by = 214, 258
+  local ty = 198 - rc * 4
+  line(bx, by, bx - 24, ty, 2)
+  line(bx - 4, by, bx - 28, ty + 3, 2)
+  line(bx - 2, by - 6, bx - 26, ty + 1, 1)
+  circfill(bx - 9, by - 13, 8, 3)
+  circfill(bx - 9, by - 13, 4, 2)
+  -- 枪口焰
+  if P.mg_t >= 4 then
+    local fx, fy = mx, my - 12
+    trifill(fx - 5, fy, fx + 5, fy, fx, fy - 13, PAL.pale)
+    trifill(fx - 3, fy + 1, fx + 3, fy + 1, fx, fy - 8, PAL.gold)
+  end
+  if P.cannon_t >= 41 then
+    local fx, fy = bx - 25, ty - 2
+    circfill(fx, fy, 9, PAL.pale)
+    circfill(fx, fy, 5, 30)
+    circfill(fx - 2, fy - 2, 3, 7)
+  end
+end
+
+-- 场景绘制 -------------------------------------------------------------------
+local DRAW_LIST = {}
+
+local function draw_scene()
+  local t = time()
+  cam_basis()
+  draw_sky(t)
+  draw_ground(t)
+  local n = 0
+  for i = 1, #ENT do
+    local e = ENT[i]
+    local cz = e.x * SA - e.z * CA
+    local cx = e.x * CA + e.z * SA
+    if cz > 3 and abs(cx) < cz * 0.7 + 24 and cz < FAR + 60 then
+      n = n + 1
+      DRAW_LIST[n] = e
+      e._d = cz
+    end
+  end
+  table.sort(DRAW_LIST, cmp_dl)
+  -- 接地阴影（同屏全模型封顶 26，超出且远于 150 单位的最远者不绘制）
+  local first = 1
+  if n > 26 then
+    first = n - 25
+    while first > 1 and DRAW_LIST[first - 1]._d < 150 do
+      first = first - 1     -- 近处的溢出实体仍保留（跳过只针对远处小目标）
+    end
+  end
+  for i = first, n do
+    local e = DRAW_LIST[i]
+    local gx, gy = project_point(e.x, 0.02, e.z)
+    if gx then
+      local r
+      if e.kind == "soldier" then
+        r = 0.55
+      elseif e.kind == "tank" or e.kind == "wreck" then
+        r = 2.6
+      elseif e.kind == "craft" then
+        r = 3.2
+      elseif e.kind == "crate" then
+        r = 0.9
+      elseif e.kind == "corpse" then
+        r = 0.7
+      else
+        r = e.r * 0.8
+      end
+      local pr = r * FOCAL / e._d
+      local shadow_c = e.z < SHORE_Z and 37 or 17
+      if e.kind == "helo" or e.kind == "jet" then
+        circfill(gx, gy, pr * 0.7, shadow_c)
+      else
+        ovalfill(gx, gy, pr, pr * 0.4, shadow_c)
+      end
+    end
+  end
+  -- 实体（含降落伞与受击闪白）
+  for i = first, n do
+    local e = DRAW_LIST[i]
+    draw_entity(e)
+    if e.kind == "soldier" and e.st == "chute" and e.chute then
+      local px, py = project_point(e.x, e.y + 2.7, e.z)
+      if px then
+        local pr = 1.7 * FOCAL / e._d
+        ovalfill(px, py, pr, pr * 0.42, PAL.pale)
+        ovalfill(px, py - pr * 0.16, pr * 0.62, pr * 0.28, 8)
+        local lx, ly = project_point(e.x - 0.35, e.y + 1.35, e.z)
+        local rx2, ry2 = project_point(e.x + 0.35, e.y + 1.35, e.z)
+        if lx then
+          line(px - pr * 0.8, py, lx, ly, PAL.lgray)
+          line(px + pr * 0.8, py, rx2, ry2, PAL.lgray)
+        end
+      end
+    end
+    if e.kind == "crate" and e.st == "drop" then
+      local sx, sy = project_point(e.x, e.y + 3.6, e.z)
+      if sx then
+        local r = 2.3 * FOCAL / e._d
+        ovalfill(sx, sy, r, r * 0.65, PAL.pale)
+        ovalfill(sx, sy - r * 0.12, r * 0.8, r * 0.45, 8)
+        local lx, ly = project_point(e.x - 0.8, e.y, e.z)
+        if lx then line(sx - r, sy, lx, ly, PAL.lgray) end
+        local rx2, ry2 = project_point(e.x + 0.8, e.y, e.z)
+        if rx2 then line(sx + r, sy, rx2, ry2, PAL.lgray) end
+      end
+    end
+    if e.flash > 0 and e.kind ~= "corpse" and e.kind ~= "wreck" then
+      local sx, sy = project_point(e.x, e.y + 1, e.z)
+      if sx then circfill(sx, sy, 2 * FOCAL / e._d * 0.3 + 1, 7) end
+    end
+  end
+  draw_particles()
+  -- 飞行中的炮弹 / 火箭（投影亮点）
+  for i = 1, #PROJ do
+    local pr = PROJ[i]
+    local sx, sy = project_point(pr.x, pr.y, pr.z)
+    if sx then
+      pset(sx, sy, PAL.gold)
+      pset(sx + 1, sy, PAL.amber)
+    end
+  end
+  -- 曳光
+  for i = #TRACERS, 1, -1 do
+    local tr = TRACERS[i]
+    line(tr[1], tr[2], tr[3], tr[4], tr[5])
+    tr[6] = tr[6] - 1
+    if tr[6] <= 0 then deli(TRACERS, i) end
+  end
+  -- 用完清空绘制列表，避免空洞数组
+  for i = 1, n do DRAW_LIST[i] = nil end
+  draw_gun()
+end
+
+-- 界面 -----------------------------------------------------------------------
+local function draw_title()
+  draw_scene()
+  rectfill(0, 0, 256, 12, PAL.black)
+  rectfill(0, 12, 256, 2, 1)
+  sspr(0, 960, 128, 16, 0, 42, 256, 32)
+  sspr(0, 976, 32, 16, 96, 84, 64, 32)
+  print("FC-16 战地特别版", CX - tw("FC-16 战地特别版") / 2, 122, PAL.sky1)
+  if flr(time() * 2) % 2 == 0 then
+    local s = "按 Ⓐ 开始"
+    print(s, CX - tw(s) / 2, 176, 7)
+  end
+  local hs = "最高纪录 " .. string.format("%06d", HI)
+  print(hs, CX - tw(hs) / 2, 206, PAL.gold)
+  local ctl = "⬅➡ 转向 ⬆⬇ 俯仰 Ⓐ 机枪 Ⓑ 火炮 Ⓧ 装填"
+  print(ctl, CX - tw(ctl) / 2, 228, PAL.palgray)
+end
+
+local function draw_banner()
+  if not STT_BANNER then return end
+  local b = STT_BANNER
+  b[2] = b[2] - 1
+  if b[2] <= 0 then
+    STT_BANNER = nil
+    return
+  end
+  local s = b[1]
+  local w = tw(s) + 16
+  rectfill(CX - w / 2, 150, w, 20, PAL.black)
+  rect(CX - w / 2, 150, w, 20, b[3] or PAL.gold)
+  print(s, CX - tw(s) / 2, 152, b[3] or PAL.gold)
+end
+
+-- 受击 / 回复提示：只画屏幕四周一圈，不遮挡战场
+local function draw_vignette(col, k)
+  if k <= 0 then return end
+  local t = 2 + flr(k * 12)
+  local t2 = max(2, flr(t * 0.5))
+  rectfill(0, 0, 256, t2, col)
+  rectfill(0, 256 - t2, 256, t2, col)
+  rectfill(0, 0, t2, 256, col)
+  rectfill(256 - t2, 0, t2, 256, col)
+  local w = t - t2
+  if w > 0 then
+    fillp(0x5A5A)
+    rectfill(0, t2, 256, w, col * 256 + col)
+    rectfill(0, 256 - t, 256, w, col * 256 + col)
+    rectfill(t2, t2, w, 256 - t2 * 2, col * 256 + col)
+    rectfill(256 - t, t2, w, 256 - t2 * 2, col * 256 + col)
+    fillp()
+  end
+end
+
+-- 受击红闪：四缘均匀细边 + 指向袭击者的弧带（弧心 = 上次受击方位相对视线，
+-- rel=0 正前 → 屏幕上方，rel=+0.25 → 屏幕右侧）
+local function draw_dmg_border(k)
+  if k <= 0 then return end
+  local col = k > 0.45 and PAL.red2 or PAL.blood
+  local t = 2 + flr(k * 4)
+  fillp(0x5A5A)
+  rectfill(0, 0, 256, t, col * 256 + col)
+  rectfill(0, 256 - t, 256, t, col * 256 + col)
+  rectfill(0, 0, t, 256, col * 256 + col)
+  rectfill(256 - t, 0, t, 256, col * 256 + col)
+  fillp()
+  -- 方向弧带只在袭击者出屏时绘制（看得见的目标无需提示）；
+  -- 前方半球按投影方向放置，与袭击者实际屏幕方位一致；背后（投影 nil）退回方位角
+  local sx, sy = project_point(P.hit_x, P.hit_y, P.hit_z)
+  local rel
+  if sx then
+    if sx > 6 and sx < 250 and sy > 6 and sy < 226 then return end
+    rel = wrap(atan2(128 - sy, sx - 128))
+  else
+    rel = wrap(heading(P.hit_x, P.hit_z) - CAM.yaw)
+  end
+  local r1, r2, da, n = 111, 118, 0.011, 4
+  local px1, py1, px2, py2
+  for i = -n, n do
+    local a = rel + i * da
+    local x1, y1 = 128 + sin(a) * r1, 128 - cos(a) * r1
+    local x2, y2 = 128 + sin(a) * r2, 128 - cos(a) * r2
+    line(x1, y1, x2, y2, col)
+    if px1 then
+      line(px1, py1, x1, y1, col)
+      line(px2, py2, x2, y2, col)
+    end
+    px1, py1, px2, py2 = x1, y1, x2, y2
+  end
+  trifill(128 + sin(rel - 0.015) * (r1 + 1), 128 - cos(rel - 0.015) * (r1 + 1),
+          128 + sin(rel) * (r1 - 7), 128 - cos(rel) * (r1 - 7),
+          128 + sin(rel + 0.015) * (r1 + 1), 128 - cos(rel + 0.015) * (r1 + 1),
+          col)
+end
+
+-- 主循环 ---------------------------------------------------------------------
+local function reset_game()
+  for i = #ENT, 1, -1 do deli(ENT, i) end
+  for i = #PART, 1, -1 do deli(PART, i) end
+  for i = #PROJ, 1, -1 do deli(PROJ, i) end
+  for i = #SPAWNQ, 1, -1 do deli(SPAWNQ, i) end
+  P.hp, P.ammo, P.belt, P.shells = 100, 400, 100, 18
+  P.reloading, P.mg_t, P.cannon_t = false, 0, 0
+  P.score, P.kill, P.dmg_flash, P.heal_flash = 0, 0, 0, 0
+  CAM.yaw, CAM.elev = 0, 0.02
+  SHX, SHY = 0, 0
+  snap_t = -1
+end
+
+function _init()
+  init_audio()
+  init_ground()
+  init_sky()
+  capture_text("抢滩登陆战", 80, 960)
+  capture_text("2002", 32, 976)
+  HI = dget(0)
+  spawn("soldier", -26, -90, { spd = 2 })
+  spawn("soldier", 14, -120, { spd = 2 })
+  spawn("soldier", 42, -70, { spd = 2.4 })
+  spawn("tank", -70, -170, { spd = 2 })
+end
+
+function _update()
+  STT = STT + 1
+  if ST == "title" then
+    CAM.yaw = sin(time() * 0.031) * 0.12
+    CAM.elev = 0.02
+    update_entities()
+    update_particles()
+    if btnp(4) then
+      srand(frame())            -- 按下时刻播种，每局布阵不同（回放仍确定）
+      reset_game()
+      start_wave(1)
+    end
+  elseif ST == "intro" then
+    if STT > 130 then
+      ST = "play"
+      STT = 0
+    end
+  elseif ST == "play" then
+    update_player()
+    update_entities()
+    update_projectiles()
+    update_particles()
+    update_wave()
+    if btnp(11) then
+      ST = "pause"
+      music(-1, 200)
+    end
+    if btnp(10) then DEBUG_BUDGET = not DEBUG_BUDGET end
+  elseif ST == "clear" then
+    update_entities()
+    update_particles()
+    update_projectiles()
+    if STT > 170 then
+      P.hp = min(100, P.hp + 30)
+      P.shells = min(30, P.shells + 8)
+      P.belt = min(100, P.ammo)
+      start_wave(WAVE + 1)
+    end
+  elseif ST == "over" then
+    update_entities()
+    update_particles()
+    update_projectiles()
+    if P.dmg_flash > 0 then P.dmg_flash = P.dmg_flash - 0.02 end
+    if P.heal_flash > 0 then P.heal_flash = P.heal_flash - 0.02 end
+    SHX = SHX * 0.85
+    SHY = SHY * 0.85
+    if STT > 120 and btnp(4) then
+      reset_game()
+      ST = "title"
+      STT = 0
+      spawn("soldier", -26, -90, { spd = 2 })
+      spawn("soldier", 14, -120, { spd = 2 })
+      spawn("tank", -70, -170, { spd = 2 })
+    end
+  elseif ST == "pause" then
+    if btnp(11) or btnp(4) then
+      ST = "play"
+      music(song_pat, 300, 0x0F)
+    end
+    if btnp(6) then
+      reset_game()
+      start_wave(1)
+    end
+  end
+  update_camera()
+end
+
+function _draw()
+  cls(PAL.skytop)
+  if ST == "title" then
+    draw_title()
+  elseif ST == "pause" then
+    draw_scene()
+    draw_hud()
+    rectfill(48, 92, 160, 84, PAL.black)
+    rect(48, 92, 160, 84, PAL.gold)
+    print("暂停", CX - tw("暂停") / 2, 100, PAL.gold)
+    print("Ⓐ 继续战斗", 88, 124, 7)
+    print("Ⓧ 重新开始", 88, 144, 7)
+    print("Start 返回战场", 76, 164, PAL.palgray)
+  else
+    draw_scene()
+    if P.dmg_flash > 0 then
+      draw_dmg_border(min(1, P.dmg_flash / 1.1))
+    end
+    if P.heal_flash > 0 then
+      draw_vignette(34, min(1, P.heal_flash / 0.8))
+    end
+    if ST == "intro" then
+      if STT < 110 then
+        local s = "第 " .. WAVE .. " 波"
+        local sub = "敌军来袭"
+        rectfill(CX - 104, 92, 208, 72, PAL.black)
+        rect(CX - 104, 92, 208, 72, PAL.red2)
+        print(s, CX - tw(s) / 2, 100, 7)
+        print(sub, CX - tw(sub) / 2, 116, PAL.gold)
+        -- 兵力预告（自动折行）
+        local line, ly = "", 136
+        for word in WAVE_DESC:gmatch("%S+") do
+          local trial = line == "" and word or (line .. "  " .. word)
+          if tw(trial) > 192 and line ~= "" then
+            print(line, CX - tw(line) / 2, ly, PAL.palgray)
+            ly = ly + 14
+            line = word
+          else
+            line = trial
+          end
+        end
+        if line ~= "" then
+          print(line, CX - tw(line) / 2, ly, PAL.palgray)
+        end
+      end
+      draw_hud()
+    elseif ST == "clear" then
+      local s = "防御成功"
+      local sub = "奖励 " .. (1000 + WAVE * 250)
+      rectfill(CX - 70, 96, 140, 44, PAL.black)
+      rect(CX - 70, 96, 140, 44, 30)
+      print(s, CX - tw(s) / 2, 104, 7)
+      print(sub, CX - tw(sub) / 2, 120, PAL.gold)
+      draw_hud()
+    elseif ST == "over" then
+      rectfill(0, 60, 256, 120, PAL.black)
+      local s1 = "阵地失守"
+      print(s1, CX - tw(s1) / 2, 70, PAL.red2)
+      local s2 = "坚持到第 " .. WAVE .. " 波"
+      print(s2, CX - tw(s2) / 2, 96, 7)
+      local s3 = "得分 " .. string.format("%06d", P.score)
+      print(s3, CX - tw(s3) / 2, 116, PAL.gold)
+      local s4 = "击毁 " .. P.kill
+      print(s4, CX - tw(s4) / 2, 134, PAL.palgray)
+      if STT > 120 and flr(time() * 2) % 2 == 0 then
+        local s5 = "按 Ⓐ 返回标题"
+        print(s5, CX - tw(s5) / 2, 164, 7)
+      end
+    else
+      draw_hud()
+    end
+    draw_banner()
+  end
+  DRAW_COST = peek4(0x0C1004)
+  if DEBUG_BUDGET and ST == "play" then
+    local used = peek4(0x0C1004)
+    local lim = peek4(0x0C1008)
+    print(string.format("%d/%d", used, lim), 6, 220,
+          used > lim and PAL.red2 or PAL.lgray)
+  end
+end

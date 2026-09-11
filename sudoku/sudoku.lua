@@ -1,0 +1,958 @@
+-- 数独 ・ FC-16 演示卡带
+-- 经典 9×9 数独：三档难度（入门 40 提示数 / 进阶 32 / 困难 26），全部由卡带内
+-- 回溯算法现场生成。出题流水线切片到多帧执行（协程 + 每帧预算），绝不单帧算完：
+--   1) 随机候选顺序回溯生成完整终盘；
+--   2) 中心对称挖洞，每移除一格（对）都用「解数计数器（数到 2 即止）」验证唯一解，
+--      不唯一立即回填；MRV（候选最少格优先）保证验证高效。
+-- 操作：光标移动 → Ⓐ 呼出数字条 → 选数确认；Ⓑ 擦除；Ⓛ 铅笔候选（3×3 小字，
+--       填数自动清理同行/列/宫同数候选）；Ⓡ 提示揭示答案（每局 3 次）；
+--       Ⓧ 冲突检查开关（标红行/列/宫内重复）；Start 暂停菜单；Select 音乐开关。
+-- 辅助：光标行列宫淡染、同数高亮、给定双描白字 / 玩家青蓝 / 提示绿 / 冲突红、
+--       数字条余量计数；胜利斜向金波扫场 + 结算（用时/提示/填错/新纪录）。
+-- 音频：移动/填数（按数字五声音阶变调）/擦除/填错/提示/胜利 SFX + 原创
+--       4 小节 C 五声舒缓 BGM 循环（Select 开关）。
+-- 存档：各难度最佳用时 dset(0..2)、最少提示 dset(3..5)、音乐开关 dset(6)，整数
+--       秒存储，fflush 持久化（SPEC §13）。
+
+-- ---------------------------------------------------------------- 常量
+
+local CELL = 18                      -- 格边长（9×18 = 162）
+local BX, BY = 47, 24                -- 棋盘左上像素（x 47..209，y 24..186）
+local BAR_Y, KEY_W, KEY_H = 190, 24, 26 -- 底部数字条：y 190..216
+local STAT_Y, TIP_Y = 220, 240       -- 铅笔/检查指示行 ・ 底部提示栏
+
+-- 色号（SPEC §2.2 色表直取；禁止色号算术推导明暗）
+local C_PAGE   = 14  -- 页面底 #0E071B
+local C_HUD    = 13  -- 顶/底栏・面板 #1A1932
+local C_CELL_D = 12  -- 棋盘深格 #2A2F4E
+local C_CELL_L = 11  -- 棋盘浅格 #424C6E
+local C_GRID   = 10  -- 细网格线 #657392
+local C_THICK  = 8   -- 3×3 粗线/外框 #C7CFDD
+local C_GIVEN  = 7   -- 给定数字 白
+local C_PLAYER = 42  -- 玩家数字 亮青蓝 #00CDF9
+local C_HINTC  = 33  -- 提示揭示数字 绿 #99E65F
+local C_PENCIL = 9   -- 铅笔候选 #92A1B9
+local C_CONFL  = 63  -- 冲突红 #FF0040
+local C_CURSOR = 30  -- 光标格填充 #FFA214
+local C_INK    = 16  -- 选中底上的墨色数字 #391F21
+local C_GOLD   = 31  -- 亮金 #FFEB57
+local C_AMBER  = 24  -- 深金（光标描边偶帧）#E07438
+local C_TXT    = 8   -- 正文亮字 #C7CFDD
+local C_DIM    = 10  -- 暗字 #657392
+
+local DIFF = {
+  { name = "入门", col = 33, clues = 40 },
+  { name = "进阶", col = 29, clues = 32 },
+  { name = "困难", col = 58, clues = 26 },
+}
+local HINTS_MAX = 3
+
+-- 填数音效：数字 1-9 映射 G 大调五声音阶（任意填入都悦耳）
+local PENT = { 55, 57, 59, 62, 64, 67, 69, 71, 74 }
+
+local function idx(r, c) return r * 9 + c + 1 end
+local function box_of(r, c) return flr(r / 3) * 3 + flr(c / 3) end
+local function mmss(s) return string.format("%02d:%02d", flr(s / 60), s % 60) end
+local function ctext(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+
+-- ---------------------------------------------------------------- 状态
+
+local state = "title"  -- title / gen / play / pause / win
+local t = 0            -- 全局帧计数
+local diff = 1         -- 当前难度 1..3
+local title_sel = 1
+local pause_sel = 1
+local focus = 0        -- 0 棋盘光标 / 1 数字条
+local bar_sel = 5      -- 数字条选中数字 1..9
+local cx, cy = 4, 4    -- 光标（列/行，0 起）
+local pencil = false   -- 铅笔候选模式
+local check = false    -- Ⓧ 冲突检查显示
+local hints_left = HINTS_MAX
+local play_frames = 0  -- 计时帧（暂停不累计）
+local mistakes = 0     -- 填错次数（与答案不符的填入）
+local sol, giv, puz, own, penc -- 答案 / 题面 / 盘面 / 来源(1玩家 2提示) / 候选表
+local conf = {}        -- 冲突格标记（检查模式下逐帧重算）
+local rep = { 0, 0, 0, 0 }   -- 方向键按住计时（自动重复）
+local rep_bar = 0            -- 数字条左右按住计时
+local gen                    -- 出题协程
+local gen_phase, gen_prog = 0, 0
+local win_t, win_new_best, win_best_hints = 0, false, false
+local music_on, bgm_on = true, false
+
+local TIPS = {
+  "Ⓐ 选数　Ⓑ 擦除　Ⓛ 铅笔候选",
+  "Ⓡ 提示　Ⓧ 检查　Start 菜单",
+  "Select 音乐开关",
+}
+
+local function set_bgm(on)
+  if on then music(0, 400, 0x30) bgm_on = true
+  else music(-1, 400) bgm_on = false end
+end
+local function toggle_music()
+  music_on = not music_on
+  dset(6, music_on and 0 or 1)
+  fflush()
+  set_bgm(music_on)
+end
+
+-- ---------------------------------------------------------------- 音频（SPEC §5.2）
+
+local function u8(a, v) poke(a, v % 256) end
+-- 写一条 SFX：steps[i] = {音高, 波形, 音量[, 效果]}，nil 步为休止
+local function write_sfx(id, speed, steps, len)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, len or #steps)
+  for i = 0, 31 do
+    local a, s = base + 16 + i * 3, steps[i + 1]
+    if s then u8(a, s[1] or 0) u8(a + 1, (s[2] or 0) * 16 + (s[3] or 0)) u8(a + 2, s[4] or 0)
+    else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) end
+  end
+end
+local function expand(notes, k, wave, vol) -- 音符序列按 k 步展开（0 = 休止）
+  local out, m = {}, 0
+  for _, n in ipairs(notes) do
+    for _ = 1, k do
+      m = m + 1
+      if n ~= 0 then out[m] = { n, wave, vol } end
+    end
+  end
+  return out
+end
+-- BGM：C 大调五声舒缓小品，4 小节回环；旋律 ch4（ROUND）/ 贝斯 ch5（BASS），
+-- speed 8：每小节 256 帧，全曲约 17 秒；PATTERN 0-3 首 BEGIN 末 END，占 ch4-5
+local BGM_MEL = {
+  { 72, 0, 76, 0, 79, 0, 76, 0 }, -- C5 ・ E5 ・ G5 ・ E5
+  { 69, 0, 72, 0, 74, 0, 0, 0 },  -- A4 ・ C5 ・ D5
+  { 67, 0, 72, 0, 76, 0, 74, 0 }, -- G4 ・ C5 ・ E5 ・ D5
+  { 72, 0, 0, 0, 67, 0, 0, 0 },   -- C5 ・ ・ ・ G4（收束回环）
+}
+local BGM_BASS = { 48, 45, 43, 48 } -- C3 A2 G2 C3 整小节长音
+
+local function init_audio()
+  write_sfx(0, 1, { { 68, 3, 5 } })                          -- 菜单/光标轻响
+  write_sfx(1, 1, { { 60, 3, 8 }, { 67, 3, 10 } })           -- 开始/确认
+  write_sfx(2, 1, { { 56, 3, 3 } })                          -- 光标滑步（更轻）
+  write_sfx(3, 1, { { 30, 15, 6 }, { 24, 15, 5 } })          -- 拒绝 buzz（噪声）
+  write_sfx(5, 2, { { 52, 3, 9 }, { 45, 3, 8 } })            -- 填错下行
+  write_sfx(6, 2, { { 74, 10, 9 }, { 78, 10, 9 }, { 81, 10, 10 }, { 86, 10, 11 } }) -- 提示星光
+  write_sfx(7, 1, { { 72, 3, 7 }, { 76, 3, 7 } })            -- 检查开
+  write_sfx(8, 1, { { 76, 3, 6 }, { 72, 3, 6 } })            -- 检查关
+  write_sfx(9, 2, { { 67, 2, 10 }, { 72, 2, 10 }, { 76, 2, 11 }, { 79, 2, 11 }, nil,
+    { 84, 2, 12 } }, 6)                                      -- 胜利号角（含休止，显式长度）
+  write_sfx(10, 2, { { 79, 2, 11 }, { 84, 2, 11 }, { 88, 2, 12 }, nil, { 91, 2, 13 } }, 5) -- 新纪录
+  write_sfx(11, 1, { { 62, 3, 7 }, { 55, 3, 6 } })           -- 暂停开合
+  write_sfx(12, 1, { { 64, 3, 6 }, { 69, 3, 6 } })           -- 铅笔开关
+  write_sfx(13, 2, { { 43, 11, 8 }, { 38, 11, 6 } })         -- 擦除低响
+  for d = 1, 9 do -- 填数：五声音阶变调
+    local p = PENT[d]
+    write_sfx(19 + d, 1, { { p, 8, 11 }, { p + 12, 8, 6 } })
+  end
+  for b = 1, 4 do
+    write_sfx(29 + b, 8, expand(BGM_MEL[b], 4, 8, 7), 32)        -- 旋律 ROUND
+    write_sfx(33 + b, 8, expand({ BGM_BASS[b] }, 32, 11, 6), 32) -- 贝斯 BASS
+    local pb = 0x063800 + (b - 1) * 16
+    u8(pb + 4, 29 + b) u8(pb + 5, 33 + b)
+    local fl = b == 1 and 1 or 0                             -- bit0 BEGIN：循环起点
+    if b == 4 then fl = fl + 2 end                           -- bit1 END：回到 BEGIN
+    u8(pb + 8, fl)
+  end
+end
+
+-- ---------------------------------------------------------------- 小字烘焙
+
+-- 精灵表像素写入：表坐标 (u,v) → 瓦片 (v/16)*16+u/16，瓦片内偏移 (u%16, v%16)
+local function spset(u, v, c)
+  poke((flr(v / 16) * 16 + flr(u / 16)) * 256 + (v % 16) * 16 + u % 16, c)
+end
+-- 3×5 微型数字（铅笔候选/数字条余量）：白色烘入表区 y=16 行，画时 pal 重映射
+local TINY = {
+  [0] = { 7, 5, 5, 5, 7 },                                   -- 0
+  { 2, 6, 2, 2, 7 }, { 7, 1, 7, 4, 7 }, { 7, 1, 7, 1, 7 },   -- 1 2 3
+  { 5, 5, 7, 1, 1 }, { 7, 4, 7, 1, 7 }, { 7, 4, 7, 5, 7 },   -- 4 5 6
+  { 7, 1, 2, 2, 2 }, { 7, 5, 7, 5, 7 }, { 7, 5, 7, 1, 7 },   -- 7 8 9
+}
+local function bake_tiny()
+  for d = 0, 9 do
+    local rows = TINY[d]
+    for ry = 0, 4 do
+      local bits = rows[ry + 1]
+      for rx = 0, 2 do
+        if flr(bits / (2 ^ (2 - rx))) % 2 == 1 then
+          spset(d * 4 + rx, 16 + ry, 7)
+        end
+      end
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 出题引擎（协程分帧）
+
+-- 预计算格位元信息：RC[i] = {r, c, b}；行/列/宫的格索引清单
+local RC, ROWS, COLS, BOXS = {}, {}, {}, {}
+local function build_maps()
+  for r = 0, 8 do
+    ROWS[r], COLS[r], BOXS[r] = {}, {}, {}
+  end
+  for r = 0, 8 do
+    for c = 0, 8 do
+      local i, b = idx(r, c), box_of(r, c)
+      RC[i] = { r = r, c = c, b = b }
+      ROWS[r][#ROWS[r] + 1] = i
+      COLS[c][#COLS[c] + 1] = i
+      BOXS[b][#BOXS[b] + 1] = i
+    end
+  end
+end
+
+local NG = { bd = {}, rows = {}, cols = {}, boxs = {} } -- 出题工作区
+local ng_nodes = 0   -- 验证节点计数（分帧切片用）
+
+local function ng_set(i, d, on) -- 在 NG 盘面放置/撤除一个数字
+  local rc = RC[i]
+  NG.rows[rc.r][d] = on and true or nil
+  NG.cols[rc.c][d] = on and true or nil
+  NG.boxs[rc.b][d] = on and true or nil
+  NG.bd[i] = on and d or 0
+end
+
+-- 解数计数：MRV（候选最少空格优先）回溯，数满 limit 即早退。
+-- 在出题协程内调用：每 12 个验证节点 yield 一次，由帧驱动器限流。
+local function ng_count(limit)
+  local rows, cols, boxs = {}, {}, {}
+  for i = 0, 8 do rows[i], cols[i], boxs[i] = {}, {}, {} end
+  local empties = {}
+  for i = 1, 81 do
+    local d, rc = NG.bd[i], RC[i]
+    if d ~= 0 then
+      rows[rc.r][d], cols[rc.c][d], boxs[rc.b][d] = true, true, true
+    else
+      empties[#empties + 1] = i
+    end
+  end
+  local count = 0
+  ng_nodes = 0
+  local function solve()
+    local bi, bc, bn = nil, nil, 10
+    for k = 1, #empties do
+      local i = empties[k]
+      if NG.bd[i] == 0 then
+        local rc = RC[i]
+        local cands, n = {}, 0
+        for d = 1, 9 do
+          if not rows[rc.r][d] and not cols[rc.c][d] and not boxs[rc.b][d] then
+            n = n + 1
+            cands[n] = d
+          end
+        end
+        if n == 0 then return false end          -- 死局剪枝：该空格无数可填
+        if n < bn then
+          bi, bc, bn = i, cands, n
+          if n == 1 then break end               -- 已是下界，提前收手
+        end
+      end
+    end
+    if not bi then                               -- 无空格：找到一个完整解
+      count = count + 1
+      return count >= limit
+    end
+    local rc = RC[bi]
+    for k = 1, bn do
+      local d = bc[k]
+      rows[rc.r][d], cols[rc.c][d], boxs[rc.b][d] = true, true, true
+      NG.bd[bi] = d
+      ng_nodes = ng_nodes + 1
+      if ng_nodes % 12 == 0 then coroutine.yield() end
+      local stop = solve()
+      NG.bd[bi] = 0
+      rows[rc.r][d], cols[rc.c][d], boxs[rc.b][d] = nil, nil, nil
+      if stop then return true end
+    end
+    return false
+  end
+  solve()
+  return count
+end
+
+-- 出题流水线（在协程内执行）：阶段 0 构建终盘 → 阶段 1 对称挖洞 + 唯一解验证
+local function gen_worker()
+  NG.bd = {}
+  for i = 0, 8 do
+    NG.rows[i] = {}
+    NG.cols[i] = {}
+    NG.boxs[i] = {}
+  end
+  for i = 1, 81 do NG.bd[i] = 0 end
+  gen_phase, gen_prog = 0, 0
+  -- 阶段 0：随机候选顺序回溯填满整盘
+  local nodes = 0
+  local function fill(i)
+    if i > 81 then return true end
+    local rc = RC[i]
+    local cands = { 1, 2, 3, 4, 5, 6, 7, 8, 9 }
+    for n = 9, 2, -1 do                          -- Fisher-Yates 洗牌
+      local j = flr(rnd(n)) + 1
+      cands[n], cands[j] = cands[j], cands[n]
+    end
+    for k = 1, 9 do
+      local d = cands[k]
+      if not NG.rows[rc.r][d] and not NG.cols[rc.c][d] and not NG.boxs[rc.b][d] then
+        ng_set(i, d, true)
+        nodes = nodes + 1
+        if nodes % 24 == 0 then coroutine.yield() end
+        if fill(i + 1) then return true end
+        ng_set(i, d, false)
+      end
+    end
+    return false
+  end
+  fill(1)
+  NG.sol = {}                                    -- 另存完整终盘（挖洞只改 bd）
+  for i = 1, 81 do NG.sol[i] = NG.bd[i] end
+  -- 阶段 1：中心对称挖洞。先成对移除 (i, 82-i)，不唯一即回填；凑近目标后
+  -- 单格补挖。每次移除都经解数计数器（最多数到 2）验证唯一解。
+  gen_phase = 1
+  local target = DIFF[diff].clues
+  local filled = 81
+  local order = {}
+  for k = 0, 40 do order[k + 1] = k end
+  for n = 41, 2, -1 do
+    local j = flr(rnd(n)) + 1
+    order[n], order[j] = order[j], order[n]
+  end
+  for k = 1, 41 do
+    if filled <= target then break end
+    local i1 = order[k] + 1                      -- 1..41
+    local i2 = 82 - i1                           -- 81..41（i1=41 时重合为中心格）
+    if NG.bd[i1] ~= 0 then
+      local v1, v2 = NG.bd[i1], NG.bd[i2]
+      NG.bd[i1], NG.bd[i2] = 0, 0
+      if ng_count(2) == 1 then
+        filled = filled - (i1 == i2 and 1 or 2)
+      else
+        NG.bd[i1], NG.bd[i2] = v1, v2
+      end
+      gen_prog = (81 - filled) / (81 - target)
+      coroutine.yield()
+    end
+  end
+  for k = 1, 41 do                               -- 单格补挖到目标提示数
+    if filled <= target then break end
+    local i1 = order[k] + 1
+    if NG.bd[i1] ~= 0 then
+      local v1 = NG.bd[i1]
+      NG.bd[i1] = 0
+      if ng_count(2) == 1 then filled = filled - 1 else NG.bd[i1] = v1 end
+      gen_prog = (81 - filled) / (81 - target)
+      coroutine.yield()
+    end
+  end
+  gen_prog = 1
+end
+
+-- ---------------------------------------------------------------- 对局流程
+
+local board_full           -- 前置声明
+local recompute_conflicts  -- 前置声明（定义见「冲突标记」节）
+
+local function clear_pencil_units(i, d) -- 填入 d 后清理同行/列/宫的 d 候选
+  local rc = RC[i]
+  for _, j in ipairs(ROWS[rc.r]) do penc[j][d] = nil end
+  for _, j in ipairs(COLS[rc.c]) do penc[j][d] = nil end
+  for _, j in ipairs(BOXS[rc.b]) do penc[j][d] = nil end
+  penc[i] = {}
+end
+
+function board_full()
+  for i = 1, 81 do
+    if puz[i] ~= sol[i] then return false end
+  end
+  return true
+end
+
+local function on_win()
+  state = "win"
+  win_t = 0
+  local secs = flr(play_frames / 60)
+  local slot = diff - 1
+  local best = flr(dget(slot))
+  win_new_best = best == 0 or secs < best
+  if win_new_best then dset(slot, secs) end
+  local used = HINTS_MAX - hints_left
+  local hb = flr(dget(3 + slot))
+  win_best_hints = hb == 0 or used + 1 < hb     -- 槽位存用量+1，0 = 未记录
+  if win_best_hints then dset(3 + slot, used + 1) end
+  if win_new_best or win_best_hints then fflush() end
+  sfx(9, 2)
+end
+
+local function apply_digit(d)
+  local i = idx(cy, cx)
+  if giv[i] ~= 0 then sfx(3, 1) return end     -- 给定格不可改
+  if pencil then                               -- 铅笔候选：切换小字
+    if puz[i] ~= 0 then sfx(3, 1) return end
+    if penc[i][d] then penc[i][d] = nil else penc[i][d] = true end
+    sfx(12, 1)
+    return
+  end
+  if puz[i] == d then sfx(0, 0) return end     -- 重复填同数：轻响带过
+  puz[i] = d
+  own[i] = 1
+  if d == sol[i] then
+    sfx(19 + d, 0)
+  else
+    mistakes = mistakes + 1
+    sfx(5, 1)
+  end
+  clear_pencil_units(i, d)
+  if board_full() then on_win() end
+end
+
+local function erase_cell()
+  local i = idx(cy, cx)
+  if giv[i] ~= 0 then sfx(3, 1) return end
+  local had_digit = puz[i] ~= 0
+  local had_penc = next(penc[i]) ~= nil
+  if pencil then                               -- 铅笔模式：只清候选
+    penc[i] = {}
+    sfx(had_penc and 13 or 2, 0)
+  else
+    puz[i] = 0
+    own[i] = 0
+    penc[i] = {}
+    sfx((had_digit or had_penc) and 13 or 2, 0)
+  end
+end
+
+local function use_hint()
+  local i = idx(cy, cx)
+  if hints_left <= 0 or giv[i] ~= 0 or puz[i] == sol[i] then
+    sfx(3, 1)
+    return
+  end
+  puz[i] = sol[i]
+  own[i] = 2
+  hints_left = hints_left - 1
+  clear_pencil_units(i, sol[i])
+  sfx(6, 1)
+  if board_full() then on_win() end
+end
+
+local function start_gen()
+  srand(frame())                               -- 以开局帧号为种子（确定性随机）
+  gen_phase, gen_prog = 0, 0
+  gen = coroutine.create(gen_worker)
+  state = "gen"
+end
+
+local function finish_gen()                    -- 装填棋局，进入对局
+  sol, giv, puz, own, penc = {}, {}, {}, {}, {}
+  for i = 1, 81 do
+    sol[i] = NG.sol[i]
+    giv[i] = NG.bd[i]
+    puz[i] = NG.bd[i]
+    own[i] = 0
+    penc[i] = {}
+    conf[i] = false
+  end
+  hints_left, mistakes, play_frames = HINTS_MAX, 0, 0
+  cx, cy, focus, bar_sel = 4, 4, 0, 5
+  pencil, check = false, false
+  rep, rep_bar = { 0, 0, 0, 0 }, 0
+  gen = nil
+  state = "play"
+  sfx(1, 0)
+end
+
+local function restart_puzzle()                -- 重开本题：恢复题面
+  for i = 1, 81 do
+    puz[i] = giv[i]
+    own[i] = 0
+    penc[i] = {}
+    conf[i] = false
+  end
+  hints_left, mistakes, play_frames = HINTS_MAX, 0, 0
+  cx, cy, focus = 4, 4, 0
+  pencil, check = false, false
+  rep, rep_bar = { 0, 0, 0, 0 }, 0
+  state = "play"
+  sfx(1, 0)
+end
+
+local function to_title()
+  state = "title"
+  title_sel = diff
+end
+
+-- ---------------------------------------------------------------- 更新
+
+local function update_title()
+  if btnp(2) or btnp(3) or btnp(0) or btnp(1) then
+    title_sel = title_sel % 3 + 1              -- 任意方向键循环切换难度
+    sfx(0, 0)
+  end
+  if btnp(10) then toggle_music() end
+  if btnp(4) or btnp(11) then
+    diff = title_sel
+    sfx(1, 0)
+    start_gen()
+  end
+end
+
+local function update_gen()
+  if btnp(10) then toggle_music() end
+  if btnp(11) then                             -- Start 取消出题回标题
+    state = "title"
+    gen = nil
+    sfx(11, 0)
+    return
+  end
+  for _ = 1, 4 do                              -- 每帧最多 4 段切片（预算内）
+    if gen == nil or coroutine.status(gen) == "dead" then break end
+    local ok, err = coroutine.resume(gen)
+    if not ok then error(err) end
+  end
+  if gen ~= nil and coroutine.status(gen) == "dead" then finish_gen() end
+end
+
+local function update_play()
+  if btnp(10) then toggle_music() end
+  if btnp(11) then
+    state = "pause"
+    pause_sel = 1
+    sfx(11, 0)
+    return
+  end
+  play_frames = play_frames + 1                -- 计时仅对局中推进
+  if focus == 0 then
+    for d = 0, 3 do                            -- 光标移动：首按即动 + 自动重复
+      if btn(d) then
+        rep[d + 1] = rep[d + 1] + 1
+        if rep[d + 1] == 1 or (rep[d + 1] > 14 and rep[d + 1] % 3 == 0) then
+          if d == 0 and cx > 0 then cx = cx - 1 sfx(2, 0)
+          elseif d == 1 and cx < 8 then cx = cx + 1 sfx(2, 0)
+          elseif d == 2 and cy > 0 then cy = cy - 1 sfx(2, 0)
+          elseif d == 3 then
+            if cy < 8 then cy = cy + 1 sfx(2, 0)
+            else focus = 1 sfx(0, 0) end       -- 底行再按下 → 跳到数字条
+          end
+        end
+      else
+        rep[d + 1] = 0
+      end
+    end
+    if btnp(4) then
+      if giv[idx(cy, cx)] ~= 0 then sfx(3, 1)
+      else focus = 1 sfx(0, 0) end
+    elseif btnp(5) then erase_cell()
+    elseif btnp(8) then pencil = not pencil sfx(12, 0)
+    elseif btnp(9) then use_hint()
+    elseif btnp(6) then check = not check sfx(check and 7 or 8, 0)
+    end
+  else
+    local bdir = 0                             -- 数字条：左右选数（自动重复）
+    if btn(0) then bdir = -1 elseif btn(1) then bdir = 1 end
+    if bdir ~= 0 then
+      rep_bar = rep_bar + 1
+      if rep_bar == 1 or (rep_bar > 12 and rep_bar % 2 == 0) then
+        bar_sel = (bar_sel + bdir + 8) % 9 + 1
+        sfx(0, 0)
+      end
+    else
+      rep_bar = 0
+    end
+    if btnp(2) then                            -- ↑ 回棋盘
+      focus = 0
+      rep = { 0, 0, 0, 0 }
+      sfx(0, 0)
+    elseif btnp(4) then                        -- 确认填入
+      local was_given = giv[idx(cy, cx)] ~= 0
+      apply_digit(bar_sel)
+      if not pencil or was_given then focus = 0 end -- 铅笔连填留在数字条
+    elseif btnp(5) then
+      focus = 0
+      sfx(0, 0)
+    elseif btnp(8) then                        -- 数字条上也可切换铅笔/检查、用提示
+      pencil = not pencil
+      sfx(12, 0)
+    elseif btnp(6) then
+      check = not check
+      sfx(check and 7 or 8, 0)
+    elseif btnp(9) then
+      use_hint()
+    end
+  end
+  recompute_conflicts()
+end
+
+local function update_pause()
+  if btnp(11) or btnp(5) then
+    state = "play"
+    sfx(11, 0)
+  elseif btnp(2) or btnp(0) then
+    pause_sel = (pause_sel + 2) % 4 + 1
+    sfx(0, 0)
+  elseif btnp(3) or btnp(1) then
+    pause_sel = pause_sel % 4 + 1
+    sfx(0, 0)
+  elseif btnp(4) then
+    if pause_sel == 1 then
+      state = "play"
+      sfx(11, 0)
+    elseif pause_sel == 2 then
+      restart_puzzle()
+    elseif pause_sel == 3 then
+      sfx(1, 0)
+      start_gen()
+    else
+      to_title()
+      sfx(0, 0)
+    end
+  end
+end
+
+local function update_win()
+  win_t = win_t + 1
+  if win_t == 46 and win_new_best then sfx(10, 2) end
+  if btnp(10) then toggle_music() end
+  if win_t > 50 then
+    if btnp(4) then
+      sfx(1, 0)
+      start_gen()                              -- 再来一局：同难度换新题
+    elseif btnp(11) then
+      to_title()
+    end
+  end
+end
+
+function _update()
+  t = t + 1
+  if state == "title" then update_title()
+  elseif state == "gen" then update_gen()
+  elseif state == "play" then update_play()
+  elseif state == "pause" then update_pause()
+  elseif state == "win" then update_win() end
+end
+
+-- ---------------------------------------------------------------- 冲突标记
+
+function recompute_conflicts()                 -- 检查模式：行/列/宫内重复标红
+  for i = 1, 81 do conf[i] = false end
+  if not check then return end
+  local cnt = {}
+  for u = 0, 8 do                              -- 行
+    for d = 1, 9 do cnt[d] = 0 end
+    for c = 0, 8 do local v = puz[idx(u, c)] if v > 0 then cnt[v] = cnt[v] + 1 end end
+    for c = 0, 8 do local v = puz[idx(u, c)] if v > 0 and cnt[v] > 1 then conf[idx(u, c)] = true end end
+  end
+  for u = 0, 8 do                              -- 列
+    for d = 1, 9 do cnt[d] = 0 end
+    for r = 0, 8 do local v = puz[idx(r, u)] if v > 0 then cnt[v] = cnt[v] + 1 end end
+    for r = 0, 8 do local v = puz[idx(r, u)] if v > 0 and cnt[v] > 1 then conf[idx(r, u)] = true end end
+  end
+  for u = 0, 8 do                              -- 宫
+    for d = 1, 9 do cnt[d] = 0 end
+    local r0, c0 = flr(u / 3) * 3, (u % 3) * 3
+    for r = r0, r0 + 2 do
+      for c = c0, c0 + 2 do
+        local v = puz[idx(r, c)]
+        if v > 0 then cnt[v] = cnt[v] + 1 end
+      end
+    end
+    for r = r0, r0 + 2 do
+      for c = c0, c0 + 2 do
+        local v = puz[idx(r, c)]
+        if v > 0 and cnt[v] > 1 then conf[idx(r, c)] = true end
+      end
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制
+
+local function draw_dots_bg()                  -- 深底 + 稀疏点纹
+  cls(C_PAGE)
+  fillp(0x0842)
+  rectfill(0, 0, 256, 256, C_HUD * 256 + C_PAGE)
+  fillp()
+end
+
+local function draw_hud()
+  rectfill(0, 0, 256, 20, C_HUD)
+  line(0, 20, 255, 20, C_CELL_L)
+  print(DIFF[diff].name, 4, 2, DIFF[diff].col)
+  ctext(mmss(flr(play_frames / 60)), 2, 7)
+  local hs = "Ⓡ×" .. hints_left
+  print(hs, 252 - tw(hs), 2, hints_left > 0 and C_GOLD or C_DIM)
+  if music_on then print("♪", 252 - tw(hs) - 24, 2, 30) end
+end
+
+local function draw_status()
+  local s = pencil and "铅笔 开" or "铅笔 关"
+  print(s, 4, STAT_Y, pencil and C_GOLD or C_DIM)
+  s = check and "检查 开" or "检查 关"
+  print(s, 252 - tw(s), STAT_Y, check and C_CONFL or C_DIM)
+end
+
+local function draw_tips()
+  rectfill(0, TIP_Y, 256, 16, C_HUD)
+  line(0, TIP_Y, 255, TIP_Y, C_CELL_L)
+  ctext(TIPS[flr(t / 240) % #TIPS + 1], TIP_Y, C_DIM)
+end
+
+local function draw_board()
+  local cursor_on = focus == 0 and state ~= "win"
+  local cv = puz[idx(cy, cx)]
+  -- 格底 + 三层高亮（光标行列宫淡染 → 同数高亮 → 冲突红染）
+  for r = 0, 8 do
+    for c = 0, 8 do
+      local i = idx(r, c)
+      local px, py = BX + c * CELL, BY + r * CELL
+      local is_cur = cursor_on and r == cy and c == cx
+      local base = (r + c) % 2 == 0 and C_CELL_L or C_CELL_D
+      if is_cur then
+        rectfill(px, py, CELL, CELL, C_CURSOR)
+      else
+        rectfill(px, py, CELL, CELL, base)
+        if cursor_on and (r == cy or c == cx or box_of(r, c) == box_of(cy, cx)) then
+          fillp(0x2222)
+          rectfill(px, py, CELL, CELL, C_CURSOR * 256 + base)
+          fillp()
+        end
+        if cursor_on and cv ~= 0 and puz[i] == cv then
+          fillp(0x8888)
+          rectfill(px, py, CELL, CELL, C_GOLD * 256 + base)
+          fillp()
+        end
+        if conf[i] then
+          fillp(0x2222)
+          rectfill(px, py, CELL, CELL, C_CONFL * 256 + base)
+          fillp()
+        end
+      end
+    end
+  end
+  -- 网格线：细线 1px ・ 3×3 粗线 2px
+  for k = 1, 8 do
+    local p = k * CELL
+    if k % 3 ~= 0 then
+      line(BX + p, BY, BX + p, BY + 162, C_GRID)
+      line(BX, BY + p, BX + 162, BY + p, C_GRID)
+    else
+      rectfill(BX + p - 1, BY, 2, 162, C_THICK)
+      rectfill(BX, BY + p - 1, 162, 2, C_THICK)
+    end
+  end
+  -- 外框 2px
+  rectfill(BX - 2, BY - 2, 166, 2, C_THICK)
+  rectfill(BX - 2, BY + 162, 166, 2, C_THICK)
+  rectfill(BX - 2, BY, 2, 162, C_THICK)
+  rectfill(BX + 162, BY, 2, 162, C_THICK)
+  -- 数字与铅笔候选
+  pal(7, C_PENCIL)                             -- 小字白色统一映射为铅笔灰
+  for r = 0, 8 do
+    for c = 0, 8 do
+      local i = idx(r, c)
+      local v = puz[i]
+      local px, py = BX + c * CELL, BY + r * CELL
+      if v > 0 then
+        local is_cur = cursor_on and r == cy and c == cx
+        local col
+        if is_cur then col = C_INK
+        elseif conf[i] then col = C_CONFL
+        elseif giv[i] ~= 0 then col = C_GIVEN
+        elseif own[i] == 2 then col = C_HINTC
+        else col = C_PLAYER end
+        if giv[i] ~= 0 then                    -- 给定：双描白字（粗体感）
+          print(v, px + 5, py + 1, col)
+          print(v, px + 6, py + 1, col)
+        else
+          print(v, px + 5, py + 1, col)
+        end
+      elseif next(penc[i]) then
+        for d = 1, 9 do
+          if penc[i][d] then
+            local sr, sc = flr((d - 1) / 3), (d - 1) % 3
+            sspr(d * 4, 16, 3, 5, px + sc * 6 + 2, py + sr * 6)
+          end
+        end
+      end
+    end
+  end
+  pal()
+  -- 光标描边（数字条聚焦时转暗，表示棋盘暂不可编辑）
+  if state ~= "win" then
+    local px, py = BX + cx * CELL, BY + cy * CELL
+    local oc
+    if focus == 1 then oc = C_GRID
+    elseif flr(t / 8) % 2 == 0 then oc = C_GOLD
+    else oc = C_AMBER end
+    rect(px - 2, py - 2, 22, 22, oc)
+    rect(px - 1, py - 1, 20, 20, oc)
+  end
+end
+
+local function draw_bar()
+  local cnts = {}
+  for i = 1, 81 do
+    local v = puz[i]
+    if v > 0 then cnts[v] = (cnts[v] or 0) + 1 end
+  end
+  for d = 1, 9 do
+    local kx = 4 + (d - 1) * (KEY_W + 4)
+    local sel = focus == 1 and bar_sel == d
+    local full = (cnts[d] or 0) >= 9
+    rrectfill(kx, BAR_Y, KEY_W, KEY_H, 3, sel and C_CURSOR or C_CELL_D)
+    rrect(kx, BAR_Y, KEY_W, KEY_H, 3,
+      sel and (flr(t / 8) % 2 == 0 and C_GOLD or C_AMBER) or C_GRID)
+    print(d, kx + 8, BAR_Y + 2, sel and C_INK or (full and C_DIM or C_TXT))
+    pal(7, sel and C_INK or (full and C_DIM or C_TXT))
+    sspr((9 - (cnts[d] or 0)) * 4, 16, 3, 5, kx + 11, BAR_Y + 20)
+    pal()
+  end
+end
+
+local function draw_gen()
+  draw_dots_bg()
+  rrectfill(64, 92, 128, 76, 6, C_HUD)
+  rrect(64, 92, 128, 76, 6, C_GRID)
+  rectfill(66, 94, 124, 1, 30)
+  ctext("出题中" .. string.rep(".", flr(t / 20) % 4), 104, C_GOLD)
+  ctext(gen_phase == 0 and "构建终盘" or "挖洞 ・ 唯一解验证", 126, C_TXT)
+  rrectfill(76, 148, 104, 12, 3, C_CELL_D)     -- 进度条
+  rrect(76, 148, 104, 12, 3, C_GRID)
+  rectfill(78, 150, flr(100 * gen_prog), 8, 30)
+  if flr(t / 20) % 2 == 0 then ctext("Start 返回", 180, C_DIM) end
+end
+
+local function draw_title()
+  draw_dots_bg()
+  -- 背景漂浮数字（极暗装饰）
+  local deco = { { "7", 20, 66 }, { "3", 216, 48 }, { "5", 14, 176 }, { "9", 224, 168 },
+    { "1", 58, 218 }, { "4", 190, 216 }, { "8", 122, 224 }, { "6", 238, 118 } }
+  for i = 1, #deco do
+    local d = deco[i]
+    print(d[1], d[2], d[3] + flr(sin(t * 0.008 + i * 0.9) * 5), 12)
+  end
+  -- 标题：双字格片 + 阴影错位 + 浮动
+  local chars, cols = { "数", "独" }, { C_GOLD, C_PLAYER }
+  for i = 1, 2 do
+    local x = 84 + (i - 1) * 52
+    local y = 24 + flr(sin(t * 0.04 + i * 0.5) * 2)
+    rrectfill(x, y, 36, 36, 6, C_CELL_D)
+    rrect(x, y, 36, 36, 6, C_GRID)
+    print(chars[i], x + 11, y + 12, C_PAGE)
+    print(chars[i], x + 10, y + 10, cols[i])
+  end
+  ctext("SUDOKU ・ FC-16", 68, C_DIM)
+  -- 难度菜单
+  rrectfill(64, 88, 128, 112, 6, C_HUD)
+  rrect(64, 88, 128, 112, 6, C_GRID)
+  rectfill(66, 90, 124, 1, 30)
+  ctext("选择难度", 96, C_TXT)
+  for i = 1, 3 do
+    local y = 116 + (i - 1) * 26
+    local sel = title_sel == i
+    if sel then
+      rrect(70, y - 5, 116, 26, 4, flr(t / 8) % 2 == 0 and C_GOLD or C_AMBER)
+    end
+    if sel and flr(t / 10) % 2 == 0 then print("▶", 73, y, C_GOLD) end
+    print(DIFF[i].name, 90, y, DIFF[i].col)
+    local bt = flr(dget(i - 1))
+    local bs = bt == 0 and "--:--" or mmss(bt)
+    print(bs, 182 - tw(bs), y, sel and 7 or C_DIM)
+  end
+  if flr(t / 20) % 2 == 0 then
+    local hint = flr(t / 150) % 2 == 0 and "↑↓ 选择　Ⓐ 出题开局" or "Select 音乐开关"
+    ctext(hint, 212, 7)
+  end
+  print("♪", 240, 4, music_on and 30 or 10)
+  ctext("FrostMiKu ・ FC-16", 236, 10)
+end
+
+local function draw_pause()
+  fillp(0x5a5a)                                -- 暗色抖动纱罩
+  rectfill(0, 0, 256, 256, C_PAGE * 256 + 0)
+  fillp()
+  rrectfill(64, 66, 128, 124, 6, C_HUD)
+  rrect(64, 66, 128, 124, 6, C_GRID)
+  rectfill(66, 68, 124, 1, 30)
+  print("暂停", (256 - tw("暂停")) / 2 + 1, 79, C_PAGE)
+  ctext("暂停", 78, C_GOLD)
+  local items = { "继续", "重开本题", "换一题", "返回难度选择" }
+  for i = 1, 4 do
+    local y = 104 + (i - 1) * 22
+    local sel = pause_sel == i
+    if sel and flr(t / 10) % 2 == 0 then print("▶", 78, y, C_GOLD) end
+    print(items[i], 94, y, sel and 7 or C_DIM)
+  end
+end
+
+local function draw_win()
+  -- 胜利金波：按 (行+列) 对角时序扫过全盘
+  if win_t < 130 then
+    fillp(0x8888)
+    for r = 0, 8 do
+      for c = 0, 8 do
+        local d0 = (r + c) * 2
+        if win_t > d0 and win_t < d0 + 26 then
+          rectfill(BX + c * CELL, BY + r * CELL, CELL, CELL, C_GOLD * 256 + C_CELL_D)
+        end
+      end
+    end
+    fillp()
+  end
+  if win_t <= 60 then return end
+  fillp(0x5a5a)
+  rectfill(0, 0, 256, 256, C_PAGE * 256 + 0)
+  fillp()
+  rrectfill(44, 56, 168, 152, 8, C_HUD)
+  rrect(44, 56, 168, 152, 8, C_GRID)
+  rectfill(46, 58, 164, 1, 30)
+  print("完成！", (256 - tw("完成！")) / 2 + 1, 71, C_PAGE)
+  ctext("完成！", 70, C_GOLD)
+  local s = "难度 " .. DIFF[diff].name
+  local x0 = (256 - tw(s)) / 2
+  print(s, x0, 96, C_TXT)
+  print(DIFF[diff].name, x0 + tw("难度 "), 96, DIFF[diff].col)
+  ctext("用时 " .. mmss(flr(play_frames / 60)), 116, 7)
+  ctext("提示 " .. (HINTS_MAX - hints_left) .. " ・ 填错 " .. mistakes, 136, C_TXT)
+  if win_new_best then
+    if flr(t / 6) % 2 == 0 then ctext("★ 新纪录 ★", 156, C_GOLD) end
+  elseif win_best_hints then
+    if flr(t / 6) % 2 == 0 then ctext("☆ 提示新纪录 ☆", 156, C_HINTC) end
+  end
+  if flr(t / 16) % 2 == 0 then ctext("Ⓐ 再来一局", 174, 7) end
+  ctext("Start 回标题", 190, C_DIM)
+end
+
+function _draw()
+  pal()
+  camera(0, 0)
+  if state == "title" then
+    draw_title()
+  elseif state == "gen" then
+    draw_gen()
+  else
+    cls(C_PAGE)
+    draw_hud()
+    draw_board()
+    draw_bar()
+    draw_status()
+    draw_tips()
+    if state == "pause" then draw_pause() end
+    if state == "win" then draw_win() end
+  end
+end
+
+-- ---------------------------------------------------------------- 生命周期
+
+function _init()
+  build_maps()
+  bake_tiny()
+  init_audio()
+  music_on = dget(6) == 0                      -- 槽位 6：0 = 开（默认）
+  if music_on then set_bgm(true) end
+  state, diff, title_sel = "title", 1, 1
+end

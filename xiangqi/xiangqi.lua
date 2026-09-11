@@ -1,0 +1,1059 @@
+-- =====================================================================
+-- FC-16 中国象棋演示卡带（demo/xiangqi）
+--
+-- 完整规则实现：车 / 马（蹩马腿）/ 炮（翻山吃）/ 相（塞象眼、不过河）/
+--   仕（九宫斜行）/ 帅（九宫直行 + 将帅照面禁手）/ 兵（过河横移）；
+--   伪合法走法 + 送将过滤（模拟走子后检测己方将是否被攻击）；
+--   走子后将军提示横幅；无合法走法时按被将军与否判将死 / 困毙。
+-- 简化项：不实现长将 / 长捉禁着与重复局面判和（见 README）。
+--
+-- AI：极小极大 + α-β（fail-soft），深度 2（黑方走 + 红方最佳回应）；
+--   评估 = 子力 + 兵推进 / 马炮中心 / 车炮机动性微调；
+--   根走法级分帧搜索（每帧限量），思考期间顶栏显示"思考中"；
+--   同分取首个最佳（确定性，不使用随机数）。
+--
+-- 模式：双人对局（热座）/ 人机对局（玩家执红先行）。
+-- 操作：⬅➡⬆⬇ 移动光标（按住重复）・Ⓐ 选子 / 走子・Ⓑ 取消
+--       Ⓧ/Ⓨ 悔棋（人机退回到玩家上一手前）・Select 音乐开关
+--       Start 回标题（终局画面 Ⓐ 再来一局）
+--
+-- 资产全部程序化：棋子圆片精灵 poke 烘焙；SFX / BGM 按位写入；
+--   战绩存 dset 槽 0-3（红胜 / 黑胜 / 总局 / 音乐开关）。
+-- =====================================================================
+
+-- ---------------------------------------------------------------- 常量
+
+-- 色号（SPEC §2.2 ENDESGA-64 固定顺序；逐处按视觉挑色，不做算术推导）
+local C_BG      = 0   -- #131313 近黑
+local C_PANEL   = 16  -- #391F21 顶/底栏深棕
+local C_EDGE    = 17  -- #5D2C28 网格线 / 河界字
+local C_WOOD_D  = 18  -- #8A4836 木框 / 阴影
+local C_WOOD    = 19  -- #BF6F4A 棋盘木底
+local C_WOOD_L  = 20  -- #E69C69 木纹亮
+local C_IVORY_D = 21  -- #F6CA9F 棋子左上高光
+local C_IVORY   = 22  -- #F9E6CF 棋子象牙底
+local C_GOLD_L  = 23  -- #EDAB50 痕迹 / 选中闪环
+local C_GOLD    = 29  -- #FFC825 可走点 / 金字
+local C_ORANGE  = 27  -- #FF5000 可吃角框
+local C_WHITE   = 7   -- #FFFFFF 光标
+local C_GRAY    = 5   -- #858585 黑方文字 / 次要文字
+local C_RED     = 59  -- #EA323C 红环
+local C_RED_INK = 60  -- #C42430 红字
+local C_RED_D   = 61  -- #891E2B 匾额深红
+local C_PINK    = 57  -- #F68187 将军横幅闪字
+local C_BLK_R   = 1   -- #1B1B1B 黑子环
+local C_BLK_INK = 2   -- #272727 黑子字
+
+-- 棋盘几何：9 列 × 10 行交叉点，格距 22px
+local CS = 22
+local BX, BY = 40, 29
+local function px(c) return BX + c * CS end
+local function py(r) return BY + r * CS end
+
+-- 棋子编码：1-7 红方，9-15 黑方（类型 = 值 - 8）
+-- 1帅 2仕 3相 4马 5车 6炮 7兵；黑方对应 将士象马车炮卒
+local NAME = {
+  [1] = "帅", [2] = "仕", [3] = "相", [4] = "马", [5] = "车", [6] = "炮", [7] = "兵",
+  [9] = "将", [10] = "士", [11] = "象", [12] = "马", [13] = "车", [14] = "炮", [15] = "卒",
+}
+
+-- 子力价值（×10 整数，帅用 MATE 兜底）
+local VAL = { 0, 20, 20, 40, 90, 45, 10 }
+local MATE = 20000
+
+-- 直线四方向（车 / 炮 / 帅 / 机动性共用）
+local DX4, DY4 = { 1, -1, 0, 0 }, { 0, 0, 1, -1 }
+-- 马位（相对起点的日字偏移）与对应蹩腿偏移
+local KN = {
+  { 1, 2, 0, 1 }, { -1, 2, 0, 1 }, { 1, -2, 0, -1 }, { -1, -2, 0, -1 },
+  { 2, 1, 1, 0 }, { 2, -1, 1, 0 }, { -2, 1, -1, 0 }, { -2, -1, -1, 0 },
+}
+-- 相的四个田字对角
+local KX, KY = { 2, 2, -2, -2 }, { 2, -2, 2, -2 }
+
+local RED_MOVE, BLACK_MOVE = "红方行棋", "黑方行棋"
+local DOTS = { "", ".", "..", "..." }
+
+-- 音效编号
+local S_SELECT, S_MOVE, S_CAP, S_BAD = 0, 1, 2, 3
+local S_CHECK, S_WIN, S_LOSE, S_UNDO = 4, 5, 6, 7
+local S_CUR, S_GO = 8, 9
+
+-- ------------------------------------------------- 局面与走法生成（规则核心）
+
+-- board[1..90]：0 空，1-7 红，9-15 黑；索引 = 行 * 9 + 列 + 1
+local board = {}
+-- 帅位置缓存（红 = king[1]，黑 = king[-1]），apply/undo 增量维护
+local king = {}
+
+local function in_board(x, y) return x >= 0 and x <= 8 and y >= 0 and y <= 9 end
+local function in_palace(x, y, black)
+  if x < 3 or x > 5 then return false end
+  if black then return y >= 0 and y <= 2 end
+  return y >= 7 and y <= 9
+end
+
+local function apply_move(f, t)
+  local cap = board[t + 1]
+  local p = board[f + 1]
+  board[t + 1] = p
+  board[f + 1] = 0
+  if p == 1 then king[1] = t elseif p == 9 then king[-1] = t end
+  return cap
+end
+
+local function undo_move(f, t, cap)
+  local p = board[t + 1]
+  board[f + 1] = p
+  board[t + 1] = cap
+  if p == 1 then king[1] = f elseif p == 9 then king[-1] = f end
+end
+
+-- (x, y) 是否被 black 方攻击（用于将军与照面检测；仕 / 相攻击不到对方将，不列）
+local function is_attacked(x, y, black)
+  -- 直线：车（第一子）、帅（纵向照面，第一子）、炮（隔一子）
+  for d = 1, 4 do
+    local dx, dy = DX4[d], DY4[d]
+    local cx, cy = x + dx, y + dy
+    local hop = false
+    while cx >= 0 and cx <= 8 and cy >= 0 and cy <= 9 do
+      local p = board[cy * 9 + cx + 1]
+      if p ~= 0 then
+        local enemy = (p > 7) == black
+        if not hop then
+          if enemy then
+            local ty = p > 7 and p - 8 or p
+            if ty == 5 or (ty == 1 and dy ~= 0) then return true end
+          end
+          hop = true
+        else
+          if enemy and (p == 6 or p == 14) then return true end
+          break
+        end
+      end
+      cx = cx + dx
+      cy = cy + dy
+    end
+  end
+  -- 马（反向蹩腿检查：腿位相对目标而言）
+  for k = 1, 8 do
+    local nx, ny = x + KN[k][1], y + KN[k][2]
+    if in_board(nx, ny) then
+      local p = board[ny * 9 + nx + 1]
+      if p == (black and 12 or 4) then
+        local lx, ly = x + KN[k][3], y + KN[k][4]
+        if board[ly * 9 + lx + 1] == 0 then return true end
+      end
+    end
+  end
+  -- 兵：直进攻击 + 过河横移攻击
+  if black then
+    if y > 0 and board[(y - 1) * 9 + x + 1] == 15 then return true end
+    if y >= 5 then
+      if x > 0 and board[y * 9 + x] == 15 then return true end
+      if x < 8 and board[y * 9 + x + 2] == 15 then return true end
+    end
+  else
+    if y < 9 and board[(y + 1) * 9 + x + 1] == 7 then return true end
+    if y <= 4 then
+      if x > 0 and board[y * 9 + x] == 7 then return true end
+      if x < 8 and board[y * 9 + x + 2] == 7 then return true end
+    end
+  end
+  return false
+end
+
+local function in_check(black)
+  local k = king[black and -1 or 1]
+  return is_attacked(k % 9, flr(k / 9), not black) -- 攻击方 = 对方
+end
+
+-- 伪合法走法生成：写入复用数组 mf/mt，返回数量（不建走法对象，减小 GC 压力）
+local function gen_moves(black, mf, mt)
+  local n = 0
+  for i = 0, 89 do
+    local p = board[i + 1]
+    if p ~= 0 and (p > 7) == black then
+      local ty = p > 7 and p - 8 or p
+      local x, y = i % 9, flr(i / 9)
+      if ty == 5 then -- 车：直线到第一个子为止（敌可吃，己阻挡）
+        for d = 1, 4 do
+          local dx, dy = DX4[d], DY4[d]
+          local cx, cy = x + dx, y + dy
+          while cx >= 0 and cx <= 8 and cy >= 0 and cy <= 9 do
+            local q = board[cy * 9 + cx + 1]
+            if q == 0 then
+              n = n + 1; mf[n] = i; mt[n] = cy * 9 + cx
+            else
+              if (q > 7) ~= black then
+                n = n + 1; mf[n] = i; mt[n] = cy * 9 + cx
+              end
+              break
+            end
+            cx = cx + dx
+            cy = cy + dy
+          end
+        end
+      elseif ty == 6 then -- 炮：空线直行；隔恰一子吃第二子
+        for d = 1, 4 do
+          local dx, dy = DX4[d], DY4[d]
+          local cx, cy = x + dx, y + dy
+          local hop = false
+          while cx >= 0 and cx <= 8 and cy >= 0 and cy <= 9 do
+            local q = board[cy * 9 + cx + 1]
+            if q == 0 then
+              if not hop then
+                n = n + 1; mf[n] = i; mt[n] = cy * 9 + cx
+              end
+            else
+              if not hop then
+                hop = true
+              else
+                if (q > 7) ~= black then
+                  n = n + 1; mf[n] = i; mt[n] = cy * 9 + cx
+                end
+                break
+              end
+            end
+            cx = cx + dx
+            cy = cy + dy
+          end
+        end
+      elseif ty == 4 then -- 马
+        for k = 1, 8 do
+          local lx, ly = x + KN[k][3], y + KN[k][4]
+          local nx, ny = x + KN[k][1], y + KN[k][2]
+          if in_board(nx, ny) and board[ly * 9 + lx + 1] == 0 then
+            local q = board[ny * 9 + nx + 1]
+            if q == 0 or (q > 7) ~= black then
+              n = n + 1; mf[n] = i; mt[n] = ny * 9 + nx
+            end
+          end
+        end
+      elseif ty == 3 then -- 相：田字 + 塞象眼 + 不过河
+        for k = 1, 4 do
+          local nx, ny = x + KX[k], y + KY[k]
+          if in_board(nx, ny) and (black and ny <= 4 or ny >= 5) then
+            if board[(y + KY[k] / 2) * 9 + x + KX[k] / 2 + 1] == 0 then
+              local q = board[ny * 9 + nx + 1]
+              if q == 0 or (q > 7) ~= black then
+                n = n + 1; mf[n] = i; mt[n] = ny * 9 + nx
+              end
+            end
+          end
+        end
+      elseif ty == 2 then -- 仕：九宫斜一格
+        for k = 1, 4 do
+          local nx, ny = x + KX[k] / 2, y + KY[k] / 2
+          if in_palace(nx, ny, black) then
+            local q = board[ny * 9 + nx + 1]
+            if q == 0 or (q > 7) ~= black then
+              n = n + 1; mf[n] = i; mt[n] = ny * 9 + nx
+            end
+          end
+        end
+      elseif ty == 1 then -- 帅：九宫直一格（照面由合法性过滤处理）
+        for d = 1, 4 do
+          local nx, ny = x + DX4[d], y + DY4[d]
+          if in_palace(nx, ny, black) then
+            local q = board[ny * 9 + nx + 1]
+            if q == 0 or (q > 7) ~= black then
+              n = n + 1; mf[n] = i; mt[n] = ny * 9 + nx
+            end
+          end
+        end
+      else -- 兵：过河前直进，过河后可横移
+        local fwd = black and y + 1 or y - 1
+        if fwd >= 0 and fwd <= 9 then
+          local q = board[fwd * 9 + x + 1]
+          if q == 0 or (q > 7) ~= black then
+            n = n + 1; mf[n] = i; mt[n] = fwd * 9 + x
+          end
+        end
+        if black and y >= 5 or not black and y <= 4 then
+          for dx = -1, 1, 2 do
+            local nx = x + dx
+            if nx >= 0 and nx <= 8 then
+              local q = board[y * 9 + nx + 1]
+              if q == 0 or (q > 7) ~= black then
+                n = n + 1; mf[n] = i; mt[n] = y * 9 + nx
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  return n
+end
+
+-- 合法走法（过滤送将 / 照面）：返回 {{f=,t=,cap=}...}；only_f 仅筛该起点
+local function legal_moves(black, only_f)
+  local mf, mt = {}, {}
+  local n = gen_moves(black, mf, mt)
+  local out = {}
+  for k = 1, n do
+    local f, t = mf[k], mt[k]
+    if only_f == nil or only_f == f then
+      local cap = apply_move(f, t)
+      local bad = in_check(black)
+      undo_move(f, t, cap)
+      if not bad then out[#out + 1] = { f = f, t = t, cap = cap } end
+    end
+  end
+  return out
+end
+
+local function setup_board()
+  for i = 1, 90 do board[i] = 0 end
+  local back = { 5, 4, 3, 2, 1, 2, 3, 4, 5 }
+  for x = 0, 8 do
+    board[x + 1] = back[x + 1] + 8
+    board[81 + x + 1] = back[x + 1]
+  end
+  board[2 * 9 + 1 + 1] = 14; board[2 * 9 + 7 + 1] = 14   -- 黑炮
+  board[7 * 9 + 1 + 1] = 6;  board[7 * 9 + 7 + 1] = 6    -- 红炮
+  for x = 0, 8, 2 do
+    board[3 * 9 + x + 1] = 15                            -- 黑卒
+    board[6 * 9 + x + 1] = 7                             -- 红兵
+  end
+  king[1] = 9 * 9 + 4
+  king[-1] = 4
+end
+
+-- ---------------------------------------------------------------- 对局状态
+
+local mode = "title"     -- title / play
+local mode_ai = false    -- 人机（玩家执红）
+local turn_black = false -- 轮黑方行棋
+local history = {}       -- { f, t, cap }
+local last_f, last_t = -1, -1
+local sel, sel_moves = nil, nil
+local cx, cy = 4, 9      -- 光标（列 / 行）
+local anim = nil         -- { f, t, p, cap, t0, dur, check, over, reason, mover_black }
+local banner = nil       -- { s, t, dur, k }
+local over = nil         -- { black, reason }
+local fx = {}            -- 吃子碎片粒子
+local t = 0
+local title_sel = 1
+local stats = { 0, 0, 0 } -- 红胜 / 黑胜 / 总局
+local music_on = true
+local thinking = nil     -- AI 分帧搜索状态
+
+local ANIM_DUR = 9
+
+local exec_move -- 前向声明（AI 完成后直接调用）
+
+local function cprint(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+
+local function start_game(ai)
+  mode_ai = ai
+  mode = "play"
+  setup_board()
+  history = {}
+  turn_black = false
+  sel, sel_moves = nil, nil
+  last_f, last_t = -1, -1
+  anim, banner, over, thinking = nil, nil, nil, nil
+  fx = {}
+  cx, cy = 4, 9
+  if music_on then music(0, 400, 0xE0) end
+  sfx(S_GO)
+end
+
+local function goto_title()
+  mode = "title"
+  music(-1, 200)
+  setup_board()
+  history = {}
+  anim, banner, over, thinking = nil, nil, nil, nil
+  fx = {}
+end
+
+local function spawn_fx(ix, black)
+  local x, y = px(ix % 9), py(flr(ix / 9))
+  for i = 1, 5 do
+    fx[#fx + 1] = {
+      x = x, y = y,
+      vx = (i - 3) * 0.5,
+      vy = -1.6 + abs(i - 3) * 0.35, -- 中间高两侧低（确定性轨迹）
+      c = black and C_BLK_R or C_RED,
+    }
+  end
+end
+
+-- ---------------------------------------------------------------- AI 搜索
+
+-- 评估（黑方视角，正值黑优）：子力 + 位置微调 + 车炮机动性
+local function evaluate()
+  local s = 0
+  for i = 0, 89 do
+    local p = board[i + 1]
+    if p ~= 0 then
+      local black = p > 7
+      local ty = black and p - 8 or p
+      local x, y = i % 9, flr(i / 9)
+      local v
+      if ty == 1 then
+        v = MATE
+      elseif ty == 7 then -- 兵：过河增值、推进奖励、底线老兵减值
+        if black then
+          v = y >= 5 and 20 + (y - 5) * 2 - (y == 9 and 6 or 0) or 10
+        else
+          v = y <= 4 and 20 + (4 - y) * 2 - (y == 0 and 6 or 0) or 10
+        end
+      else
+        v = VAL[ty]
+        if ty == 4 then -- 马靠中
+          v = v + 4 - abs(x - 4)
+        elseif ty == 5 or ty == 6 then -- 车 / 炮：中列 + 机动性（四方向首格）
+          v = v + flr((4 - abs(x - 4)) / 2)
+          for d = 1, 4 do
+            local nx, ny = x + DX4[d], y + DY4[d]
+            if nx >= 0 and nx <= 8 and ny >= 0 and ny <= 9 then
+              local q = board[ny * 9 + nx + 1]
+              if ty == 5 then
+                if q == 0 or (q > 7) ~= black then v = v + 1 end
+              else
+                if q == 0 then v = v + 1 end
+              end
+            end
+          end
+        end
+      end
+      if black then s = s + v else s = s - v end
+    end
+  end
+  return s
+end
+
+-- 红方最佳回应（红视角，fail-soft α-β：best ≥ beta 即剪）；复用走法数组
+local RB_F, RB_T = {}, {}
+local function red_best(beta)
+  local n = gen_moves(false, RB_F, RB_T)
+  local best = -MATE - 1
+  for k = 1, n do
+    local f, t = RB_F[k], RB_T[k]
+    local cap = apply_move(f, t)
+    local s
+    if cap == 9 then -- 吃黑将（防御分支：正常搜索不会出现）
+      s = MATE
+    elseif in_check(false) then -- 红送将，非法
+      s = -MATE - 1
+    else
+      s = -evaluate()
+    end
+    undo_move(f, t, cap)
+    if s > best then best = s end
+    if best >= beta then return best end
+  end
+  if best == -MATE - 1 then return -MATE end -- 红无合法走法：被将死 / 困毙
+  return best
+end
+
+local AI_ROOT_F, AI_ROOT_T = {}, {}
+local AI_PER_FRAME = 2 -- 每帧处理的根走法数（预算内摊帧）
+
+local function ai_begin()
+  local n = gen_moves(true, AI_ROOT_F, AI_ROOT_T)
+  -- 黑方根走法过滤送将
+  local mf, mt = {}, {}
+  local m = 0
+  for k = 1, n do
+    local f, t = AI_ROOT_F[k], AI_ROOT_T[k]
+    local cap = apply_move(f, t)
+    local bad = in_check(true)
+    undo_move(f, t, cap)
+    if not bad then
+      m = m + 1; mf[m] = f; mt[m] = t
+    end
+  end
+  thinking = { i = 1, n = m, mf = mf, mt = mt, best_f = -1, best_t = -1, best_s = -MATE - 1 }
+end
+
+local function ai_step()
+  local th = thinking
+  local cnt = 0
+  while th.i <= th.n and cnt < AI_PER_FRAME do
+    local f, t = th.mf[th.i], th.mt[th.i]
+    local cap = apply_move(f, t)
+    local s
+    if cap == 1 then -- 吃红帅（防御分支）
+      s = MATE
+    else
+      s = -red_best(-th.best_s)
+    end
+    undo_move(f, t, cap)
+    if s > th.best_s then
+      th.best_s = s; th.best_f = f; th.best_t = t
+    end
+    th.i = th.i + 1
+    cnt = cnt + 1
+  end
+  if th.i > th.n then
+    thinking = nil
+    if th.best_f >= 0 then
+      exec_move(th.best_f, th.best_t)
+    else -- 黑无合法走法（防御：正常由终局检测先行报告）
+      over = { black = false, reason = in_check(true) and "将死" or "困毙" }
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 走子执行
+
+-- 走子（人与 AI 共用入口）：立即更新局面，动画与演出随后
+exec_move = function(f, tt)
+  local cap = apply_move(f, tt)
+  history[#history + 1] = { f = f, t = tt, cap = cap }
+  last_f, last_t = f, tt
+  sel, sel_moves = nil, nil
+  local mover_black = turn_black
+  turn_black = not turn_black
+  -- 终局与将军检测（读棋盘，无副作用）
+  local opp_moves = legal_moves(turn_black)
+  local chk = in_check(turn_black)
+  anim = {
+    f = f, t = tt, p = board[tt + 1], cap = cap, t0 = 0, dur = ANIM_DUR,
+    check = chk, over = #opp_moves == 0, mover_black = mover_black,
+    reason = chk and "将死" or "困毙",
+  }
+  if cap ~= 0 then sfx(S_CAP) else sfx(S_MOVE) end
+end
+
+local function finish_anim()
+  local a = anim
+  anim = nil
+  if a.cap ~= 0 then spawn_fx(a.t, a.cap > 7) end
+  if a.over then
+    over = { black = a.mover_black, reason = a.reason }
+    if a.mover_black then
+      stats[2] = stats[2] + 1
+      sfx(mode_ai and S_LOSE or S_WIN)
+    else
+      stats[1] = stats[1] + 1
+      sfx(S_WIN)
+    end
+    stats[3] = stats[3] + 1
+    dset(0, stats[1]); dset(1, stats[2]); dset(2, stats[3]); fflush()
+    music(-1, 600)
+    return
+  end
+  if a.check then
+    local k = king[turn_black and -1 or 1]
+    banner = { s = "将军！", t = 0, dur = 55, k = k }
+    sfx(S_CHECK)
+  end
+  if mode_ai and turn_black then ai_begin() end
+end
+
+local function undo_one()
+  local h = history[#history]
+  if not h then return false end
+  undo_move(h.f, h.t, h.cap)
+  history[#history] = nil
+  turn_black = not turn_black
+  local h2 = history[#history]
+  if h2 then
+    last_f, last_t = h2.f, h2.t
+  else
+    last_f, last_t = -1, -1
+  end
+  return true
+end
+
+local function do_undo()
+  if anim then return end
+  thinking = nil
+  if mode_ai then
+    if turn_black then
+      undo_one()          -- AI 思考被取消：退回玩家上一手前
+    else
+      undo_one()          -- 撤 AI 最后一手
+      undo_one()          -- 撤玩家上一手
+    end
+  else
+    undo_one()
+  end
+  over, banner, sel, sel_moves = nil, nil, nil, nil
+  sfx(S_UNDO)
+end
+
+local function toggle_music()
+  music_on = not music_on
+  dset(3, music_on and 0 or 1)
+  if mode == "play" then
+    if music_on then music(0, 300, 0xE0) else music(-1, 300) end
+  end
+end
+
+-- ---------------------------------------------------------------- 精灵烘焙
+
+-- 逐像素写 16×16 瓦片（SPEC §4.2：瓦片像素地址 = t*256 + y*16 + x）
+local function bake(id, fn)
+  local base = id * 256
+  for y = 0, 15 do
+    for x = 0, 15 do
+      local c = fn(x + 0.5, y + 0.5)
+      poke(base + y * 16 + x, c or 0)
+    end
+  end
+end
+
+-- 棋子圆片：象牙底 + 环色双环 + 左上高光 + 下缘阴影（0 号透明）
+local function bake_disc(id, ring)
+  bake(id, function(x, y)
+    local dx, dy = x - 8, y - 8
+    local d = sqrt(dx * dx + dy * dy)
+    if d > 7.5 then return nil end
+    if d > 6.7 then -- 外圈：下半阴影 / 上半环色
+      if dy > 0.5 then return C_WOOD_D end
+      return ring
+    end
+    if d > 5.2 then return ring end       -- 主环
+    if d > 4.4 then return C_IVORY end    -- 环内底色带
+    if d > 3.9 then return ring end       -- 内细环
+    if dx + dy < -4.2 then return C_IVORY_D end -- 左上高光
+    return C_IVORY
+  end)
+end
+
+local function bake_pieces()
+  bake_disc(1, C_RED)   -- 瓦片 1：红子底
+  bake_disc(2, C_BLK_R) -- 瓦片 2：黑子底
+end
+
+-- ---------------------------------------------------------------- 音频数据
+
+local function u8(a, v) poke(a, v % 256) end
+
+-- 按 SPEC §5.2 布局写一条 SFX（notes 为音高表，0 = 休止）
+local function init_sfx(id, notes, wave, vol, speed)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, #notes)
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    if i < #notes then
+      u8(a, notes[i + 1])
+      u8(a + 1, wave * 16 + vol)
+      u8(a + 2, 0)
+    else
+      u8(a, 0)
+      u8(a + 1, 0)
+    end
+  end
+end
+
+local function init_audio()
+  init_sfx(S_SELECT, { 68, 72 }, 0, 8, 1)          -- 选子：轻上滑
+  init_sfx(S_MOVE, { 37, 32 }, 0, 11, 1)           -- 走子：木子落盘
+  init_sfx(S_CAP, { 44, 37, 30 }, 2, 12, 1)        -- 吃子：重击下行
+  init_sfx(S_BAD, { 30 }, 3, 6, 1)                 -- 无效
+  init_sfx(S_CHECK, { 65, 0, 65, 0, 65, 65 }, 3, 9, 2) -- 将军：警报
+  init_sfx(S_WIN, { 61, 63, 65, 68, 70, 73, 75, 78 }, 3, 11, 3)  -- 胜利：五声上行
+  init_sfx(S_LOSE, { 61, 58, 56, 53, 49, 44, 41, 37 }, 2, 10, 3) -- 失利：下行
+  init_sfx(S_UNDO, { 56, 49 }, 0, 8, 2)            -- 悔棋
+  init_sfx(S_CUR, { 79 }, 0, 3, 1)                 -- 光标：极轻
+  init_sfx(S_GO, { 61, 68 }, 3, 9, 2)              -- 开局
+
+  -- BGM：C 宫五声小曲 4 小节循环（旋律 / 和声 / 贝斯 = ch5-7，mask 0xE0）
+  -- 音高 1-96 对应 C0-B7（MIDI = 音高 + 11）；每小节 32 步 speed 5
+  local melody = {
+    { 53, 56, 58, 61, 58, 56, 53, 0 },
+    { 51, 53, 56, 53, 51, 49, 51, 0 },
+    { 49, 51, 53, 56, 58, 61, 58, 56 },
+    { 53, 51, 49, 51, 49, 0, 0, 0 },
+  }
+  local harmony = { { 49, 44 }, { 46, 44 }, { 42, 44 }, { 44, 49 } }
+  local bass = { { 37 }, { 34 }, { 30 }, { 32 } }
+  local function expand(notes, k)
+    local out = {}
+    for _, v in ipairs(notes) do
+      for _ = 1, k do out[#out + 1] = v end
+    end
+    return out
+  end
+  for bar = 1, 4 do
+    init_sfx(19 + bar, expand(melody[bar], 4), 6, 9, 5)  -- ORGAN 旋律
+    init_sfx(23 + bar, expand(harmony[bar], 16), 0, 6, 5) -- TRIANGLE 和声
+    init_sfx(27 + bar, expand(bass[bar], 32), 11, 10, 5)  -- BASS 低音
+    local pb = 0x063800 + (bar - 1) * 16
+    u8(pb + 5, 20 + bar) -- ch5 旋律
+    u8(pb + 6, 24 + bar) -- ch6 和声
+    u8(pb + 7, 28 + bar) -- ch7 贝斯
+    u8(pb + 8, (bar == 1 and 1 or 0) + (bar == 4 and 2 or 0)) -- BEGIN / END
+  end
+end
+
+-- ---------------------------------------------------------------- 输入
+
+local hold_dx, hold_dy, rep_t = 0, 0, 0
+
+local function nudge(dx, dy)
+  cx = mid(0, cx + dx, 8)
+  cy = mid(0, cy + dy, 9)
+  sfx(S_CUR)
+end
+
+-- 方向键按住重复（btnp 无自动重复，自实现：首按 1 步，按住 14 帧后每 5 帧一步）
+local function cursor_repeat()
+  local dx = (btn(1) and 1 or 0) - (btn(0) and 1 or 0)
+  local dy = (btn(3) and 1 or 0) - (btn(2) and 1 or 0)
+  if dx == 0 and dy == 0 then
+    hold_dx, hold_dy, rep_t = 0, 0, 0
+    return
+  end
+  if dx ~= hold_dx or dy ~= hold_dy then
+    hold_dx, hold_dy = dx, dy
+    rep_t = 0
+    nudge(dx, dy)
+  else
+    rep_t = rep_t + 1
+    if rep_t >= 14 and rep_t % 5 == 0 then nudge(dx, dy) end
+  end
+end
+
+local function select_at(idx)
+  sel = idx
+  sel_moves = legal_moves(turn_black, idx)
+  sfx(S_SELECT)
+end
+
+local function press_a()
+  local idx = cy * 9 + cx
+  local p = board[idx + 1]
+  if sel then
+    if idx == sel then -- 再按 Ⓐ 于选中子：取消
+      sel, sel_moves = nil, nil
+      return
+    end
+    for _, m in ipairs(sel_moves) do
+      if m.t == idx then exec_move(sel, idx) return end
+    end
+    if p ~= 0 and (p > 7) == turn_black then
+      select_at(idx) -- 换选己方另一子
+    else
+      sfx(S_BAD)
+    end
+  else
+    if p ~= 0 and (p > 7) == turn_black then
+      select_at(idx)
+    else
+      sfx(S_BAD)
+    end
+  end
+end
+
+local function update_title()
+  if btnp(2) or btnp(3) then
+    title_sel = title_sel == 1 and 2 or 1
+    sfx(S_CUR)
+  end
+  if btnp(10) then toggle_music() end
+  if btnp(4) or btnp(11) then
+    start_game(title_sel == 2)
+  end
+end
+
+function _update()
+  t = t + 1
+  -- 演出计时
+  if banner then
+    banner.t = banner.t + 1
+    if banner.t > banner.dur then banner = nil end
+  end
+  for i = #fx, 1, -1 do
+    local e = fx[i]
+    e.x = e.x + e.vx
+    e.y = e.y + e.vy
+    e.vy = e.vy + 0.18
+    if e.y > 250 then fx[i] = fx[#fx]; fx[#fx] = nil end
+  end
+  if mode == "title" then
+    update_title()
+    return
+  end
+  -- Select 音乐 / Start 回标题 对任意子状态生效
+  if btnp(10) then toggle_music() end
+  if btnp(11) then goto_title() return end
+  if anim then
+    anim.t0 = anim.t0 + 1
+    if anim.t0 >= anim.dur then finish_anim() end
+    return
+  end
+  if over then
+    if btnp(4) then start_game(mode_ai) end -- 再来一局
+    return
+  end
+  if thinking then
+    ai_step()
+    if btnp(6) or btnp(7) then do_undo() end -- 取消 AI 思考并悔棋
+    return
+  end
+  if btnp(6) or btnp(7) then do_undo() return end
+  cursor_repeat()
+  if btnp(4) then press_a() end
+  if btnp(5) then sel, sel_moves = nil, nil end
+end
+
+-- ---------------------------------------------------------------- 绘制
+
+-- 四角括号（中心 x,y 半径 r）
+local function corners(x, y, r, c)
+  for qx = -1, 1, 2 do
+    for qy = -1, 1, 2 do
+      line(x + qx * r, y + qy * r, x + qx * (r - 3), y + qy * r, c)
+      line(x + qx * r, y + qy * r, x + qx * r, y + qy * (r - 3), c)
+    end
+  end
+end
+
+-- 炮 / 兵位十字标记
+local function pos_mark(x, y)
+  local x0, y0 = px(x), py(y)
+  for qx = -1, 1, 2 do
+    for qy = -1, 1, 2 do
+      local ax, ay = x0 + qx * 3, y0 + qy * 3
+      line(ax, ay, ax + qx * 3, ay, C_EDGE)
+      line(ax, ay, ax, ay + qy * 3, C_EDGE)
+    end
+  end
+end
+
+local function draw_board()
+  -- 木板：底色 + 竖纹抖动 + 双层边框
+  rectfill(28, 19, 200, 218, C_WOOD)
+  fillp(0x4444)
+  rectfill(28, 19, 200, 218, C_WOOD_L * 256 + C_WOOD)
+  fillp()
+  rect(28, 19, 200, 218, C_WOOD_D)
+  rect(30, 21, 196, 214, C_WOOD_L)
+  -- 外框粗线
+  rect(39, 28, 178, 199, C_EDGE)
+  -- 横线 10 条
+  for r = 0, 9 do line(40, py(r), 216, py(r), C_EDGE) end
+  -- 竖线：两外侧全长，内侧分上下两段（河界断开）
+  for c = 0, 8 do
+    local x = px(c)
+    if c == 0 or c == 8 then
+      line(x, 29, x, 227, C_EDGE)
+    else
+      line(x, 29, x, py(4), C_EDGE)
+      line(x, py(5), x, 227, C_EDGE)
+    end
+  end
+  -- 九宫斜线
+  line(px(3), py(0), px(5), py(2), C_EDGE)
+  line(px(5), py(0), px(3), py(2), C_EDGE)
+  line(px(3), py(7), px(5), py(9), C_EDGE)
+  line(px(5), py(7), px(3), py(9), C_EDGE)
+  -- 河界
+  print("楚 河", 72, py(4) + 3, C_EDGE)
+  print("汉 界", 144, py(4) + 3, C_EDGE)
+  -- 炮位 / 兵位标记
+  pos_mark(1, 2); pos_mark(7, 2); pos_mark(1, 7); pos_mark(7, 7)
+  for x = 0, 8, 2 do
+    pos_mark(x, 3)
+    pos_mark(x, 6)
+  end
+end
+
+local function draw_piece(x, y, p, flash)
+  local black = p > 7
+  spr(black and 2 or 1, x - 8, y - 8)
+  if flash and flr(t / 2) % 2 == 0 then
+    circfill(x, y, 7, C_WHITE) -- 被吃子闪白
+    return
+  end
+  local s = NAME[p]
+  print(s, x - 8, y - 7, black and C_WOOD_D or C_RED_D) -- 刻痕阴影
+  print(s, x - 8, y - 8, black and C_BLK_INK or C_RED_INK)
+end
+
+local function draw_pieces()
+  for i = 0, 89 do
+    local p = board[i + 1]
+    if p ~= 0 then
+      if anim and i == anim.t then
+        -- 目标位：动画期间被吃子闪烁，移动子由 draw_anim 绘制
+        if anim.cap ~= 0 then
+          draw_piece(px(i % 9), py(flr(i / 9)), anim.cap, true)
+        end
+      else
+        draw_piece(px(i % 9), py(flr(i / 9)), p, false)
+      end
+    end
+  end
+end
+
+local function draw_marks()
+  -- 上一步痕迹
+  if last_f >= 0 and not over then
+    local fxp, fyp = px(last_f % 9), py(flr(last_f / 9))
+    rectfill(fxp - 2, fyp - 2, 4, 4, C_GOLD_L)
+    local txp, typ = px(last_t % 9), py(flr(last_t / 9))
+    corners(txp, typ, 10, C_GOLD_L)
+  end
+  -- 选中环与可走点
+  if sel and not anim then
+    local sx, sy = px(sel % 9), py(flr(sel / 9))
+    circ(sx, sy, 9, C_GOLD)
+    if flr(t / 5) % 2 == 0 then circ(sx, sy, 10, C_GOLD_L) end
+    for _, m in ipairs(sel_moves) do
+      local mx, my = px(m.t % 9), py(flr(m.t / 9))
+      if m.cap == 0 then
+        circfill(mx, my, 2, C_GOLD)
+      else
+        corners(mx, my, 10, C_ORANGE)
+      end
+    end
+  end
+  -- 将军闪圈
+  if banner and banner.k then
+    local kx, ky = px(banner.k % 9), py(flr(banner.k / 9))
+    if flr(t / 3) % 2 == 0 then circ(kx, ky, 10, C_ORANGE) end
+  end
+end
+
+local function draw_cursor()
+  if over or thinking then return end
+  if mode_ai and turn_black then return end
+  corners(px(cx), py(cy), 11, flr(t / 6) % 2 == 0 and C_WHITE or C_GOLD_L)
+end
+
+local function draw_anim()
+  if not anim then return end
+  local u = anim.t0 / anim.dur
+  local x0, y0 = px(anim.f % 9), py(flr(anim.f / 9))
+  local x1, y1 = px(anim.t % 9), py(flr(anim.t / 9))
+  draw_piece(x0 + (x1 - x0) * u, y0 + (y1 - y0) * u, anim.p, false)
+end
+
+local function draw_fx()
+  for i = 1, #fx do
+    local e = fx[i]
+    circfill(e.x, e.y, 1, e.c)
+    circfill(e.x, e.y + 2, 1, C_IVORY)
+  end
+end
+
+local function draw_topbar()
+  rectfill(0, 0, 256, 17, C_PANEL)
+  line(0, 17, 255, 17, C_EDGE)
+  print(mode_ai and "人机对局" or "双人对局", 4, 0, C_GRAY)
+  local s
+  if over then
+    s = "对局结束"
+  elseif thinking then
+    s = "思考中" .. DOTS[flr(t / 10) % 4 + 1]
+  elseif turn_black then
+    s = BLACK_MOVE
+  else
+    s = RED_MOVE
+  end
+  local c = over and C_GRAY or (turn_black and C_GRAY or C_RED_INK)
+  print(s, 252 - tw(s), 0, c)
+end
+
+local function draw_bottombar()
+  rectfill(0, 240, 256, 16, C_PANEL)
+  line(0, 240, 255, 240, C_EDGE)
+  local hints = {
+    "⬅➡⬆⬇移动 Ⓐ选走 Ⓑ取消",
+    "Ⓧ/Ⓨ悔棋 Select音乐",
+    "Start回标题",
+  }
+  cprint(hints[flr(t / 180) % 3 + 1], 241, C_GRAY)
+end
+
+local function draw_banner()
+  if not banner then return end
+  rectfill(0, 104, 256, 32, C_BG)
+  rect(0, 104, 256, 32, C_RED_D)
+  rect(2, 106, 252, 28, C_RED)
+  cprint(banner.s, 112, flr(t / 4) % 2 == 0 and C_GOLD or C_PINK)
+end
+
+local function draw_over()
+  fillp(0xAAAA)
+  rectfill(0, 0, 256, 256, C_PANEL * 256 + C_BG)
+  fillp()
+  rrectfill(38, 88, 180, 80, 6, C_RED_D)
+  rrect(38, 88, 180, 80, 6, C_GOLD)
+  if flr(t / 5) % 2 == 0 then rrect(36, 86, 184, 84, 7, C_GOLD) end
+  cprint(over.black and "黑方胜" or "红方胜", 100, C_GOLD)
+  cprint(over.reason, 122, C_IVORY)
+  if mode_ai then
+    cprint(over.black and "机器获胜" or "玩家获胜", 140, C_PINK)
+  end
+  cprint("Ⓐ再来一局 Start回标题", 158, C_GRAY)
+end
+
+local function draw_title()
+  -- 背景棋盘（初始局面）+ 半压暗
+  draw_board()
+  draw_pieces()
+  fillp(0xAAAA)
+  rectfill(0, 0, 256, 256, C_PANEL * 256 + C_BG)
+  fillp()
+  -- 匾额
+  rrectfill(44, 32, 168, 48, 6, C_RED_D)
+  rrect(44, 32, 168, 48, 6, C_GOLD)
+  cprint("中国象棋", 38, C_GOLD)
+  -- 装饰大棋子（2× 最近邻整数放大；瓦片 1/2 源坐标 = (16,0)/(32,0)）
+  sspr(16, 0, 16, 16, 40, 112, 32, 32)
+  print("帅", 48, 120, C_RED_INK)
+  sspr(32, 0, 16, 16, 184, 112, 32, 32)
+  print("将", 192, 120, C_BLK_INK)
+  -- 模式选项
+  local opts = { "双人对局", "人机对局" }
+  for i = 1, 2 do
+    local y = 116 + (i - 1) * 24
+    local sel_now = title_sel == i
+    if sel_now then
+      if flr(t / 8) % 2 == 0 then print("▶", 84, y, C_GOLD) end
+      print(opts[i], 108, y, C_WHITE)
+    else
+      print(opts[i], 108, y, C_GRAY)
+    end
+  end
+  cprint("人机模式玩家执红先行", 172, C_GRAY)
+  -- 战绩（拆两行，避免过宽）
+  cprint("战绩 红 " .. stats[1] .. " 胜 ・ 黑 " .. stats[2] .. " 胜", 192, C_GOLD_L)
+  cprint("共 " .. stats[3] .. " 局", 210, C_GOLD_L)
+  cprint("Ⓐ/Start 开始 ・ Select 音乐" .. (music_on and "开" or "关"), 232, C_GRAY)
+end
+
+function _draw()
+  cls(C_BG)
+  if mode == "title" then
+    draw_title()
+    return
+  end
+  draw_topbar()
+  draw_board()
+  draw_pieces()
+  draw_marks()
+  draw_anim()
+  draw_cursor()
+  draw_fx()
+  draw_banner()
+  draw_bottombar()
+  if over then draw_over() end
+end
+
+-- ---------------------------------------------------------------- 初始化
+
+function _init()
+  bake_pieces()
+  init_audio()
+  stats[1] = dget(0)
+  stats[2] = dget(1)
+  stats[3] = dget(2)
+  music_on = dget(3) == 0
+  setup_board()
+  mode = "title"
+  title_sel = 1
+  t = 0
+end

@@ -1,0 +1,1761 @@
+fc16
+name: 坦克大战
+author: FrostMiKu
+save_id: battlecity
+version: 1
+flags: 0
+icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
+@sprites 0
+@map 0
+@sfx 0
+@patterns 0
+@sflags 0
+@free 0
+@code 58438
+-- 坦克大战（FC-16）・ 致敬 Battle City 的原创重制
+-- 玩法与关卡布局忠实还原经典（关卡数据还原自原作 ROM 出厂表）；
+-- 像素美术与音乐为本卡带原创，以 FC-16 出厂 64 色自绘。
+--
+-- 战场 13×13 大格（每格 16px，共 208×208）居中于屏幕，
+-- 右侧 48px 信息栏：敌方余量 / 关卡 / 命数 / 得分。
+-- 砖墙以 8×8 半格为破坏粒度；钢墙挡弹（3 级火力可摧毁）；
+-- 水挡车不挡弹；树冠盖在坦克上层；冰面带惯性滑行。
+--
+-- 操作：⬅⬆⬇➡ 移动・Ⓐ 开火・Start 暂停・Select 音乐开关
+
+-- ================================================================ 常量
+
+local FY = 24            -- 战场顶缘（战场纵向居中：24..232）
+local N = 26             -- 半格边长（13 大格 × 2）
+local FPX = N * 8        -- 战场像素宽高 = 208
+local PX = 208           -- 信息栏 x
+
+-- 地形码：0 空 1 砖 2 钢 3 水 4 树 5 冰 6 鹰（实体阻挡）
+local TCODE = { ['.'] = 0, b = 1, s = 2, w = 3, t = 4, i = 5 }
+
+-- 方向 0上 1右 2下 3左
+local DX = { 0, 1, 0, -1 }
+local DY = { -1, 0, 1, 0 }
+local KEYDIR = { 2, 1, 3, 0 }   -- 方向 → 按键 id
+
+local PSPD = 0.75                     -- 玩家速度
+local ESPD = { 0.4, 0.75, 0.45, 0.4 }   -- 各型敌坦速度（typ1-4）
+local EBS = { 3, 3, 5, 3 }        -- 各型敌弹速度（火力型快弹）
+local EFCD = { 70, 70, 42, 70 }   -- 各型基础开火间隔
+local ESCORE = { 100, 200, 300, 400 }
+local ENAME = { "基本", "快速", "火力", "装甲" }
+
+-- 出生点（战场局部坐标，坦克 16×16 左上角）
+local SPAWNXY = { { 0, 0 }, { 96, 0 }, { 192, 0 } }
+local PSPAWN = { 64, 192 }
+local EAGLE_POS = { 96, 192 }        -- 鹰基地左上角
+local EAGLE_CX = 104                 -- 鹰中心 x（AI 同列判定用）
+
+-- 基地围墙 Π 形 8 个半格（还原原作：上梁下半格 + 两侧内半格腿）
+local RING = {
+  { 11, 23 }, { 12, 23 }, { 13, 23 }, { 14, 23 },
+  { 11, 24 }, { 11, 25 }, { 14, 24 }, { 14, 25 },
+}
+
+-- 道具名（依次：头盔/定时/铁锹/手雷/星星/坦克）
+local INAME = { "头盔", "定时", "铁锹", "手雷", "星星", "坦克" }
+
+-- 敌坦配色（烘焙用主/亮/暗三色）与变体重映射
+local ECOL = { { 6, 7, 5 }, { 41, 43, 40 }, { 59, 58, 60 }, { 34, 32, 35 } }
+local function rmk(typ, d) return { s = ECOL[typ], d = d } end
+local FRZ = {   -- 冻结变灰
+  rmk(1, { 5, 6, 3 }), rmk(2, { 5, 6, 3 }),
+  rmk(3, { 5, 6, 3 }), rmk(4, { 5, 6, 3 }),
+}
+local ITR = {   -- 道具坦克红色闪烁
+  rmk(1, { 59, 63, 60 }), rmk(2, { 59, 63, 60 }),
+  rmk(3, { 59, 63, 60 }), rmk(4, { 59, 63, 60 }),
+}
+local ARM = {   -- 装甲型掉血变色：hp3 金 / hp2 蓝钢 / hp1 银
+  [3] = rmk(4, { 30, 31, 28 }), [2] = rmk(4, { 10, 8, 11 }), [1] = rmk(4, { 6, 7, 5 }),
+}
+
+-- ================================================================ 关卡数据
+-- 每关 26 行 × 26 半格字符（. 空 b 砖 s 钢 w 水 t 树 i 冰）。
+-- 布局与出场序列均还原自原作 ROM 出厂表（STAGE 1-10）。
+
+local STAGES = {
+-- 第 1 关
+"..........................\n..........................\n..bb..bb..bb..bb..bb..bb..\n..bb..bb..bb..bb..bb..bb..\n..bb..bb..bb..bb..bb..bb..\n..bb..bb..bb..bb..bb..bb..\n..bb..bb..bbssbb..bb..bb..\n..bb..bb..bbssbb..bb..bb..\n..bb..bb..bb..bb..bb..bb..\n..bb..bb..........bb..bb..\n..bb..bb..........bb..bb..\n..........bb..bb..........\n..........bb..bb..........\nbb..bbbb..........bbbb..bb\nss..bbbb..........bbbb..ss\nss........bb..bb........ss\n..........bbbbbb..........\n..bb..bb..bbbbbb..bb..bb..\n..bb..bb..bb..bb..bb..bb..\n..bb..bb..bb..bb..bb..bb..\n..bb..bb..bb..bb..bb..bb..\n..bb..bb..........bb..bb..\n..bb..bb..........bb..bb..\n..bb..bb..........bb..bb..\n..........................\n..........................",
+-- 第 2 关
+"........bb......bb........\n........bb......bb........\n..ttttttbb..........ssssss\n..ttttttbb..........ssssss\nbbtttttt..................\nbbtttttt..................\ntttttttt......bb..bbbbbbb.\ntttttttt......bb..bbbbbbb.\nttttttttbbbbbbbb..bb...b..\nttttttttbbbbbb....bb...b..\ntttttttt....bb.........b..\ntttttttt....bb.........b..\n..tt........ssssss....tt..\n..tt........ssssss....tt..\n..................tttttttt\n..bb..bb..........tttttttt\nbbb..bbbb..bbbbbbbtttttttt\nbbb..bbbb..b......tttttttt\n..........bb......tttttttt\n..........bb..bbbbtttttttt\nbb....ss......bbbbtttttt..\nbb....ss..........tttttt..\nbbbb..ss..........tttttt..\nbbbb..ss..........tttttt..\nssbbbb............bb......\nssbbbb............bb......",
+-- 第 3 关
+"......ss......ss..........\n......ss......ss..........\n..bb..ss......bb..bb..bb..\n..bb..ss......bb..bb..bb..\n..bb........bbbb..bbssbb..\n..bb........bbbb..bbssbb..\n......bb..........ss......\n......bb..........ss......\ntt....bb....ss....bbttbbss\ntt....bb....ss....bbttbbss\ntttt......bb....ss..tt....\ntttt......bb....ss..tt....\n..bbbbbbttttttss....ttbb..\n..bbbbbbttttttss....ttbb..\n......ssttbb..bb..bb..bb..\n......ssttbb..bb..bb..bb..\nssbb..ss..bb..bb......bb..\nssbb..ss..bb..bb......bb..\n..bb..bb..bbbbbb..bbssbb..\n..bb..bb..bbbbbb..bbssbb..\n..bb..bb..bbbbbb..........\n..bb..bb..bbbbbb..........\n..bb..............bb..bb..\n..bb..............bb..bb..\n..bb..bb..........bbbbbb..\n..bb..bb..........bbbbbb..",
+-- 第 4 关
+"..tttt................tt..\n..tttt................tt..\ntttt......bbbb..........tt\ntttt....bbbbbbbbbb......tt\ntt.....bbbbbbbbbbbbb....ss\ntt.....bbbbbbbbbbbbbbb..ss\nss....bbbbbbbbbbbbbbbbb...\nss....bbbbbbbbbbbbbbbbb...\n.....bbb......bbbbbb..b...\n.....b..........bbbb..b...\nww...b..ss..ss..bbb.......\nww...b..ss..ss..bbb.......\n....bb..........bbb...wwww\n....bb..bbbb....bbb...wwww\n....bbbbbbbbbbbbbbbb......\n....bbbbbbbbbbbbbbbb......\n...bbbbbbbbbbbbbbbbbb.....\n...bbbbbbbbbbbbbbbbbb.....\n..bbbbbbbbbbbbbbbbbbbb....\n......bbbbbbbbbbbb........\n..bbbb..bbbbbbbb..bbbb..tt\n..bbbbbb..bbbb..bbbbbb..tt\ntt..bbbb........bbbb..tttt\ntt....................tttt\nsstt................ttttss\nsstt................ttttss",
+-- 第 5 关
+"........bbbbbb............\n........bbbbbb............\nss......bb......ssssss....\nss..bb..bb......ssssss....\nss..bb......bb............\nss..bb......bb............\nbb..bbbbbb..bbbb..wwwwww..\nbb..bbbbbb..bbbb..wwwwww..\nbb......bb........ww......\n..................ww......\n........wwww..wwwwww..bbbb\n....bb..wwww..wwwwww..bbbb\nbbbb....wwbb..bbb.........\nbbbb....wwbb..bbb.........\n........ww..........ssss..\n........ww..........ssss..\nwwwwww..ww..ss..bb..ss....\nwwwwww..ww..ss..bb..ss....\n....................ssbbbb\n......bbbb..........ssbbbb\n........bbbbbbbbbb........\n........bb......bbbb......\nbbbbbb............bbbb....\nbbbb................bb....\nbb........................\n..........................",
+-- 第 6 关
+"..............ssss........\n..............ssss........\n....ssssssss........ss....\n....ssssssss........ss....\n....ss......tt..ssssss....\n....ss......tt..ssssss....\n..ss......ttss......ss....\n..ss......ttss......ss....\n........ttssss......ssss..\n........ttssss......ssss..\n..ss..ttssssss..ss........\n..ss..ttssssss..ss........\n..ss..ssss......ssss......\n..ss..ssss......ssss......\nss......ss..ssssss....ss..\nss......ss..ssssss....ss..\n..ssss......sssstt....ss..\n..ssss......sssstt....ss..\n..ss........sstt....ssss..\n..ss........sstt....ssss..\n..ssssss....tt....ss......\n..ssssss....tt....ss......\n..................ss..ssss\n..................ss..ssss\nssss......................\nssss......................",
+-- 第 7 关
+"..........................\n..........................\n...bbbbb............bbbbb.\n...b..bb............bb..b.\n.bbb....bb..tttt..bb.....b\n.b......bb..tttt..bb.....b\nbb......bbttttttttbb.....b\nbb......bbttttttttbb.....b\nbb.....bbbttssssttbbb...bb\nbb.....bbbttssssttbbb...bb\n.b....bbwwwwwwwwwwwwbbbbbb\n.bbbbbbbwwwwwwwwwwwwbbbbbb\n..bbbbbbssssbbssssbbbbbbb.\n..bbbbbbssssbbssssbbbbbbb.\n....bbbbss..bb..ssbbbbb...\n....bbbbss..bb..ssbbbbb...\n....bbbbbbbbbbbbbbbbbbb...\n....bbbbbbbbbbbbbbbbbbb...\nbbttbbbbbbssssbbbbbbbbttbb\nbbtt......ssss........ttbb\nbbttttttttttttttttttttttbb\nbbttttttttttttttttttttttbb\n....tttttt......tttttttt..\n....ttttttbbbbbbtttttttt..\n......b...bb..bb....b.....\n......b...bb..bb....b.....",
+-- 第 8 关
+"...........b..b.tttt......\n...........b..b.tttt......\n..b.ss..b........bttb..btt\n..b.ss..b........bttb..btt\n..b.ss..b...bb...bttb..btt\n..b.ss..b...bb...bttb..btt\n..bb....bb..ss..bbtt..bbtt\n..bb....bb..ss..bbtt..bbtt\n.......bss..bb..bbss..tttt\n.......bss..bb....ss..tttt\nbbbbb.....ttbbtt.....bbbbb\nbbbbb.....ttbbtt.....bbbbb\n.........bttttttb.........\n.........bttttttb.........\nssbbbb..bbttttttbb.bbbbbss\nssbbbb....tttttt...bbbbbss\nssssss......tt......ssssss\nssssss..bb..tt..bb..ssssss\n..bb....bb......bb........\n..bb....bb......bb........\n..bbb.....bb..bb.....bbbtt\n..bbb................bbbtt\n....bb..............tttttt\n....................tttttt\n......................tttt\n....bb..............bbtttt",
+-- 第 9 关
+"............bbbbbbbb......\n............bbbbbbbb......\n..bbbbbb..........bb......\n..bbbbbbbb..bb....bb......\n........bb..bb........bbbb\n........bb............bbbb\n..wwwwwwwwww..bbb.....bbss\n..wwwwwwwwww..bbb.....bbss\n....ssssssww..bb..ssssbb..\n....ssssssww..bb..ssssbb..\nbb..bbbbbbwwwwww..wwbbbb..\nbb..bbbbbbwwwwww..wwbbbb..\n........ssww......wwss....\n........ssww......wwss....\nwwwwww..wwwwbbbb..ww......\nwwwwww..wwwwbbbb..ww......\n..........bbssss..wwwwww..\n..........bbssss..wwwwww..\nbbbbbb....................\nbbbbbb....................\n....bb..ssss......bbbb...b\n....bb..ssss......bbbb...b\nbb................bb....bb\nbb................bb....bb\n..........................\n..........................",
+-- 第 10 关
+"..........ss..bb..bbbb....\n..........ss..bb..bbbb....\n...bbbbbbbbb..bb..........\n...bbbbbbbbb..bb..........\n......b...bb..bbbb..tttttt\n......b...bb..bbbb..tttttt\n...b..........ss..tttttttt\n...b..........ss..tttttttt\n...b..bbbbbbssbbbbttttbbss\n...b..bbbbbbssbbbbtttt..ss\n..bbbbbbss....bb..tttt...b\n........ss....bb..tttt...b\n.bbbbbbb..sstttttttttt....\n.bbbbbbb..sstttttttttt....\n......ss....ttttttttttbb..\n......ss....ttttttttttbb..\nssbb..ttttttttssttttttbb..\nssbb..ttttttttssttttttbb..\n.bbbtttttttttt........bbb.\n.bbbtttttttttt........bbb.\n..bbtttt........ssbbbbbb..\n..bbtttt........ssbbbbbb..\n....tttt..........bb...b..\n....tttt..........bb...b..\n....tttt..................\n..bbtttt..................",
+}
+
+-- 每关 20 辆敌坦出场序（1 基本 2 快速 3 火力 4 装甲，还原原作出厂表）
+local COMP = {
+  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2},
+  {4,4,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,4,4},
+  {3,3,3,3,3,3,3,3,3,3,2,2,2,2,2,1,1,4,4,4},
+  {3,3,3,3,3,4,4,1,1,1,1,1,1,1,1,2,2,2,2,2},
+  {3,3,3,3,3,3,3,2,2,1,1,1,1,1,1,1,1,1,4,4},
+  {1,1,1,2,2,2,2,3,3,3,3,3,3,1,1,1,1,1,1,1},
+  {3,3,3,3,3,3,3,4,4,2,2,2,2,1,1,1,1,1,1,1},
+  {1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,3,4,4,4},
+  {1,1,1,1,1,1,1,1,1,1,1,1,2,2,3,3,3,3,4,4},
+}
+
+-- ================================================================ 状态
+
+local G   -- 全局游戏状态（_init 内建表）
+local t = 0
+local grid = {}   -- 26×26 半格地形
+
+-- ================================================================ 工具
+
+local function cell(x, y)
+  if x < 0 or y < 0 or x > 25 or y > 25 then return 2 end  -- 界外视作钢（弹撞界即灭）
+  return grid[y * N + x + 1]
+end
+
+local function setcell(x, y, v)
+  if x >= 0 and y >= 0 and x <= 25 and y <= 25 then grid[y * N + x + 1] = v end
+end
+
+local function snap8(v) return flr((v + 4) / 8) * 8 end
+
+-- 点在多边形内（射线法，供星形道具烘焙用）
+local function in_poly(px, py, pts)
+  local inside = false
+  local j = #pts
+  for i = 1, #pts do
+    local xi, yi = pts[i][1], pts[i][2]
+    local xj, yj = pts[j][1], pts[j][2]
+    if (yi > py) ~= (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi then
+      inside = not inside
+    end
+    j = i
+  end
+  return inside
+end
+
+-- 点到多边形最小边距（描边用）
+local function edge_d(px, py, pts)
+  local best = 1e9
+  for i = 1, #pts do
+    local a, b = pts[i], pts[i % #pts + 1]
+    local dx, dy = b[1] - a[1], b[2] - a[2]
+    local l2 = dx * dx + dy * dy
+    local tt = 0
+    if l2 > 0 then
+      tt = ((px - a[1]) * dx + (py - a[2]) * dy) / l2
+      if tt < 0 then tt = 0 elseif tt > 1 then tt = 1 end
+    end
+    local qx, qy = a[1] + dx * tt, a[2] + dy * tt
+    local d = sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy))
+    if d < best then best = d end
+  end
+  return best
+end
+
+-- ================================================================ 精灵烘焙
+-- 瓦片号：0-7 玩家 ・ 8-39 敌四型（每型 4 向 × 2 履带帧）・ 40 砖 41 钢
+-- 42/43 水 44 树 45 冰 46/47 鹰 ・ 48-53 道具 ・ 54-56 爆炸 ・ 57-59 出生星
+-- 60 子弹 ・ 61 面板小图标
+
+local function bake(id, fn)
+  local base = id * 256
+  for y = 0, 15 do
+    for x = 0, 15 do
+      local c = fn(x, y)
+      poke(base + y * 16 + x, c or 0)
+    end
+  end
+end
+
+-- 履带列：深灰底 + 交替履齿（f 为帧相位）
+local function treads(x, y, f, x0, x1)
+  if x < x0 or x > x1 then return nil end
+  if (y + f) % 4 < 2 then return 5 end
+  return 3
+end
+
+-- 各型朝上造型（原创像素，色组见 ECOL / 玩家金）
+local function p_up(x, y, f)  -- 玩家：金
+  local c = treads(x, y, f, 0, 2) or treads(x, y, f, 13, 15)
+  if c then return c end
+  if (x == 7 or x == 8) and y <= 6 then return 31 end
+  if y <= 1 then return 62 end
+  if x >= 5 and x <= 10 and y >= 5 and y <= 11 then
+    if x == 5 or x == 10 or y == 5 or y == 11 then return 30 end
+    if x >= 7 and x <= 8 and y >= 7 and y <= 9 then return 31 end
+    return 29
+  end
+  if x == 3 or x == 12 or y == 15 then return 28 end
+  if y == 2 then return 30 end
+  return 29
+end
+
+local function e1_up(x, y, f)  -- 基本型：银灰方车体
+  local c = treads(x, y, f, 0, 2) or treads(x, y, f, 13, 15)
+  if c then return c end
+  if (x == 7 or x == 8) and y <= 6 then return 7 end
+  if y <= 1 then return 62 end
+  if x >= 5 and x <= 10 and y >= 5 and y <= 11 then
+    if x == 5 or x == 10 or y == 5 or y == 11 then return 5 end
+    if x >= 7 and x <= 8 and y >= 7 and y <= 9 then return 7 end
+    return 6
+  end
+  if x == 3 or x == 12 or y == 15 then return 5 end
+  if y == 2 then return 7 end
+  return 6
+end
+
+local function e2_up(x, y, f)  -- 快速型：青色・内收履带・楔形车首
+  local c = treads(x, y, f, 1, 3) or treads(x, y, f, 12, 14)
+  if c then return c end
+  if (x == 7 or x == 8) and y <= 6 then return 43 end
+  if y <= 2 then
+    if x >= 5 and x <= 10 then return (y == 2) and 43 or 62 end
+    return nil
+  end
+  if x >= 6 and x <= 9 and y >= 6 and y <= 10 then
+    if x == 6 or x == 9 or y == 6 or y == 10 then return 40 end
+    if x >= 7 and x <= 8 and y >= 7 and y <= 9 then return 43 end
+    return 41
+  end
+  if x == 4 or x == 11 or y == 15 then return 40 end
+  return 41
+end
+
+local function e3_up(x, y, f)  -- 火力型：红色・宽炮口制退器・大炮塔
+  local c = treads(x, y, f, 0, 2) or treads(x, y, f, 13, 15)
+  if c then return c end
+  if y <= 1 and x >= 6 and x <= 9 then return 58 end
+  if (x == 7 or x == 8) and y <= 6 then return 57 end
+  if y <= 1 then return 62 end
+  if x >= 4 and x <= 11 and y >= 5 and y <= 11 then
+    if x == 4 or x == 11 or y == 5 or y == 11 then return 60 end
+    if x >= 7 and x <= 8 and y >= 7 and y <= 9 then return 58 end
+    return 59
+  end
+  if x == 3 or x == 12 or y == 15 then return 60 end
+  if y == 2 then return 58 end
+  return 59
+end
+
+local function e4_up(x, y, f)  -- 装甲型：绿色・横向装甲板条・炮管套筒
+  local c = treads(x, y, f, 0, 2) or treads(x, y, f, 13, 15)
+  if c then return c end
+  if (x == 7 or x == 8) and y <= 6 then
+    if y >= 3 and y <= 4 then return 35 end
+    return 32
+  end
+  if y <= 1 then return 62 end
+  if x >= 5 and x <= 10 and y >= 6 and y <= 12 then
+    if x == 5 or x == 10 or y == 6 or y == 12 then return 35 end
+    if x >= 7 and x <= 8 and y >= 8 and y <= 10 then return 32 end
+    return 34
+  end
+  if y == 4 or y == 5 or y == 9 or y == 10 then return 35 end
+  if x == 3 or x == 12 or y == 15 then return 35 end
+  if y == 2 then return 32 end
+  return 34
+end
+
+local DESIGNS = { p_up, e1_up, e2_up, e3_up, e4_up }
+
+-- 旋转烘焙：dir1(右)=design(y,15-x) dir2(下)=design(15-x,15-y) dir3(左)=design(15-y,x)
+local function bake_tank(base, design)
+  for d = 0, 3 do
+    for fr = 0, 1 do
+      local f = fr * 2
+      local tile = base + d * 2 + fr
+      for y = 0, 15 do
+        for x = 0, 15 do
+          local c
+          if d == 0 then c = design(x, y, f)
+          elseif d == 1 then c = design(y, 15 - x, f)
+          elseif d == 2 then c = design(15 - x, 15 - y, f)
+          else c = design(15 - y, x, f) end
+          poke(tile * 256 + y * 16 + x, c or 0)
+        end
+      end
+    end
+  end
+end
+
+-- 半格纹理（8×8 图案铺满 16×16 四象限）
+local function bake_quad(id, fn)
+  bake(id, function (x, y) return fn(x % 8, y % 8) end)
+end
+
+local function brick_px(x, y)
+  if y % 4 == 3 then return 62 end              -- 横向灰缝
+  if y < 4 then
+    if x == 7 then return 62 end
+    if y == 0 then return 24 end                -- 顶棱高光
+  else
+    if x == 3 then return 62 end                -- 错缝竖缝
+    if y == 4 then return 24 end
+  end
+  return 25
+end
+
+local function steel_px(x, y)
+  if x == 0 or y == 0 then return 7 end         -- 左上白棱
+  if x == 7 or y == 7 then return 3 end         -- 右下暗棱
+  if x >= 2 and x <= 5 and y >= 2 and y <= 5 then
+    if x == 5 or y == 5 then return 5 end
+    return 6
+  end
+  return 5
+end
+
+local function water_px(x, y, fr)
+  if (y == 1 or y == 5) and (x + fr * 3) % 8 < 3 then return 42 end
+  if (y == 3 or y == 7) and (x + 4 + fr * 3) % 8 < 2 then return 39 end
+  return 40
+end
+
+local function tree_px(x, y)
+  if (x * 7 + y * 13) % 11 == 0 then return 32 end   -- 亮叶
+  if (x * 5 + y * 3) % 7 == 0 then return 34 end     -- 中绿
+  if (x + y) % 5 == 0 then return 36 end             -- 暗隙
+  return 35
+end
+
+local function ice_px(x, y)
+  if (x * 3 + y * 5) % 13 == 0 then return 7 end     -- 冰晶闪点
+  if (x + y * 2) % 9 == 0 then return 9 end          -- 裂纹阴影
+  return 8
+end
+
+local function bake_all()
+  for i = 0, 4 do bake_tank(i * 8, DESIGNS[i + 1]) end
+  bake_quad(40, brick_px)
+  bake_quad(41, steel_px)
+  bake_quad(42, function (x, y) return water_px(x, y, 0) end)
+  bake_quad(43, function (x, y) return water_px(x, y, 1) end)
+  bake_quad(44, tree_px)
+  bake_quad(45, ice_px)
+
+  -- 鹰基地（对称金鹰 + 石座）
+  bake(46, function (x, y)
+    local mx = x <= 7 and x or 15 - x
+    if y >= 13 then
+      if mx <= 5 then
+        if y == 15 or mx == 5 or y == 13 then return 17 end
+        return 19
+      end
+      return nil
+    end
+    if y <= 2 then
+      if y >= 1 and mx >= 6 then return 21 end
+      return nil
+    end
+    if y <= 12 and mx >= 6 then      -- 展翼
+      if y == 3 or y == 4 then return 23 end
+      if y <= 7 then return 20 end
+      if y <= 9 then return 19 end
+      return nil
+    end
+    if y >= 3 and y <= 12 and mx >= 1 then  -- 身躯
+      if y >= 10 then return 19 end
+      if y == 3 then return 22 end
+      if mx == 1 or y == 9 then return 19 end
+      return 23
+    end
+    return nil
+  end)
+  -- 鹰被毁：灰墟 + 折断旗杆
+  bake(47, function (x, y)
+    if y >= 12 and x >= 3 and x <= 12 then return 4 end
+    if y >= 8 and y <= 11 and x >= 6 and x <= 9 then return 5 end
+    if (x * 5 + y * 3) % 9 < 3 and y >= 6 and y <= 11 then return 3 end
+    if x == 7 and y >= 1 and y <= 6 then return 5 end
+    if y == 1 and x >= 5 and x <= 8 then return 62 end
+    return nil
+  end)
+
+  -- 道具 6 种
+  bake(48, function (x, y)  -- 头盔
+    if y == 12 and x >= 2 and x <= 13 then return 7 end
+    local dx, dy = x - 7.5, y - 8
+    if dx * dx + dy * dy <= 30 then
+      if (x - 5) * (x - 5) + (y - 6) * (y - 6) <= 2 then return 7 end
+      if dy >= 3 then return 5 end
+      return 6
+    end
+    return nil
+  end)
+  bake(49, function (x, y)  -- 定时时钟
+    local dx, dy = x - 7.5, y - 7.5
+    local d2 = dx * dx + dy * dy
+    if d2 <= 42 then
+      if d2 >= 28 then return 6 end
+      if (x == 7 or x == 8) and y >= 5 and y <= 8 then return 62 end
+      if (y == 7 or y == 8) and x >= 8 and x <= 10 then return 62 end
+      return 22
+    end
+    if (y == 0 or y == 15) and (x == 2 or x == 13) then return 30 end
+    return nil
+  end)
+  bake(50, function (x, y)  -- 铁锹
+    if x >= 6 and x <= 9 and y <= 8 then
+      if y <= 1 then return 62 end
+      if x == 6 or x == 9 then return 17 end
+      return 19
+    end
+    if y >= 9 and y <= 14 and x >= 4 and x <= 11 then
+      if y == 14 or x == 4 or x == 11 then return 3 end
+      if y == 9 then return 5 end
+      return 6
+    end
+    return nil
+  end)
+  local star_pts = {}
+  for i = 0, 9 do
+    local a = -0.25 + i * 0.1
+    local r = (i % 2 == 0) and 7.4 or 3.1
+    star_pts[i + 1] = { 8 + cos(a) * r, 8 + sin(a) * r }
+  end
+  bake(51, function (x, y)  -- 星星
+    if not in_poly(x + 0.5, y + 0.5, star_pts) then return nil end
+    if edge_d(x + 0.5, y + 0.5, star_pts) < 0.8 then return 29 end
+    if x + y < 13 then return 31 end
+    return 30
+  end)
+  bake(52, function (x, y)  -- 手雷
+    local dx, dy = x - 8, y - 9.5
+    if dx * dx + dy * dy <= 20 then
+      if (x - 6.5) * (x - 6.5) + (y - 8) * (y - 8) < 2 then return 34 end
+      if y >= 12 then return 36 end
+      return 35
+    end
+    if x >= 7 and x <= 8 and y >= 3 and y <= 5 then return 6 end
+    if y == 2 and x >= 6 and x <= 9 then return 7 end
+    if y == 1 and (x == 10 or x == 11) then return 7 end
+    return nil
+  end)
+  bake(53, function (x, y)  -- 加命坦克
+    if x >= 2 and x <= 4 or x >= 11 and x <= 13 then
+      if y % 4 < 2 then return 3 end
+      return 5
+    end
+    if (x == 7 or x == 8) and y >= 2 and y <= 5 then return 31 end
+    if y >= 4 and y <= 13 then
+      if x >= 5 and x <= 10 and y >= 6 and y <= 11 then
+        if x == 5 or x == 10 or y == 6 or y == 11 then return 30 end
+        return 29
+      end
+      if x == 5 or x == 10 or y == 13 then return 28 end
+      return 29
+    end
+    return nil
+  end)
+
+  -- 爆炸三帧（第三帧运行时 2× 放大绘制）
+  bake(54, function (x, y)
+    local dx, dy = x - 7.5, y - 7.5
+    local d2 = dx * dx + dy * dy
+    if d2 <= 4 then return 7 end
+    if d2 <= 12 then return 31 end
+    if abs(dx) + abs(dy) <= 5 then return 30 end
+    return nil
+  end)
+  bake(55, function (x, y)
+    local dx, dy = x - 7.5, y - 7.5
+    local d2 = dx * dx + dy * dy
+    if d2 <= 6 then return 7 end
+    if d2 <= 16 then return 31 end
+    if d2 <= 34 then return 30 end
+    if d2 <= 52 then return 28 end
+    if abs(dx) + abs(dy) <= 7 then return 27 end
+    return nil
+  end)
+  bake(56, function (x, y)
+    local dx, dy = x - 7.5, y - 7.5
+    local d2 = dx * dx + dy * dy
+    if d2 <= 8 then return nil end
+    if d2 <= 18 then return 31 end
+    if d2 <= 33 then return 30 end
+    if d2 <= 50 then return 28 end
+    if d2 <= 66 then return 26 end
+    if abs(abs(dx) - abs(dy)) < 1 and abs(dx) > 5 then return 25 end
+    return nil
+  end)
+
+  -- 出生闪星三帧（十字 → 十字+斜 → 大星芒）
+  bake(57, function (x, y)
+    local ax, ay = abs(x - 7.5) - 0.5, abs(y - 7.5) - 0.5
+    if (ax <= 0.5 and ay <= 2.5) or (ay <= 0.5 and ax <= 2.5) then return 7 end
+    if (ax <= 0.5 and ay <= 4.5) or (ay <= 0.5 and ax <= 4.5) then return 30 end
+    return nil
+  end)
+  bake(58, function (x, y)
+    local ax, ay = abs(x - 7.5) - 0.5, abs(y - 7.5) - 0.5
+    if (ax <= 0.5 and ay <= 4) or (ay <= 0.5 and ax <= 4) then return 7 end
+    if abs(ax - ay) <= 0.5 and ax <= 3.5 and ay <= 3.5 then return 31 end
+    return nil
+  end)
+  bake(59, function (x, y)
+    local ax, ay = abs(x - 7.5) - 0.5, abs(y - 7.5) - 0.5
+    if ax <= 1 and ay <= 1 then return 7 end
+    if (ax <= 0.5 and ay <= 6) or (ay <= 0.5 and ax <= 6) then return 31 end
+    if abs(ax - ay) <= 0.5 and ax <= 5 and ay <= 5 then return 30 end
+    return nil
+  end)
+
+  -- 子弹（四象限 = 四方向，4×5）
+  local BQ = { { 0, 0 }, { 8, 0 }, { 0, 8 }, { 8, 8 } }
+  for d = 0, 3 do
+    local qx, qy = BQ[d + 1][1], BQ[d + 1][2]
+    for y = 0, 7 do
+      for x = 0, 7 do
+        local c = nil
+        if x >= 2 and x <= 5 and y >= 2 and y <= 6 then
+          local lead
+          if d == 0 then lead = y <= 3
+          elseif d == 2 then lead = y >= 5
+          elseif d == 1 then lead = x >= 5
+          else lead = x <= 3 end
+          c = lead and 7 or 6
+        end
+        poke(60 * 256 + (qy + y) * 16 + qx + x, c or 0)
+      end
+    end
+  end
+
+  -- 面板小图标：(0,0) 敌坦 (8,0) 玩家坦 (0,8) 关旗
+  local function mini(px, py, main, dark, light)
+    for y = 0, 7 do
+      for x = 0, 7 do
+        local c
+        if x <= 1 or x >= 6 then
+          c = (y % 2 == 0) and dark or 3
+        elseif (x == 3 or x == 4) and y <= 3 then
+          c = light
+        elseif y == 0 then
+          c = dark
+        else
+          c = main
+        end
+        poke(61 * 256 + (py + y) * 16 + px + x, c)
+      end
+    end
+  end
+  mini(0, 0, 6, 5, 7)
+  mini(8, 0, 29, 28, 31)
+  for y = 0, 7 do
+    for x = 0, 7 do
+      local c = nil
+      if x == 0 and y >= 1 then
+        c = 7
+      elseif x >= 1 and x <= 6 and y >= 1 and y <= 3 then
+        c = (y == 1) and 31 or 30
+      end
+      poke(61 * 256 + (8 + y) * 16 + x, c or 0)
+    end
+  end
+end
+
+-- ================================================================ 音频
+-- SFX 0-15 游戏音效 ・ 12/13 引擎循环（ch7）・ 16-39 BGM 三轨 × 8 段（ch4-6）
+
+local function u8(a, v) poke(a, v % 256) end
+
+local function init_sfx(id, notes, wave, vol, speed, loop_from)
+  local base = 0x060000 + id * 112
+  u8(base, speed or 2)
+  u8(base + 1, #notes)
+  if loop_from then
+    u8(base + 2, loop_from)
+    u8(base + 3, #notes)
+    u8(base + 4, 1)
+  end
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    if i < #notes then
+      u8(a, notes[i + 1])
+      u8(a + 1, wave * 16 + vol)
+      u8(a + 2, 0)
+    else
+      u8(a, 0)
+      u8(a + 1, 0)
+    end
+  end
+end
+
+local MEL = {  -- 原创进行曲主旋律（A 小调，每小节 8 个八分音符）
+  { 58, 61, 65, 70, 65, 61, 0, 0 },
+  { 58, 61, 65, 70, 68, 65, 61, 0 },
+  { 66, 66, 65, 63, 61, 58, 0, 0 },
+  { 56, 60, 63, 68, 63, 60, 0, 0 },
+  { 58, 61, 65, 70, 65, 61, 0, 0 },
+  { 65, 65, 63, 61, 60, 0, 0, 0 },
+  { 66, 70, 70, 68, 66, 65, 63, 0 },
+  { 65, 63, 60, 56, 58, 0, 0, 0 },
+}
+local BASS = {  -- 每小节 4 个四分音符
+  { 34, 34, 29, 29 }, { 34, 34, 29, 29 }, { 30, 30, 37, 37 }, { 32, 32, 38, 38 },
+  { 34, 34, 29, 29 }, { 34, 29, 34, 34 }, { 30, 30, 37, 37 }, { 32, 32, 35, 35 },
+}
+
+local function init_audio()
+  init_sfx(0, { 78, 70 }, 3, 10, 1)               -- 开火
+  init_sfx(1, { 45, 33 }, 15, 12, 1)              -- 击砖
+  init_sfx(2, { 90, 0, 87 }, 5, 7, 1)             -- 击钢弹开
+  init_sfx(3, { 32, 28 }, 2, 10, 1)               -- 命中装甲
+  init_sfx(4, { 58, 40, 26, 14 }, 15, 14, 2)      -- 坦克爆炸
+  init_sfx(5, { 62, 66, 69, 74 }, 3, 11, 2)       -- 拾取道具
+  init_sfx(6, { 34, 34, 46, 46, 37, 38, 41, 0, 46, 46, 46, 46, 53, 0, 58, 0 }, 3, 12, 5) -- 关卡号角
+  init_sfx(7, { 79 }, 3, 8, 1)                    -- 结算滴答
+  init_sfx(8, { 58, 53, 50, 46, 41, 38, 34, 0, 29, 0, 29 }, 3, 11, 4)  -- 失败
+  init_sfx(9, { 58, 61, 65, 70, 0, 73, 0, 78 }, 3, 11, 3)              -- 过关
+  init_sfx(10, { 58, 58, 58, 61, 65, 65, 65, 70, 73, 78, 0, 82, 0, 82 }, 3, 12, 4) -- 胜利
+  init_sfx(11, { 72, 0, 72 }, 3, 8, 2)            -- 暂停
+  init_sfx(12, { 16, 16, 16, 16 }, 14, 5, 9, 0)   -- 引擎待机（循环）
+  init_sfx(13, { 23, 23, 23, 23 }, 14, 7, 6, 0)   -- 引擎行进（循环）
+  init_sfx(14, { 70, 52, 34, 20, 10 }, 15, 15, 1) -- 手雷全灭
+  init_sfx(15, { 84, 0, 79, 0, 75 }, 10, 10, 2)   -- 铁锹砌墙
+
+  -- BGM：旋律 SQUARE / 贝斯 BASS / 鼓噪声，各 8 小节，speed 4 同步推进
+  for bar = 0, 7 do
+    local mel, bass = {}, {}
+    for i = 1, 8 do
+      local n = MEL[bar + 1][i]
+      for _ = 1, 4 do mel[#mel + 1] = n end
+    end
+    for i = 1, 4 do
+      local n = BASS[bar + 1][i]
+      for _ = 1, 8 do bass[#bass + 1] = n end
+    end
+    init_sfx(16 + bar, mel, 3, 10, 4)
+    init_sfx(24 + bar, bass, 11, 12, 4)
+    local drum = {}
+    for k = 0, 31 do
+      local n = 0
+      if k % 8 == 0 then n = 14
+      elseif k % 8 == 4 then n = 40
+      elseif k % 4 == 2 then n = 50 end
+      drum[#drum + 1] = n
+    end
+    init_sfx(32 + bar, drum, 15, 9, 4)
+    local mb = 0x063800 + bar * 16
+    u8(mb + 4, 17 + bar)
+    u8(mb + 5, 25 + bar)
+    u8(mb + 6, 33 + bar)
+    u8(mb + 8, (bar == 0 and 1 or 0) + (bar == 7 and 2 or 0))
+  end
+end
+
+-- ================================================================ 地形
+
+local function load_stage(n)
+  local rows = split(STAGES[n], "\n")
+  for y = 0, 25 do
+    local r = rows[y + 1]
+    for x = 0, 25 do
+      grid[y * N + x + 1] = TCODE[string.sub(r, x + 1, x + 1)]
+    end
+  end
+  for i = 1, #RING do setcell(RING[i][1], RING[i][2], 1) end
+  for hy = 24, 25 do
+    for hx = 12, 13 do setcell(hx, hy, 6) end
+  end
+end
+
+local function set_ring(v)
+  for i = 1, #RING do setcell(RING[i][1], RING[i][2], v) end
+end
+
+-- 出生点若被地形占据则清出 16×16（原作个别关卡出生点贴地形）
+local function clear_spawn(x, y)
+  for hy = flr(y / 8), flr((y + 15) / 8) do
+    for hx = flr(x / 8), flr((x + 15) / 8) do
+      local c = cell(hx, hy)
+      if c == 1 or c == 2 or c == 3 then setcell(hx, hy, 0) end
+    end
+  end
+end
+
+-- 16×16 坦克盒（内缩 0.5px）是否被地形/其他坦克阻挡
+local function tank_blocked(x, y, self)
+  if x < 0 or y < 0 or x > FPX - 16 or y > FPX - 16 then return true end
+  local gx0 = flr((x + 0.5) / 8)
+  local gx1 = flr((x + 15.4) / 8)
+  local gy0 = flr((y + 0.5) / 8)
+  local gy1 = flr((y + 15.4) / 8)
+  for gy = gy0, gy1 do
+    local row = gy * N
+    for gx = gx0, gx1 do
+      local c = grid[row + gx + 1]
+      if c ~= 0 and c ~= 4 and c ~= 5 then return true end
+    end
+  end
+  if G.p and G.p.alive and G.p ~= self
+    and abs(G.p.x - x) < 15 and abs(G.p.y - y) < 15 then return true end
+  for i = 1, #G.foes do
+    local o = G.foes[i]
+    if o ~= self and abs(o.x - x) < 15 and abs(o.y - y) < 15 then return true end
+  end
+  return false
+end
+
+-- 以 0.25px 子步移动，被挡则贴壁停止；返回是否移动
+local function try_move(tk, sp)
+  local dx, dy = DX[tk.dir + 1], DY[tk.dir + 1]
+  local rem = sp
+  local moved = false
+  while rem > 0 do
+    local st = min(0.25, rem)
+    rem = rem - st
+    local nx, ny = tk.x + dx * st, tk.y + dy * st
+    if tank_blocked(nx, ny, tk) then break end
+    tk.x, tk.y = nx, ny
+    moved = true
+  end
+  return moved
+end
+
+local function on_ice(tk)
+  return cell(flr((tk.x + 8) / 8), flr((tk.y + 8) / 8)) == 5
+end
+
+-- ================================================================ 特效
+
+local function boom(x, y, big)
+  G.booms[#G.booms + 1] = { x = x, y = y, big = big, ph = 0 }
+  if big then
+    sfx(4, 2)
+    G.shake = 8
+  end
+end
+
+local function spark(x, y)
+  G.booms[#G.booms + 1] = { x = x, y = y, big = false, ph = 1 }
+end
+
+local function debris(x, y)
+  for i = 1, 6 do
+    local a = i / 6 + rnd(0.1)
+    G.parts[#G.parts + 1] = {
+      x = x, y = y, vx = cos(a) * (0.6 + rnd(0.8)), vy = sin(a) * (0.6 + rnd(0.8)),
+      life = 10 + flr(rnd(8)), c = (i % 2 == 0) and 25 or 24,
+    }
+  end
+end
+
+local function popup(x, y, v)
+  G.pops[#G.pops + 1] = { x = x, y = y, v = v, life = 48 }
+end
+
+local function upd_fx()
+  for i = #G.booms, 1, -1 do
+    local b = G.booms[i]
+    if t % 5 == 0 then b.ph = b.ph + 1 end
+    if b.ph > 2 then table.remove(G.booms, i) end
+  end
+  for i = #G.parts, 1, -1 do
+    local p = G.parts[i]
+    p.x = p.x + p.vx
+    p.y = p.y + p.vy
+    p.life = p.life - 1
+    if p.life <= 0 then table.remove(G.parts, i) end
+  end
+  for i = #G.pops, 1, -1 do
+    local p = G.pops[i]
+    p.y = p.y - 0.3
+    p.life = p.life - 1
+    if p.life <= 0 then table.remove(G.pops, i) end
+  end
+  if G.shake > 0 then G.shake = G.shake - 1 end
+end
+
+-- ================================================================ 子弹
+
+local function fire(tk, own)
+  local sp, pw
+  if own == 0 then
+    sp = tk.power >= 1 and 4.5 or 3
+    pw = tk.power >= 3 and 1 or 0
+  else
+    sp = EBS[tk.typ]
+    pw = 0
+  end
+  G.buls[#G.buls + 1] = {
+    x = tk.x + 8 + DX[tk.dir + 1] * 10,
+    y = tk.y + 8 + DY[tk.dir + 1] * 10,
+    dir = tk.dir, sp = sp, own = own, pw = pw, src = tk,
+  }
+  sfx(0)
+end
+
+local function destroy_eagle()
+  if G.eagle_dead then return end
+  G.eagle_dead = true
+  boom(EAGLE_CX, 200, true)
+  sfx(14)
+  music(-1, 300)
+  G.state = "goanim"
+  G.gt = 0
+end
+
+local function hit_enemy(e, idx, b)
+  if e.item then            -- 道具坦克：首发掉道具、不掉本体
+    e.item = false
+    local cx, cy = 1 + flr(rnd(6)) * 2, 1 + flr(rnd(6)) * 2
+    G.item = { x = cx * 16, y = cy * 16, kind = flr(rnd(6)) }
+    spark(b.x, b.y)
+    sfx(3)
+    return
+  end
+  e.hp = e.hp - 1
+  if e.hp <= 0 then
+    table.remove(G.foes, idx)
+    boom(e.x + 8, e.y + 8, true)
+    G.score = G.score + ESCORE[e.typ]
+    G.kills[e.typ] = G.kills[e.typ] + 1
+    popup(e.x + 8, e.y + 8, ESCORE[e.typ])
+  else
+    spark(b.x, b.y)
+    sfx(3)
+  end
+end
+
+local function kill_player()
+  local p = G.p
+  p.alive = false
+  p.power = 0
+  G.cpower = 0
+  boom(p.x + 8, p.y + 8, true)
+  G.lives = G.lives - 1
+  G.resp = 70
+end
+
+-- 单步（≤2px）推进后的碰撞：地形 / 坦克
+local function bullet_step(b)
+  if b.x < -2 or b.x > FPX + 2 or b.y < -2 or b.y > FPX + 2 then
+    b.dead = true
+    spark(b.x, b.y)
+    sfx(2)
+    return
+  end
+  -- 前沿线采样（垂直向 2 半格宽 / 水平向 2 半格高）
+  local a, c0, c1
+  if b.dir == 0 then
+    a = flr((b.y - 2) / 8)
+    c0, c1 = flr((b.x - 3) / 8), flr((b.x + 3) / 8)
+  elseif b.dir == 2 then
+    a = flr((b.y + 2) / 8)
+    c0, c1 = flr((b.x - 3) / 8), flr((b.x + 3) / 8)
+  elseif b.dir == 1 then
+    a = flr((b.x + 2) / 8)
+    c0, c1 = flr((b.y - 3) / 8), flr((b.y + 3) / 8)
+  else
+    a = flr((b.x - 2) / 8)
+    c0, c1 = flr((b.y - 3) / 8), flr((b.y + 3) / 8)
+  end
+  local hit = false
+  for k = c0, c1 do
+    local c = (b.dir % 2 == 0) and cell(k, a) or cell(a, k)
+    if c == 1 or c == 2 or c == 6 then hit = true end
+  end
+  if hit then
+    b.dead = true
+    local broke = false
+    for k = c0, c1 do
+      local cx, cy
+      if b.dir % 2 == 0 then cx, cy = k, a else cx, cy = a, k end
+      local c = cell(cx, cy)
+      if c == 6 then
+        destroy_eagle()
+      elseif c == 1 then
+        setcell(cx, cy, 0)
+        broke = true
+      elseif c == 2 and b.pw == 1 then
+        setcell(cx, cy, 0)
+        broke = true
+      end
+    end
+    if broke then
+      debris(b.x, b.y)
+      sfx(1)
+    else
+      spark(b.x, b.y)
+      sfx(2)
+    end
+    return
+  end
+  -- 对坦克
+  if b.own == 0 then
+    for i = 1, #G.foes do
+      local e = G.foes[i]
+      if abs(b.x - (e.x + 8)) < 9 and abs(b.y - (e.y + 8)) < 9 then
+        b.dead = true
+        hit_enemy(e, i, b)
+        return
+      end
+    end
+  else
+    local p = G.p
+    if p and p.alive and abs(b.x - (p.x + 8)) < 9 and abs(b.y - (p.y + 8)) < 9 then
+      b.dead = true
+      if p.shield > 0 then
+        spark(b.x, b.y)
+      else
+        kill_player()
+      end
+      return
+    end
+  end
+end
+
+local function updBullets()
+  for i = 1, #G.buls do
+    local b = G.buls[i]
+    local rem = b.sp
+    while rem > 0.01 and not b.dead do
+      local st = min(2, rem)
+      rem = rem - st
+      b.x = b.x + DX[b.dir + 1] * st
+      b.y = b.y + DY[b.dir + 1] * st
+      bullet_step(b)
+    end
+  end
+  -- 对头弹互消
+  for i = #G.buls, 1, -1 do
+    local a = G.buls[i]
+    if not a.dead then
+      for j = i - 1, 1, -1 do
+        local bb = G.buls[j]
+        if not bb.dead and a.own ~= bb.own
+          and abs(a.x - bb.x) < 5 and abs(a.y - bb.y) < 5 then
+          a.dead = true
+          bb.dead = true
+        end
+      end
+    end
+  end
+  for i = #G.buls, 1, -1 do
+    if G.buls[i].dead then table.remove(G.buls, i) end
+  end
+end
+
+-- ================================================================ 玩家
+
+local function upd_player()
+  local p = G.p
+  if not p.alive then return end
+  if p.shield > 0 then p.shield = p.shield - 1 end
+  if p.cool > 0 then p.cool = p.cool - 1 end
+
+  local d = nil
+  if btn(KEYDIR[p.dir + 1]) then
+    d = p.dir
+  elseif btn(2) then d = 0
+  elseif btn(3) then d = 2
+  elseif btn(0) then d = 3
+  elseif btn(1) then d = 1 end
+
+  local moving = false
+  if d then
+    if d ~= p.dir then
+      if d == 0 or d == 2 then p.x = snap8(p.x) else p.y = snap8(p.y) end
+      p.dir = d
+    end
+    p.x = mid(p.x, 0, FPX - 16)
+    p.y = mid(p.y, 0, FPX - 16)
+    moving = try_move(p, PSPD)
+    if moving then p.anim = p.anim + PSPD end
+  elseif p.slide > 0 then      -- 冰面惯性滑行
+    moving = try_move(p, PSPD * p.slide / 20)
+    p.slide = p.slide - 1
+    if moving then p.anim = p.anim + PSPD end
+  end
+  if moving then
+    p.lastmv = true
+    p.onice = on_ice(p)
+  elseif p.lastmv then
+    p.lastmv = false
+    if p.onice then p.slide = 18 end
+  end
+  p.moving = moving
+
+  if btn(4) and p.cool <= 0 then
+    local mine = 0
+    for i = 1, #G.buls do
+      if G.buls[i].own == 0 then mine = mine + 1 end
+    end
+    if mine < (p.power >= 2 and 2 or 1) then
+      p.cool = 14
+      fire(p, 0)
+    end
+  end
+
+  -- 拾取道具
+  if G.item then
+    local it = G.item
+    if abs(p.x - it.x) < 14 and abs(p.y - it.y) < 14 then
+      local k = it.kind
+      if k == 0 then
+        p.shield = 600
+      elseif k == 1 then
+        G.freeze = 480
+      elseif k == 2 then
+        set_ring(2)
+        G.shovel = 900
+        sfx(15)
+      elseif k == 3 then
+        for i = #G.foes, 1, -1 do
+          local e = G.foes[i]
+          boom(e.x + 8, e.y + 8, true)
+          table.remove(G.foes, i)
+        end
+        sfx(14)
+      elseif k == 4 then
+        p.power = min(3, p.power + 1)
+        G.cpower = p.power
+      else
+        G.lives = min(9, G.lives + 1)
+      end
+      G.score = G.score + 500
+      G.itc = G.itc + 1
+      popup(it.x + 8, it.y + 8, 500)
+      G.item = nil
+      sfx(5)
+    end
+  end
+end
+
+-- ================================================================ 敌人
+
+local function pick_dir(e)
+  local r = rnd(100)
+  local d
+  if r < 34 then
+    d = 2                                    -- 偏好向下
+  elseif r < 58 then
+    d = (e.x + 8 < EAGLE_CX) and 1 or 3      -- 朝基地方向
+  elseif r < 68 then
+    local p = G.p
+    if p and p.alive then d = (p.x > e.x) and 1 or 3 else d = 2 end
+  else
+    d = flr(rnd(4))
+  end
+  e.dir = d
+end
+
+local function upd_enemy(e)
+  if G.freeze > 0 then
+    e.moving = false
+    return
+  end
+  if e.turn_cd > 0 then e.turn_cd = e.turn_cd - 1 end
+  e.dec = e.dec - 1
+  if e.dec <= 0 then
+    pick_dir(e)
+    e.dec = 30 + flr(rnd(120))
+  end
+  local moved = try_move(e, ESPD[e.typ])
+  if moved then
+    e.anim = e.anim + ESPD[e.typ]
+  elseif e.turn_cd <= 0 then
+    pick_dir(e)
+    e.turn_cd = 10
+  end
+  e.moving = moved
+
+  e.fcd = e.fcd - 1
+  if e.fcd <= 0 then
+    local want = false
+    local p = G.p
+    if p and p.alive then
+      if abs(e.x - p.x) < 6 then
+        if (p.y > e.y and e.dir == 2) or (p.y < e.y and e.dir == 0) then want = true end
+      elseif abs(e.y - p.y) < 6 then
+        if (p.x > e.x and e.dir == 1) or (p.x < e.x and e.dir == 3) then want = true end
+      end
+    end
+    if not want and abs(e.x + 8 - EAGLE_CX) < 6 and e.y < 176 and e.dir == 2 then
+      want = true
+    end
+    local mine = 0
+    for i = 1, #G.buls do
+      local bb = G.buls[i]
+      if bb.own == 1 and bb.src == e then mine = mine + 1 end
+    end
+    if mine == 0 and (want or rnd(100) < 55) then
+      fire(e, 1)
+      e.fcd = EFCD[e.typ] + flr(rnd(60))
+    else
+      e.fcd = 12
+    end
+  end
+end
+
+local function spawn_occupied(x, y)
+  if G.p and G.p.alive and abs(G.p.x - x) < 15 and abs(G.p.y - y) < 15 then return true end
+  for i = 1, #G.foes do
+    local o = G.foes[i]
+    if abs(o.x - x) < 15 and abs(o.y - y) < 15 then return true end
+  end
+  return false
+end
+
+local function upd_spawn()
+  if G.freeze > 0 then return end
+  for i = #G.stars, 1, -1 do
+    local s = G.stars[i]
+    s.t = s.t + 1
+    if s.t >= 60 then
+      if not spawn_occupied(s.x, s.y) then
+        table.remove(G.stars, i)
+        clear_spawn(s.x, s.y)
+        G.foes[#G.foes + 1] = {
+          x = s.x, y = s.y, dir = 2, typ = s.typ,
+          hp = (s.typ == 4) and 4 or 1, item = s.item,
+          anim = 0, moving = false, dec = 20 + flr(rnd(60)),
+          fcd = 40 + flr(rnd(60)), turn_cd = 0,
+        }
+        G.qi = G.qi + 1
+      end
+    end
+  end
+  G.scd = G.scd - 1
+  local pend = 20 - (G.qi - 1) - #G.stars
+  if pend > 0 and #G.foes + #G.stars < 4 and G.scd <= 0 then
+    local pt = SPAWNXY[G.si]
+    G.si = G.si % 3 + 1
+    G.scd = G.sgap
+    local idx = G.qi + #G.stars
+    G.stars[#G.stars + 1] = {
+      x = pt[1], y = pt[2], t = 0, typ = G.comp[idx],
+      item = (idx == 4 or idx == 11 or idx == 18),
+    }
+  end
+end
+
+-- ================================================================ 关卡流程
+
+local function save_progress()
+  if G.score > G.hi then
+    G.hi = G.score
+    dset(0, G.hi)
+  end
+  if G.stage > G.fstage then
+    G.fstage = G.stage
+    dset(1, G.fstage)
+  end
+  fflush()
+end
+
+local function start_stage(n)
+  G.stage = n
+  load_stage(n)
+  G.foes, G.buls, G.booms, G.parts, G.pops, G.stars = {}, {}, {}, {}, {}, {}
+  G.item = nil
+  G.freeze, G.shovel = 0, 0
+  G.comp = COMP[n]
+  G.qi, G.si, G.scd = 1, 1, 40
+  G.sgap = max(50, 186 - (n - 1) * 4)
+  G.kills = { 0, 0, 0, 0 }
+  G.itc = 0
+  G.eagle_dead = false
+  G.clear_t = 0
+  G.resp = 0
+  G.curtain = 128
+  G.state = "intro"
+  G.it = 0
+  G.shake = 0
+  local p = G.p
+  p.x, p.y, p.dir = PSPAWN[1], PSPAWN[2], 0
+  p.power = G.cpower
+  p.shield = 120
+  p.alive = true
+  p.anim, p.cool, p.slide = 0, 0, 0
+  p.lastmv, p.onice, p.moving = false, false, false
+  clear_spawn(p.x, p.y)
+  save_progress()
+  sfx(6)
+  if G.bgm then music(0, 400, 0x70) end
+end
+
+local function new_campaign()
+  G.score, G.lives, G.cpower = 0, 3, 0
+  start_stage(1)
+end
+
+local function toggle_bgm()
+  G.bgm = not G.bgm
+  dset(2, G.bgm and 0 or 1)
+  fflush()
+  if G.bgm then music(0, 300, 0x70) else music(-1, 300) end
+end
+
+local function upd_play()
+  if G.freeze > 0 then G.freeze = G.freeze - 1 end
+  if G.shovel > 0 then
+    G.shovel = G.shovel - 1
+    if G.shovel == 0 then
+      set_ring(1)
+    elseif G.shovel < 180 and G.shovel % 30 == 0 then
+      set_ring(flr(G.shovel / 30) % 2 == 0 and 1 or 2)
+    end
+  end
+
+  upd_player()
+  upd_spawn()
+  if G.freeze <= 0 then
+    for i = 1, #G.foes do upd_enemy(G.foes[i]) end
+  end
+  updBullets()
+  upd_fx()
+
+  -- 玩家重生 / 败北
+  local p = G.p
+  if not p.alive then
+    if G.lives <= 0 then
+      if #G.booms == 0 then
+        G.state = "goanim"
+        G.gt = 0
+        music(-1, 300)
+      end
+    elseif G.resp > 0 then
+      G.resp = G.resp - 1
+      if G.resp == 0 then
+        p.x, p.y, p.dir = PSPAWN[1], PSPAWN[2], 0
+        p.shield = 120
+        p.alive = true
+        p.anim, p.slide = 0, 0
+        p.lastmv, p.onice, p.moving = false, false, false
+        clear_spawn(p.x, p.y)
+      end
+    end
+  end
+
+  -- 全灭过关
+  if G.qi > 20 and #G.foes == 0 and #G.stars == 0 then
+    G.clear_t = G.clear_t + 1
+    if G.clear_t > 50 then
+      G.state = "tally"
+      G.tt = 0
+      G.ttlast = 0
+      sfx(9)
+      return
+    end
+  else
+    G.clear_t = 0
+  end
+
+  if G.state == "play" then
+    if btnp(11) then
+      G.state = "pause"
+      sfx(11)
+    end
+    if btnp(10) then toggle_bgm() end
+  end
+end
+
+-- 引擎声双态（ch7 循环噪声）
+local function upd_engine()
+  local want = nil
+  if G.state == "play" and G.p and G.p.alive then
+    want = G.p.moving and 13 or 12
+  end
+  if want ~= G.eng then
+    if want then sfx(want, 7) else sfx(-1, 7) end
+    G.eng = want
+  end
+end
+
+-- ================================================================ 绘制
+
+local EBASE = { 8, 16, 24, 32 }
+
+local function draw_tank(tk, is_player)
+  local base = is_player and 0 or EBASE[tk.typ]
+  local fr = tk.moving and (flr(tk.anim / 4) % 2) or 0
+  local id = base + tk.dir * 2 + fr
+  local rm = nil
+  if not is_player then
+    if G.freeze > 0 then
+      rm = FRZ[tk.typ]
+    elseif tk.item and flr(t / 4) % 2 == 0 then
+      rm = ITR[tk.typ]
+    elseif tk.typ == 4 and tk.hp < 4 then
+      rm = ARM[tk.hp]
+    end
+  end
+  local x, y = flr(tk.x), FY + flr(tk.y)
+  if rm then
+    for i = 1, 3 do pal(rm.s[i], rm.d[i]) end
+    spr(id, x, y)
+    pal()
+  else
+    spr(id, x, y)
+  end
+end
+
+local function draw_shield(x, y)
+  local cx, cy = x + 8, y + 8
+  for k = 0, 3 do
+    local a = t * 0.06 + k * 0.25
+    local c = (k + flr(t / 4)) % 2 == 0 and 43 or 7
+    line(cx + cos(a) * 11, cy + sin(a) * 11,
+      cx + cos(a + 0.1) * 11, cy + sin(a + 0.1) * 11, c)
+  end
+end
+
+local function torg(tl) return (tl % 16) * 16, flr(tl / 16) * 16 end
+
+local function draw_terrain()
+  local wf = flr(t / 24) % 2
+  local wtl = wf == 0 and 42 or 43
+  local wx, wy = torg(40)
+  local sx, sy = torg(41)
+  local twx, twy = torg(wtl)
+  local tx, ty = torg(44)
+  local ix, iy = torg(45)
+  for hy = 0, 25 do
+    local row = hy * N
+    local py = FY + hy * 8
+    local qy = (hy % 2) * 8
+    for hx = 0, 25 do
+      local c = grid[row + hx + 1]
+      if c >= 1 and c <= 5 then
+        local qx = (hx % 2) * 8
+        if c == 1 then
+          sspr(wx + qx, wy + qy, 8, 8, hx * 8, py)
+        elseif c == 2 then
+          sspr(sx + qx, sy + qy, 8, 8, hx * 8, py)
+        elseif c == 3 then
+          sspr(twx + qx, twy + qy, 8, 8, hx * 8, py)
+        elseif c == 4 then
+          -- 树在实体之后再画
+        else
+          sspr(ix + qx, iy + qy, 8, 8, hx * 8, py)
+        end
+      end
+    end
+  end
+  spr(G.eagle_dead and 47 or 46, EAGLE_POS[1], FY + EAGLE_POS[2])
+end
+
+local function draw_trees()
+  local tx, ty = torg(44)
+  for hy = 0, 25 do
+    local row = hy * N
+    local py = FY + hy * 8
+    local qy = (hy % 2) * 8
+    for hx = 0, 25 do
+      if grid[row + hx + 1] == 4 then
+        sspr(tx + (hx % 2) * 8, ty + qy, 8, 8, hx * 8, py)
+      end
+    end
+  end
+end
+
+local function draw_bullets()
+  local bx0, by0 = torg(60)
+  for i = 1, #G.buls do
+    local b = G.buls[i]
+    local qx = (b.dir == 1 or b.dir == 3) and 8 or 0
+    local qy = (b.dir == 2 or b.dir == 3) and 8 or 0
+    sspr(bx0 + qx + 2, by0 + qy + 2, 4, 5, flr(b.x) - 2, FY + flr(b.y) - 2)
+  end
+end
+
+local function draw_booms()
+  for i = 1, #G.booms do
+    local b = G.booms[i]
+    if b.big and b.ph == 2 then
+      local x, y = torg(56)
+      sspr(x, y, 16, 16, b.x - 16, FY + b.y - 16, 32, 32)
+    else
+      spr(54 + b.ph, b.x - 8, FY + b.y - 8)
+    end
+  end
+end
+
+local function draw_fx()
+  draw_booms()
+  for i = 1, #G.parts do
+    local p = G.parts[i]
+    pset(flr(p.x), FY + flr(p.y), p.c)
+  end
+  for i = 1, #G.pops do
+    local p = G.pops[i]
+    if p.life > 8 or flr(t / 2) % 2 == 0 then
+      local s = "" .. p.v
+      print(s, p.x - tw(s) / 2, FY + p.y, 7)
+    end
+  end
+end
+
+local function draw_item()
+  local it = G.item
+  if not it then return end
+  local bob = flr(sin(t / 18) * 2)
+  local x, y = it.x, FY + it.y + bob
+  rectfill(x, y, 16, 16, 1)
+  spr(48 + it.kind, x, y)
+  rect(x, y, 16, 16, flr(t / 8) % 2 == 0 and 7 or 31)
+end
+
+local function draw_top()
+  print("坦克大战", 4, 4, 29)
+  local hs = "最高 " .. G.hi
+  print(hs, PX - 4 - tw(hs), 4, 23)
+  if G.bgm then print("♪", PX - 16 - tw(hs), 4, 41) end
+  line(0, 23, PX - 1, 23, 11)
+  local h = "⬅⬆⬇➡ 移动・Ⓐ 开火"
+  print(h, flr((PX - tw(h)) / 2), 240, 9)
+  line(0, 233, PX - 1, 233, 11)
+end
+
+local function draw_panel()
+  rectfill(PX, 0, 48, 256, 13)
+  line(PX - 1, 0, PX - 1, 255, 11)
+  local ex, ey = torg(61)
+  -- 敌方余量（两列小图标）
+  local left = 20 - (G.qi - 1) - #G.stars
+  for i = 1, left do
+    sspr(ex, ey, 8, 8, 214 + ((i - 1) % 2) * 14, 28 + flr((i - 1) / 2) * 12)
+  end
+  print("关卡", PX + 8, 156, 23)
+  sspr(ex, ey + 8, 8, 8, 216, 178)
+  print("" .. G.stage, 230, 178, 7)
+  sspr(ex + 8, ey, 8, 8, 214, 200)
+  print("×" .. G.lives, 228, 200, 7)
+  print("分数", PX + 8, 222, 23)
+  local s = "" .. G.score
+  print(s, PX + flr((48 - tw(s)) / 2), 240, 7)
+end
+
+local function draw_play()
+  cls(0)
+  draw_top()
+  draw_panel()
+  clip(0, FY, PX, FPX)
+  draw_terrain()
+  draw_item()
+  for i = 1, #G.stars do
+    local s = G.stars[i]
+    spr(57 + flr(s.t / 8) % 3, s.x, FY + s.y)
+  end
+  for i = 1, #G.foes do draw_tank(G.foes[i], false) end
+  local p = G.p
+  if p.alive then
+    draw_tank(p, true)
+    if p.shield > 0 then draw_shield(p.x, FY + p.y) end
+  end
+  draw_bullets()
+  draw_trees()
+  draw_fx()
+  clip()
+end
+
+local function draw_curtain()
+  if G.curtain <= 0 then return end
+  rectfill(0, 0, 256, G.curtain, 6)
+  rectfill(0, 256 - G.curtain, 256, G.curtain, 6)
+end
+
+local function draw_pause_overlay()
+  fillp(0xa5a5)
+  rectfill(24, 64, 160, 128, 15 * 256 + 0)
+  fillp()
+  rect(24, 64, 160, 128, 30)
+  local s = "暂停"
+  print(s, flr((256 - tw(s)) / 2), 72, 31)
+  local lines = {
+    "⬅⬆⬇➡ 移动・Ⓐ 开火",
+    "Start 继续",
+    "Select 音乐开关",
+    "护基地・灭 20 辆过关",
+  }
+  for i = 1, 4 do
+    local l = lines[i]
+    print(l, flr((256 - tw(l)) / 2), 96 + (i - 1) * 16, i == 1 and 7 or 10)
+  end
+end
+
+local function draw_title()
+  cls(0)
+  local wx, wy = torg(40)
+  for hx = 0, 25 do
+    sspr(wx + (hx % 2) * 8, wy, 8, 8, hx * 8, 6)
+    sspr(wx + (hx % 2) * 8, wy + 8, 8, 8, hx * 8, 246)
+  end
+  -- 标题
+  print("坦克大战", 98, 46, 62)
+  print("坦克大战", 96, 44, 30)
+  rect(88, 36, 80, 30, 28)
+  local sub = "FC-16 TRIBUTE"
+  print(sub, flr((256 - tw(sub)) / 2), 76, 24)
+  -- 敌型悬赏表
+  print("敌军悬赏", flr((256 - tw("敌军悬赏")) / 2), 94, 9)
+  for i = 1, 4 do
+    local x = 36 + (i - 1) * 48
+    spr(EBASE[i] + 4, x, 112)
+    local s = "" .. ESCORE[i]
+    print(s, x + 16 - tw(s) / 2, 130, 23)
+  end
+  -- 巡逻队列（履带滚动）
+  local pf = flr(t / 6) % 2
+  for i = 0, 3 do
+    local x = (t * 0.5 + i * 56) % (256 + 64) - 32
+    spr(EBASE[i + 1] + 2 + pf, flr(x), 150)
+  end
+  -- 提示与记录
+  if flr(t / 30) % 2 == 0 then
+    local s = "按 Ⓐ 开始"
+    print(s, flr((256 - tw(s)) / 2), 172, 7)
+  end
+  local f = "Select 音乐开关"
+  print(f, flr((256 - tw(f)) / 2), 190, 5)
+  local r1 = "最高 " .. G.hi .. " 分"
+  local r2 = "最远 第 " .. G.fstage .. " 关"
+  print(r1, flr((256 - tw(r1)) / 2), 212, 23)
+  print(r2, flr((256 - tw(r2)) / 2), 228, 23)
+end
+
+local function draw_tally()
+  cls(0)
+  local s = "第 " .. G.stage .. " 关 战果"
+  print(s, flr((256 - tw(s)) / 2), 22, 31)
+  local total = 0
+  local shown = 0
+  for i = 1, 4 do
+    local reveal = 30 + i * 36
+    if G.tt > reveal then
+      local n = min(G.kills[i], flr((G.tt - reveal) / 12))
+      shown = shown + n
+      local y = 52 + (i - 1) * 24
+      spr(EBASE[i] + 4, 40, y - 2)
+      print(ENAME[i], 64, y, 7)
+      print("× " .. n, 120, y, 7)
+      local sc = "" .. (n * ESCORE[i])
+      print(sc .. " 分", 248 - tw(sc .. " 分"), y, 30)
+      total = total + n * ESCORE[i]
+    end
+  end
+  if G.tt > 30 + 5 * 36 then
+    local n = min(G.itc, flr((G.tt - 30 - 5 * 36) / 12))
+    shown = shown + n
+    local y = 148
+    print("道具", 40, y, 7)
+    print("× " .. n, 120, y, 7)
+    local sc = "" .. (n * 500)
+    print(sc .. " 分", 248 - tw(sc .. " 分"), y, 30)
+    total = total + n * 500
+  end
+  if shown > G.ttlast then
+    G.ttlast = shown
+    sfx(7)
+  end
+  if G.tt > 300 then
+    local s2 = "合计 " .. total
+    print(s2, flr((256 - tw(s2)) / 2), 184, 31)
+    if flr(t / 20) % 2 == 0 then
+      local s3 = "按 Ⓐ 继续"
+      print(s3, flr((256 - tw(s3)) / 2), 220, 7)
+    end
+  end
+end
+
+local function draw_over()
+  cls(0)
+  print("GAME OVER", 94, 61, 60)
+  print("GAME OVER", 92, 59, 63)
+  rect(84, 48, 88, 34, 61)
+  local l1 = "本关 第 " .. G.stage .. " 关"
+  print(l1, flr((256 - tw(l1)) / 2), 108, 7)
+  local l2 = "得分 " .. G.score .. "・最高 " .. G.hi
+  print(l2, flr((256 - tw(l2)) / 2), 128, 23)
+  if flr(t / 20) % 2 == 0 then
+    local a = "Ⓐ 续关（本关重来・分数清零）"
+    print(a, flr((256 - tw(a)) / 2), 168, 30)
+  end
+  local b = "Start 返回标题"
+  print(b, flr((256 - tw(b)) / 2), 192, 9)
+end
+
+local function draw_victory()
+  cls(0)
+  local conf = G.conf or {}
+  for i = 1, #conf do
+    local p = conf[i]
+    pset(flr(p[1]), flr(p[2]), p[3])
+    p[1] = p[1] + p[4]
+    p[2] = p[2] + p[5]
+    if p[2] > 256 then p[2] = 0 end
+    if p[1] < 0 then p[1] = p[1] + 256 elseif p[1] > 256 then p[1] = p[1] - 256 end
+  end
+  print("胜利！", 106, 46, 60)
+  print("胜利！", 104, 44, 30)
+  rect(96, 36, 64, 32, 28)
+  spr(46, 120, 84)
+  local l1 = "守住了基地・全部关卡通关"
+  print(l1, flr((256 - tw(l1)) / 2), 124, 7)
+  local l2 = "得分 " .. G.score
+  print(l2, flr((256 - tw(l2)) / 2), 150, 31)
+  local l3 = "最高 " .. G.hi .. " 分"
+  print(l3, flr((256 - tw(l3)) / 2), 168, 23)
+  if flr(t / 20) % 2 == 0 then
+    local s = "按 Start 返回标题"
+    print(s, flr((256 - tw(s)) / 2), 208, 7)
+  end
+end
+
+-- ================================================================ 帧循环
+
+function _init()
+  G = {
+    state = "title", p = nil, foes = {}, buls = {}, booms = {}, parts = {},
+    pops = {}, stars = {}, item = nil,
+    score = 0, hi = 0, lives = 3, stage = 1, fstage = 0, cpower = 0,
+    kills = { 0, 0, 0, 0 }, itc = 0,
+    qi = 1, si = 1, scd = 0, sgap = 186, comp = COMP[1],
+    freeze = 0, shovel = 0, eagle_dead = false,
+    resp = 0, clear_t = 0, shake = 0, eng = nil,
+    it = 0, gt = 0, tt = 0, ttlast = 0, curtain = 0, bgm = true,
+  }
+  bake_all()
+  init_audio()
+  G.hi = dget(0) or 0
+  G.fstage = dget(1) or 0
+  G.bgm = dget(2) ~= 1   -- 槽 2：0/未写＝开
+  G.p = {
+    x = PSPAWN[1], y = PSPAWN[2], dir = 0, power = 0, shield = 0,
+    alive = true, anim = 0, moving = false, cool = 0,
+    slide = 0, lastmv = false, onice = false,
+  }
+  -- 胜利彩纸
+  local conf = {}
+  for i = 1, 60 do
+    conf[i] = { rnd(256), rnd(256), 30 + i % 8, rnd(-0.6, 0.6), 0.5 + rnd(1.5) }
+  end
+  G.conf = conf
+end
+
+function _update()
+  t = t + 1
+  local st = G.state
+  if st == "title" then
+    if btnp(4) or btnp(11) then new_campaign() end
+    if btnp(10) then toggle_bgm() end
+  elseif st == "intro" then
+    G.it = G.it + 1
+    if G.it > 70 then
+      G.curtain = G.curtain - 4
+      if G.curtain <= 0 then
+        G.curtain = 0
+        G.state = "play"
+      end
+    end
+  elseif st == "play" then
+    upd_play()
+  elseif st == "pause" then
+    if btnp(11) then
+      G.state = "play"
+      sfx(11)
+    end
+    if btnp(10) then toggle_bgm() end
+  elseif st == "goanim" then
+    G.gt = G.gt + 1
+    upd_fx()
+    if G.gt > 90 then
+      G.curtain = G.curtain + 4
+      if G.curtain >= 128 then
+        G.curtain = 0
+        G.state = "over"
+        G.ot = 0
+        save_progress()
+        sfx(8)
+      end
+    end
+  elseif st == "over" then
+    G.ot = G.ot + 1
+    if G.ot > 40 then
+      if btnp(4) then
+        G.score, G.lives, G.cpower = 0, 3, 0
+        start_stage(G.stage)
+      elseif btnp(11) then
+        G.state = "title"
+        music(-1)
+      end
+    end
+  elseif st == "tally" then
+    G.tt = G.tt + 1
+    if btnp(4) then
+      if G.tt < 340 then
+        G.tt = 340
+      else
+        if G.stage >= #STAGES then
+          G.state = "victory"
+          save_progress()
+          music(-1)
+          sfx(10)
+        else
+          start_stage(G.stage + 1)
+        end
+      end
+    end
+  elseif st == "victory" then
+    if btnp(11) then
+      G.state = "title"
+      music(-1)
+    end
+  end
+  upd_engine()
+end
+
+function _draw()
+  if G.shake > 0 then
+    camera(flr(rnd(5)) - 2, flr(rnd(5)) - 2)
+  end
+  local st = G.state
+  if st == "title" then
+    draw_title()
+  elseif st == "intro" then
+    draw_play()
+    draw_curtain()
+    if G.curtain >= 128 then
+      local s = "第 " .. G.stage .. " 关"
+      print(s, flr((256 - tw(s)) / 2), 118, 0)
+      local s2 = "STAGE " .. G.stage
+      print(s2, flr((256 - tw(s2)) / 2), 140, 3)
+    end
+  elseif st == "play" or st == "pause" then
+    draw_play()
+    if st == "pause" then draw_pause_overlay() end
+  elseif st == "goanim" then
+    draw_play()
+    local y = 240 - G.gt * 0.9
+    if y < 120 then y = 120 end
+    print("GAME OVER", 94, y + 2, 60)
+    print("GAME OVER", 92, y, 63)
+    draw_curtain()
+  elseif st == "tally" then
+    draw_tally()
+  elseif st == "over" then
+    draw_over()
+  elseif st == "victory" then
+    draw_victory()
+  end
+  camera(0, 0)
+end

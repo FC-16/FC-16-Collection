@@ -1,0 +1,13 @@
+# 帧号 key <0-11 组合>（0左1右2上3下4A5B11Start）
+30 key 4
+36 key -
+60 key 2
+68 key -
+76 key 2
+84 key -
+92 key 0
+100 key -
+200 key 11
+208 key -
+260 key 5
+268 key -

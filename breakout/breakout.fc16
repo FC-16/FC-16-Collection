@@ -1,0 +1,1503 @@
+fc16
+name: 打砖块
+author: FrostMiKu
+save_id: breakout
+version: 1
+flags: 0
+icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
+@sprites 0
+@map 0
+@sfx 0
+@patterns 0
+@sflags 0
+@free 0
+@code 42989
+-- =====================================================================
+-- FC-16 打砖块（Breakout / Arkanoid 风格）演示卡带
+--
+-- 玩法：←→ 移动挡板（带惯性微加速），Ⓐ 发射小球 / 发射激光，
+--       Start 暂停，Select 音乐开关，标题画面 Ⓐ 开始。
+-- 砖阵：8 关字符画编码；1-3 击多耐久砖（破损渐变外观）、不可毁钢砖、
+--       含道具砖；清光全部可破坏砖过关。
+-- 道具（Ⓐ 接住胶囊生效）：E 加宽 / L 激光 / M 三倍球 / N 减速 / + 加命。
+-- 演出：砖碎四溅粒子、球拖尾、挡板受击闪光、胶囊飘落旋转、
+--       过关清屏波、掉球失败演出（挡板爆碎 + 全屏调光）。
+-- 音频：SFX 音高随砖耐久变化；A 小调四声部循环 BGM（Select 开关）。
+-- 存档：最高分 + 最远关卡（dset + fflush）。
+--
+-- 美术与音乐均为本卡带原创，全部由 _init 逐像素 / 逐字节程序化生成，
+-- 卡带不携带二进制资产。
+-- =====================================================================
+
+-- ---------------------------------------------------------------- 常量
+
+local BR = 3          -- 球半径
+local PY = 218        -- 挡板顶 y
+local PH = 8          -- 挡板高
+local FX0, FX1 = 6, 250 -- 场地左右内壁
+local FY0 = 22        -- 场地顶内壁
+local GRID_X, GRID_Y = 8, 30 -- 砖阵原点
+local CELL_W, CELL_H = 16, 10 -- 砖格间距（砖体 14x8）
+local NCOLS = 15
+local MAX_BALLS = 6   -- 同屏球上限
+local MAX_CAPS = 3    -- 同屏道具胶囊上限
+local MAX_BEAMS = 6   -- 同屏激光上限
+
+-- 砖字符 → 初始耐久（99 = 钢砖不可毁）
+local KIND_HP = {
+  ["1"] = 1, ["2"] = 2, ["3"] = 3, ["#"] = 99,
+  e = 1, l = 1, m = 1, n = 1, p = 1,
+}
+-- 砖字符 → 外观类别（决定烘焙贴图与碎屑配色）
+local KIND_ID = {
+  ["1"] = "k1", ["2"] = "k2", ["3"] = "k3", ["#"] = "kw",
+  e = "kp", l = "kp", m = "kp", n = "kp", p = "kp",
+}
+-- 道具砖字符 → 胶囊类型
+local KIND_POW = { e = "e", l = "l", m = "m", n = "n", p = "p" }
+
+-- 碎屑配色（按类别直接查表，禁止色号加减推导明暗）
+local PART_COLS = {
+  k1 = { 33, 34, 35 }, k2 = { 30, 29, 25 }, k3 = { 43, 41, 40 },
+  kw = { 6, 5, 3 }, kp = { 31, 23, 19 },
+}
+
+-- 胶囊信息：贴图 / 名称 / 拾取音
+local CAP_INFO = {
+  e = { tile = 12, sfx = 16, txt = "加宽！" },
+  l = { tile = 13, sfx = 6, txt = "激光！" },
+  m = { tile = 14, sfx = 15, txt = "三倍球！" },
+  n = { tile = 15, sfx = 17, txt = "减速！" },
+  p = { tile = 16, sfx = 11, txt = "加命！" },
+}
+
+-- 8 个关卡：字符画编码，每行恰 15 字符（见 README）
+local LEVELS = {
+  { name = "开幕", rows = {
+    "222222222222222",
+    "111111111111111",
+    "111111111111111",
+    "11e1111m1111l11",
+  } },
+  { name = "棋盘", rows = {
+    "2.2.2.2.2.2.2.2",
+    ".1.1.1.1.1.1.1.",
+    "2.2.2.2.2.2.2.2",
+    ".1.n.1.1.p.1.1.",
+    "2.2.2.2.2.2.2.2",
+  } },
+  { name = "金字塔", rows = {
+    ".......3.......",
+    "......222......",
+    ".....21112.....",
+    "....2111112....",
+    "...211m1m112...",
+    "..21111111112..",
+    ".211111e111112.",
+    "211111111111112",
+  } },
+  { name = "堡垒", rows = {
+    "#2222222222222#",
+    "#3...........3#",
+    "#3.11e1l1111.3#",
+    "#3.111111111.3#",
+    "#3.11m1111p1.3#",
+    "#3...........3#",
+    "#2222222222222#",
+  } },
+  { name = "双子", rows = {
+    "..332.....233..",
+    "..32m.....m23..",
+    "..#2.......2#..",
+    "..#2e.....p2#..",
+    "..#2.......2#..",
+    "..332l...e233..",
+  } },
+  { name = "彩虹", rows = {
+    "..3333333333...",
+    ".2222222222222.",
+    "111111111111111",
+    ".2222222222222.",
+    "..33m33333n3...",
+    "....11p11......",
+  } },
+  { name = "蜂巢", rows = {
+    "2.3.2.3.2.3.2.3",
+    ".2.3.2.3.2.3.2.",
+    "3.#.2.3.m.3.2.#",
+    ".3.2.3.2.3.2.3.",
+    "e.#.2.3.l.3.2.#",
+  } },
+  { name = "决战", rows = {
+    "3#3#3#3#3#3#3#3",
+    "222222222222222",
+    "#.33m33e33p33.#",
+    "2l2222222222n22",
+    "#3#3#3#3#3#3#3#",
+    "222222222222222",
+    "..3.3.3.3.3.3..",
+    "....p.....p....",
+  } },
+}
+
+-- ---------------------------------------------------------------- 精灵烘焙
+
+-- 逐像素写 16x16 瓦片：fn(x, y) 返回色号或 nil（0 = 透明）
+local function bake(id, fn)
+  local base = id * 256
+  for y = 0, 15 do
+    for x = 0, 15 do
+      local c = fn(x + 0.5, y + 0.5)
+      poke(base + y * 16 + x, c or 0)
+    end
+  end
+end
+
+-- 精灵表像素坐标直写（供 64 宽条带用）
+local function bake_px(x, y, c)
+  if c == nil then c = 0 end
+  local addr = (flr(y / 16) * 16 + flr(x / 16)) * 256 + (y % 16) * 16 + (x % 16)
+  poke(addr, c)
+end
+
+-- 砖块贴图：14x8 主体位于瓦片 x1..14 / y0..7，斜切裂缝按层级加深
+-- crack: 0 完好 / 1 一组裂缝 / 2 两组裂缝 + 缺角
+local function crack_hit(crack, ax, ay)
+  if crack >= 1 then
+    if ax + ay == 5 and ay <= 3 then return true end       -- 左上斜裂缝
+    if ax - ay == 4 and ay >= 2 and ay <= 6 then return true end -- 右下斜裂缝
+  end
+  if crack >= 2 then
+    if ax + ay == 13 and ay <= 4 then return true end      -- 右上裂缝
+    if ax - ay == -4 and ay >= 4 then return true end      -- 左下裂缝
+  end
+  return false
+end
+
+local function chip_hit(crack, ax, ay)
+  if crack < 2 then return false end
+  if ax <= 1 and ay <= 0 then return true end   -- 左上崩角
+  if ax >= 12 and ay >= 7 then return true end  -- 右下崩角
+  return false
+end
+
+local function bake_brick(id, cols, crack)
+  bake(id, function(x, y)
+    local ax, ay = x - 1, y
+    if ax < 0 or ax > 13.5 or ay > 7.5 then return nil end
+    if chip_hit(crack, flr(ax), flr(ay)) then return nil end
+    if crack_hit(crack, flr(ax), flr(ay)) then return cols[4] end
+    if ay <= 0.5 then return cols[1] end        -- 顶面高光
+    if ay >= 6.5 then return cols[3] end        -- 底面阴影
+    if ax <= 0.5 then return cols[2] end        -- 左缘亮
+    if ax >= 12.5 then return cols[4] end       -- 右缘暗
+    -- 顶面斜高光小块
+    if ay <= 1.5 and ax >= 2 and ax <= 5.5 then return cols[1] end
+    return cols[2]
+  end)
+end
+
+local function bake_sprites()
+  -- 1: 绿砖（1 击）
+  bake_brick(1, { 33, 34, 35, 37 }, 0)
+  -- 2/3: 橙砖（2 击：完好 / 破裂）
+  bake_brick(2, { 30, 29, 25, 26 }, 0)
+  bake_brick(3, { 29, 28, 25, 26 }, 1)
+  -- 4/5/6: 蓝砖（3 击：完好 / 裂一次 / 裂两次）
+  bake_brick(4, { 43, 41, 40, 38 }, 0)
+  bake_brick(5, { 42, 41, 39, 38 }, 1)
+  bake_brick(6, { 41, 40, 39, 38 }, 2)
+  -- 7: 钢砖（铆钉金属）
+  bake(7, function(x, y)
+    local ax, ay = x - 1, y
+    if ax < 0 or ax > 13.5 or ay > 7.5 then return nil end
+    -- 铆钉（左右各一）
+    if (ax >= 2.5 and ax <= 4.5 or ax >= 9.5 and ax <= 11.5)
+      and ay >= 2.5 and ay <= 4.5 then
+      if (ax - 3.5) * (ax - 3.5) + (ay - 3.5) * (ay - 3.5) <= 1.6 then
+        return 2
+      end
+      return 3
+    end
+    if ay <= 0.5 then return 6 end            -- 顶面亮
+    if ay >= 6.5 then return 3 end            -- 底面暗
+    if ax >= 12.5 then return 4 end
+    if (ax + ay) % 8 < 1.6 then return 6 end  -- 斜向金属反光
+    return 5
+  end)
+  -- 8: 道具砖（金砖 + 四芒星标记）
+  bake(8, function(x, y)
+    local ax, ay = x - 1, y
+    if ax < 0 or ax > 13.5 or ay > 7.5 then return nil end
+    -- 中央四芒星
+    local dx, dy = ax - 6.5, ay - 3.5
+    if (abs(dx) <= 2.5 and abs(dy) <= 0.5) or (abs(dy) <= 2.5 and abs(dx) <= 0.5) then
+      return 7
+    end
+    if abs(dx) <= 3 and abs(dy) <= 3 and (dx * dx + dy * dy) <= 1.2 then return 44 end
+    if ay <= 0.5 then return 31 end
+    if ay >= 6.5 then return 19 end
+    if ax <= 0.5 then return 23 end
+    if ax >= 12.5 then return 17 end
+    return 23
+  end)
+  -- 10: 小球（白芯 + 青色辉光）
+  bake(10, function(x, y)
+    local dx, dy = x - 7.5, y - 7.5
+    local d2 = dx * dx + dy * dy
+    if d2 <= 3.2 then return 7 end
+    if d2 <= 8.5 then return 43 end
+    if d2 <= 15.5 and (x + y) % 2 == 0 then return 44 end
+    if d2 <= 24 and (x * 3 + y) % 4 < 1 then return 42 end
+    return nil
+  end)
+  -- 11: 大块碎屑（5x5 金属板，挡板爆碎用）
+  bake(11, function(x, y)
+    local dx, dy = x - 7.5, y - 7.5
+    if abs(dx) > 2.5 or abs(dy) > 2.5 then return nil end
+    if dy <= -1.5 then return 8 end
+    if dy >= 1.5 then return 11 end
+    if dx <= -1.5 then return 9 end
+    if dx >= 1.5 then return 13 end
+    return 9
+  end)
+
+  -- 12-16: 道具胶囊（12x8 圆角壳 + 反白字母图标）
+  local LETTERS = {
+    e = { "111", "1..", "111", "1..", "111" },
+    l = { "1..", "1..", "1..", "1..", "111" },
+    m = { "1...1", "11.11", "1.1.1", "1...1", "1...1" },
+    n = { "1...1", "11..1", "1.1.1", "1..11", "1...1" },
+    p = { "..1..", "..1..", "11111", "..1..", "..1.." },
+  }
+  -- 壳配色：{亮, 主, 暗}，字母颜色
+  local CAP_SKIN = {
+    e = { 33, 34, 35, 7 },
+    l = { 57, 58, 60, 7 },
+    m = { 44, 42, 40, 7 },
+    n = { 55, 54, 53, 7 },
+    p = { 31, 30, 24, 0 },
+  }
+  for key, skin in pairs(CAP_SKIN) do
+    local rows_l = LETTERS[key]
+    local lw = #rows_l[1]
+    local ox = flr((12 - lw) / 2)
+    bake(CAP_INFO[key].tile, function(x, y)
+      local ax, ay = x - 2, y - 4
+      if ax < 0 or ax > 11.5 or ay < 0 or ay > 7.5 then return nil end
+      -- 圆角外形：两端半圆
+      local inside = true
+      if ax < 4 then
+        local ex, ey = ax - 3.5, ay - 3.5
+        inside = ex * ex + ey * ey <= 16.5
+      elseif ax > 8 then
+        local ex, ey = ax - 8.5, ay - 3.5
+        inside = ex * ex + ey * ey <= 16.5
+      end
+      if not inside then return nil end
+      -- 字母图标
+      local lx, ly = flr(ax) - ox, flr(ay) - 1
+      if lx >= 0 and lx < lw and ly >= 0 and ly < 5 then
+        local ch = rows_l[ly + 1]:sub(lx + 1, lx + 1)
+        if ch == "1" then return skin[4] end
+      end
+      -- 壳体明暗
+      if ay <= 0.5 then return skin[1] end
+      if ay >= 6.5 then return skin[3] end
+      if ax <= 1.5 then return skin[1] end
+      if ax >= 10.5 then return skin[3] end
+      if ay <= 1.5 and ax >= 2 and ax <= 5.5 then return skin[1] end -- 高光
+      return skin[2]
+    end)
+  end
+
+  -- 24-27: 普通挡板条带（64x8，位于精灵表 (128,16)）
+  local function bake_pad_normal()
+    for yy = 0, 7 do
+      for xx = 0, 63 do
+        local c
+        local cap = xx < 12 or xx >= 52
+        if cap then
+          if xx == 0 or xx == 63 then c = 43      -- 青色端头
+          elseif xx == 1 or xx == 62 then c = 8
+          elseif yy == 0 then c = 9
+          elseif yy == 7 then c = 13
+          else c = 11 end
+        else
+          if yy == 0 then c = 8
+          elseif yy == 7 then c = 11
+          elseif (xx == 31 or xx == 32) and yy >= 2 and yy <= 5 then c = 43 -- 中心准星
+          else c = 9 end
+        end
+        bake_px(128 + xx, 16 + yy, c)
+      end
+    end
+  end
+  -- 28-31: 激光挡板条带（64x10，位于精灵表 (192,16)）：上缘双炮
+  local function bake_pad_laser()
+    for yy = 0, 9 do
+      for xx = 0, 63 do
+        local c
+        local cannon = (xx >= 4 and xx <= 9 or xx >= 54 and xx <= 59) and yy <= 2
+        if cannon then
+          if xx == 4 or xx == 9 or xx == 54 or xx == 59 then c = 13
+          elseif yy == 0 and (xx <= 5 or xx >= 58 or (xx >= 7 and xx <= 8)) then c = 63 -- 炮口红光
+          elseif yy == 0 then c = 8
+          else c = 11 end
+        elseif yy >= 2 then
+          local by = yy - 2
+          local cap = xx < 12 or xx >= 52
+          if cap then
+            if xx == 0 or xx == 63 then c = 43
+            elseif xx == 1 or xx == 62 then c = 8
+            elseif by == 0 then c = 9
+            elseif by == 7 then c = 13
+            else c = 11 end
+          else
+            if by == 0 then c = 8
+            elseif by == 7 then c = 11
+            elseif (xx == 31 or xx == 32) and by >= 2 and by <= 5 then c = 63 -- 激光模式中心红标
+            else c = 9 end
+          end
+        else
+          c = nil
+        end
+        bake_px(192 + xx, 16 + yy, c)
+      end
+    end
+  end
+  bake_pad_normal()
+  bake_pad_laser()
+
+  -- 32: 四芒星光斑（拾取道具 / 得分闪烁）
+  bake(32, function(x, y)
+    local dx, dy = x - 3.5, y - 3.5
+    if abs(dx) <= 3.5 and abs(dy) <= 0.5 then return (abs(dx) > 2) and 44 or 7 end
+    if abs(dy) <= 3.5 and abs(dx) <= 0.5 then return (abs(dy) > 2) and 44 or 7 end
+    if abs(dx) <= 1.5 and abs(dy) <= 1.5 then
+      if (dx * dx + dy * dy) <= 2.2 then return 44 end
+    end
+    return nil
+  end)
+end
+
+-- ---------------------------------------------------------------- 音频
+
+local function u8(a, val) poke(a, val % 256) end
+
+-- init_sfx(id, notes, wave, vol, speed, o)：o 可含 loop 与逐步 effect
+local function init_sfx(id, notes, wave, vol, speed, o)
+  o = o or {}
+  local base = 0x060000 + id * 112
+  u8(base, speed or 2)
+  u8(base + 1, #notes)
+  if o.loop then u8(base + 2, o.loop) u8(base + 3, #notes) u8(base + 4, 1) end
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    if i < #notes then
+      u8(a, notes[i + 1])
+      u8(a + 1, wave * 16 + vol)
+      u8(a + 2, o.effect or 0)
+    else
+      u8(a, 0)
+      u8(a + 1, 0)
+    end
+  end
+end
+
+-- 逐步音效（打击乐等需要每步独立波形 / 音量的场合）
+local function sfx_steps(id, speed, steps)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, #steps)
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    local st = steps[i + 1]
+    if st then
+      u8(a, st[1] or 0)
+      u8(a + 1, (st[2] or 3) * 16 + (st[3] or 8))
+    else
+      u8(a, 0)
+      u8(a + 1, 0)
+    end
+  end
+end
+
+-- 每个音符重复 n 步
+local function expand(notes, n)
+  local out = {}
+  for _, v in ipairs(notes) do
+    for _ = 1, n do out[#out + 1] = v end
+  end
+  return out
+end
+
+-- BGM：A 小调四声部循环（Am-F-C-G），速度 4（每步 4 帧，每小节 32 步）
+local function init_bgm()
+  -- 音名辅助：P(八度, 半音) → SFX 音高（C0=1）
+  local function P(oct, semi) return oct * 12 + semi + 1 end
+  local bars = {
+    { root = P(2, 9), fifth = P(3, 4), arp = { P(3, 9), P(4, 0), P(4, 4), P(4, 9) },
+      lead = { P(4, 9), 0, P(5, 0), 0, P(5, 4), 0, P(5, 2), P(5, 0) } },
+    { root = P(2, 5), fifth = P(3, 0), arp = { P(3, 5), P(3, 9), P(4, 0), P(4, 5) },
+      lead = { P(4, 9), 0, 0, 0, P(4, 5), 0, P(4, 7), P(4, 9) } },
+    { root = P(3, 0), fifth = P(3, 7), arp = { P(4, 0), P(4, 4), P(4, 7), P(5, 0) },
+      lead = { P(5, 4), 0, P(5, 2), 0, P(5, 0), 0, P(4, 7), 0 } },
+    { root = P(2, 7), fifth = P(3, 2), arp = { P(3, 7), P(3, 11), P(4, 2), P(4, 7) },
+      lead = { P(5, 2), 0, P(4, 11), 0, P(4, 7), 0, P(4, 11), P(5, 2) } },
+  }
+  for b = 1, 4 do
+    local bar = bars[b]
+    -- 低音：根音-五度交替泵动（SFX 20-23，ch4）
+    local bass = {}
+    for _ = 1, 4 do
+      bass[#bass + 1] = bar.root
+      bass[#bass + 1] = bar.fifth
+    end
+    init_sfx(19 + b, expand(bass, 4), 11, 13, 4)
+    -- 主旋律（SFX 24-27，ch5）
+    init_sfx(23 + b, expand(bar.lead, 4), 3, 9, 4)
+    -- 琶音垫：十六分音符上下行（SFX 28-31，ch6）
+    local arp = {}
+    for _, v in ipairs(bar.arp) do arp[#arp + 1] = v end
+    for i = 4, 1, -1 do arp[#arp + 1] = bar.arp[i] end
+    for _, v in ipairs(bar.arp) do arp[#arp + 1] = v end
+    for i = 4, 1, -1 do arp[#arp + 1] = bar.arp[i] end
+    init_sfx(27 + b, expand(arp, 2), 4, 4, 4)
+    -- 打击乐（SFX 32-35，ch7）：底鼓 / 军鼓 / 踩镲，末小节加填充
+    local dr = {}
+    dr[1] = { 24, 15, 13 } dr[2] = { 20, 15, 5 }
+    dr[5] = { 78, 15, 4 }
+    dr[9] = { 52, 14, 10 } dr[10] = { 56, 14, 4 }
+    dr[13] = { 78, 15, 4 }
+    dr[17] = { 24, 15, 13 } dr[18] = { 20, 15, 5 }
+    dr[21] = { 78, 15, 4 }
+    dr[25] = { 52, 14, 10 } dr[26] = { 56, 14, 4 }
+    dr[29] = { 78, 15, 4 }
+    if b == 4 then -- 末小节军鼓滚奏填充回 Am
+      dr[27] = { 52, 14, 6 } dr[28] = { 56, 14, 6 }
+      dr[30] = { 60, 14, 7 } dr[31] = { 64, 14, 8 }
+    end
+    local flat = {}
+    for i = 1, 32 do flat[i] = dr[i] end
+    sfx_steps(31 + b, 4, flat)
+  end
+  -- Pattern 0-3：ch4 低音 / ch5 主旋律 / ch6 琶音 / ch7 打击
+  for p = 0, 3 do
+    local mb = 0x063800 + p * 16
+    u8(mb + 4, 20 + p)
+    u8(mb + 5, 24 + p)
+    u8(mb + 6, 28 + p)
+    u8(mb + 7, 32 + p)
+    u8(mb + 8, (p == 0 and 1 or 0) + (p == 3 and 2 or 0)) -- BEGIN / END 回环
+  end
+end
+
+local function init_game_sfx()
+  init_sfx(0, { 49, 54 }, 3, 11, 1)                 -- 挡板击球
+  init_sfx(1, { 42 }, 3, 7, 1)                      -- 撞墙
+  init_sfx(2, { 63 }, 3, 9, 1)                      -- 砖耐久剩 2
+  init_sfx(3, { 56 }, 3, 9, 1)                      -- 砖耐久剩 1
+  init_sfx(4, { 45, 33 }, 14, 10, 1)                -- 砖块破碎（噪声碎裂）
+  init_sfx(5, { 75, 70 }, 10, 8, 1)                 -- 钢砖铿锵（铃音）
+  init_sfx(6, { 52, 57, 61 }, 3, 11, 1)             -- 拾取道具
+  init_sfx(7, { 74, 66 }, 13, 9, 1, { effect = 3 }) -- 激光发射（下坠感）
+  init_sfx(8, { 55 }, 13, 8, 1)                     -- 激光命中
+  init_sfx(9, { 49, 52, 56, 61, 56, 61, 64, 68 }, 3, 12, 2) -- 过关旋律
+  init_sfx(10, { 49, 46, 42, 39, 35, 30 }, 2, 10, 3)        -- 失败旋律
+  init_sfx(11, { 61, 65, 68, 73 }, 3, 12, 1)        -- 加命
+  init_sfx(12, { 50, 57 }, 3, 9, 1)                 -- 发射小球
+  init_sfx(13, { 45, 40, 35, 28, 21 }, 2, 11, 2)    -- 掉球
+  init_sfx(14, { 56 }, 3, 7, 1)                     -- UI 滴答
+  init_sfx(15, { 56, 63, 70 }, 3, 11, 1)            -- 三倍球
+  init_sfx(16, { 38, 50 }, 11, 10, 1)               -- 加宽
+  init_sfx(17, { 70, 64, 58 }, 8, 10, 2)            -- 减速
+  init_sfx(18, { 61, 65, 68, 73, 68, 73, 76, 80 }, 3, 12, 2) -- 通关号角
+end
+
+-- ---------------------------------------------------------------- 状态
+
+local t = 0                -- 全局帧计数
+local state = "title"      -- title / ready / play / clear / dying / over
+local state_t = 0
+local paused = false
+local won = false
+local new_hi = false
+
+local score, hi, far, lives, level
+local music_on = true
+
+local grid = {}            -- grid[j][i] = brick
+local nrows = 0
+local bricks_left = 0
+local balls, caps, beams, parts, pops = {}, {}, {}, {}, {}
+local stars = {}           -- 背景点缀星
+
+local paddle_x, paddle_vx, paddle_w = 108, 0, 40
+local exp_t, laser_t, slow_t, beam_cd, paddle_flash = 0, 0, 0, 0, 0
+local shake_t = 0
+local clear_bonus = 0
+
+local demo = {}            -- 标题演示球 + 演示挡板
+
+-- ---------------------------------------------------------------- 小工具
+
+local function cprint(s, y, c)
+  print(s, flr((256 - tw(s)) / 2), y, c)
+end
+
+local function ball_spd()
+  return (2.15 + 0.11 * min(level - 1, 10)) * (slow_t > 0 and 0.68 or 1)
+end
+
+-- 归一化到当前球速，并给垂直分量保底（防水平死循环）
+local function renorm(b)
+  local spd = ball_spd()
+  local s = sqrt(b.vx * b.vx + b.vy * b.vy)
+  if s < 0.001 then
+    b.vx, b.vy = 0.2 * spd, -0.98 * spd
+    return
+  end
+  local k = spd / s
+  b.vx = b.vx * k
+  b.vy = b.vy * k
+  local mv = 0.2 * spd
+  if abs(b.vy) < mv then
+    b.vy = (b.vy <= 0 and -1 or 1) * mv
+    local rx = spd * spd - b.vy * b.vy
+    local sx = b.vx
+    if sx == 0 then sx = (rnd(2) < 1) and -1 or 1 end
+    b.vx = sgn(sx) * sqrt(max(0, rx))
+  end
+end
+
+local function rotv(vx, vy, a)
+  local c, s = cos(a), sin(a)
+  return vx * c - vy * s, vx * s + vy * c
+end
+
+local function popup(s, x, y)
+  add(pops, { s = s, x = mid(30, x, 226), y = y, tt = 0 })
+end
+
+local function spark(x, y, n)
+  for _ = 1, n do
+    add(parts, {
+      x = x, y = y, vx = rnd(-1.4, 1.4), vy = rnd(-1.4, 0.4),
+      g = 0.06, life = 12 + flr(rnd(8)),
+      c = (rnd(2) < 1) and 31 or 7, kind = 2, s = rnd(1),
+    })
+  end
+end
+
+local function add_parts(x, y, n, cols, kind, pw)
+  n = min(n, 220 - #parts)
+  for _ = 1, n do
+    add(parts, {
+      x = x, y = y, vx = rnd(-pw, pw), vy = rnd(-pw, 0.5),
+      g = 0.09, life = 20 + flr(rnd(25)),
+      c = cols[1 + flr(rnd(#cols))], kind = kind, s = rnd(1),
+    })
+  end
+end
+
+local function add_sparkle(x, y, n)
+  for _ = 1, n do
+    add(parts, {
+      x = x + rnd(-10, 10), y = y + rnd(-8, 8), vx = 0, vy = -0.2,
+      g = 0, life = 14 + flr(rnd(10)), c = 7, kind = 3, s = rnd(1),
+    })
+  end
+end
+
+local function toggle_music()
+  music_on = not music_on
+  dset(2, music_on and 0 or 1)
+  fflush()
+  if music_on then
+    music(0, 200, 0xF0)
+  else
+    music(-1, 200)
+  end
+end
+
+-- ---------------------------------------------------------------- 砖块
+
+local function brick_tile(br)
+  if br.kind == "k1" then return 1 end
+  if br.kind == "kw" then return 7 end
+  if br.kind == "kp" then return 8 end
+  if br.kind == "k2" then return br.hp >= 2 and 2 or 3 end
+  return br.hp == 3 and 4 or (br.hp == 2 and 5 or 6)
+end
+
+local function brick_at_point(px, py)
+  local i = flr((px - GRID_X) / CELL_W) + 1
+  local j = flr((py - GRID_Y) / CELL_H) + 1
+  if i < 1 or i > NCOLS or j < 1 or j > nrows then return nil end
+  local br = grid[j][i]
+  if not br then return nil end
+  if px >= br.x and px <= br.x + 14 and py >= br.y and py <= br.y + 8 then
+    return br
+  end
+  return nil
+end
+
+local function destroy_brick(br)
+  grid[br.j][br.i] = nil
+  bricks_left = bricks_left - 1
+  score = score + 10 * br.maxhp
+  sfx(4)
+  add_parts(br.x + 7, br.y + 4, 10, PART_COLS[br.kind], 0, 2.2)
+  if br.pow and #caps < MAX_CAPS then
+    add(caps, { x = br.x + 7, y = br.y + 4, vy = 0.75, ph = rnd(1), kind = br.pow })
+  end
+  if bricks_left <= 0 then
+    state = "clear"
+    state_t = 0
+    clear_bonus = 150 + level * 50
+    score = score + clear_bonus
+    caps = {}
+    beams = {}
+    shake_t = 6
+    sfx(9)
+  end
+end
+
+-- 球 / 激光对砖的一次伤害
+local function hit_brick(br, hx, hy)
+  if br.kind == "kw" then
+    sfx(5)
+    spark(hx, hy, 3)
+    return
+  end
+  br.hp = br.hp - 1
+  br.flash = 5
+  score = score + 5
+  if br.hp <= 0 then
+    destroy_brick(br)
+  else
+    sfx(br.hp >= 2 and 2 or 3) -- 音高随剩余耐久
+    add_parts(hx, hy, 3, PART_COLS[br.kind], 0, 1.2)
+  end
+end
+
+-- ---------------------------------------------------------------- 球
+
+local function new_stuck_ball()
+  balls = {}
+  add(balls, { x = 128, y = PY - 6, vx = 0, vy = 0, stuck = true, trail = {} })
+end
+
+local function launch_balls()
+  state = "play"
+  state_t = 0
+  local spd = ball_spd()
+  for _, b in ipairs(balls) do
+    if b.stuck then
+      local ang = rnd(-0.04, 0.04)
+      b.vx = sin(ang) * spd
+      b.vy = -cos(ang) * spd
+      b.stuck = false
+    end
+  end
+  sfx(12)
+end
+
+local function multiball()
+  local src = {}
+  for _, b in ipairs(balls) do
+    if not b.stuck then src[#src + 1] = b end
+  end
+  if #src == 0 then return end
+  for _, b in ipairs(src) do
+    for _, da in ipairs({ -0.09, 0.09 }) do
+      if #balls >= MAX_BALLS then break end
+      local nvx, nvy = rotv(b.vx, b.vy, da)
+      add(balls, { x = b.x, y = b.y, vx = nvx, vy = nvy, stuck = false, trail = {} })
+    end
+  end
+end
+
+-- 圆-砖碰撞：取穿透最深的砖，按较小穿透轴反弹并推出
+local function collide_bricks(b)
+  local corners = {
+    { b.x - BR, b.y - BR }, { b.x + BR, b.y - BR },
+    { b.x - BR, b.y + BR }, { b.x + BR, b.y + BR },
+  }
+  local best, bpenx, bpeny = nil, 0, 0
+  for _, c in ipairs(corners) do
+    local i = flr((c[1] - GRID_X) / CELL_W) + 1
+    local j = flr((c[2] - GRID_Y) / CELL_H) + 1
+    if i >= 1 and i <= NCOLS and j >= 1 and j <= nrows then
+      local br = grid[j][i]
+      if br then
+        local nx = mid(br.x, b.x, br.x + 14)
+        local ny = mid(br.y, b.y, br.y + 8)
+        local dx, dy = b.x - nx, b.y - ny
+        if dx * dx + dy * dy <= BR * BR then
+          local penx = (7 + BR) - abs(b.x - (br.x + 7))
+          local peny = (4 + BR) - abs(b.y - (br.y + 4))
+          if not best or penx + peny > bpenx + bpeny then
+            best, bpenx, bpeny = br, penx, peny
+          end
+        end
+      end
+    end
+  end
+  if not best then return false end
+  local br = best
+  if bpeny <= bpenx then
+    -- 垂直反弹 + 按击点加英式旋转（防纯垂直循环）
+    local s = (b.y < br.y + 4) and -1 or 1
+    b.y = br.y + 4 + s * (4 + BR + 0.2)
+    b.vy = s * abs(b.vy)
+    b.vx = b.vx + (b.x - (br.x + 7)) / 7 * 0.12
+  else
+    local s = (b.x < br.x + 7) and -1 or 1
+    b.x = br.x + 7 + s * (7 + BR + 0.2)
+    b.vx = s * abs(b.vx)
+  end
+  renorm(b)
+  hit_brick(br, b.x, b.y)
+  return true
+end
+
+local function update_balls()
+  local spd = ball_spd()
+  for bi = #balls, 1, -1 do
+    local b = balls[bi]
+    if b.stuck then
+      b.x = paddle_x + paddle_w / 2
+      b.y = PY - 6
+    else
+      -- 拖尾轨迹
+      add(b.trail, { b.x, b.y }, 1)
+      if #b.trail > 7 then deli(b.trail) end
+      -- 子步推进（每步 <= 2px，杜绝隧穿）
+      local steps = max(1, ceil(spd / 2))
+      for _ = 1, steps do
+        b.x = b.x + b.vx / steps
+        b.y = b.y + b.vy / steps
+        -- 侧墙
+        if b.x - BR < FX0 then
+          b.x = FX0 + BR
+          b.vx = abs(b.vx)
+          sfx(1)
+          spark(FX0, b.y, 2)
+        elseif b.x + BR > FX1 then
+          b.x = FX1 - BR
+          b.vx = -abs(b.vx)
+          sfx(1)
+          spark(FX1, b.y, 2)
+        end
+        -- 顶墙
+        if b.y - BR < FY0 then
+          b.y = FY0 + BR
+          b.vy = abs(b.vy)
+          sfx(1)
+          spark(b.x, FY0, 2)
+        end
+        -- 挡板：击点位置决定反弹角（边缘更尖角）
+        if b.vy > 0 and b.y + BR >= PY and b.y < PY + PH
+          and b.x > paddle_x - 3 and b.x < paddle_x + paddle_w + 3 then
+          b.y = PY - BR
+          local off = mid(-1, (b.x - (paddle_x + paddle_w / 2)) / (paddle_w / 2), 1)
+          local ang = off * 0.185 + paddle_vx * 0.01 + rnd(-0.008, 0.008)
+          ang = mid(-0.19, ang, 0.19) -- 最大约 68 度，保底垂直分量
+          b.vx = sin(ang) * spd
+          b.vy = -cos(ang) * spd
+          paddle_flash = 8
+          sfx(0)
+          spark(b.x, PY, 3)
+        end
+        -- 砖阵
+        collide_bricks(b)
+        -- 掉落
+        if b.y - BR > 240 then
+          deli(balls, bi)
+          if #balls == 0 then
+            lives = lives - 1
+            if lives <= 0 then
+              state = "dying"
+              state_t = 0
+              shake_t = 16
+              sfx(13)
+              sfx(10)
+              add_parts(paddle_x + paddle_w / 2, PY + 3, 16, { 9, 8, 11 }, 1, 3)
+              add_sparkle(paddle_x + paddle_w / 2, PY, 6)
+            else
+              exp_t, laser_t, slow_t = 0, 0, 0
+              beams = {}
+              caps = {}
+              new_stuck_ball()
+              state = "ready"
+              state_t = 0
+              sfx(13)
+            end
+          end
+          break
+        end
+        -- 状态可能刚切到 clear：冻结后续子步
+        if state ~= "play" then break end
+        -- 每子步归一化：恒速推进（减速道具即时生效），并钳制垂直分量
+        renorm(b)
+      end
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 挡板 / 激光 / 胶囊
+
+local function update_paddle()
+  local dir = 0
+  if btn(0) then dir = dir - 1 end
+  if btn(1) then dir = dir + 1 end
+  if dir ~= 0 then
+    paddle_vx = mid(-4.4, paddle_vx + dir * 0.6, 4.4)
+  else
+    paddle_vx = paddle_vx * 0.75
+    if abs(paddle_vx) < 0.05 then paddle_vx = 0 end
+  end
+  paddle_x = paddle_x + paddle_vx
+  -- 宽度动画（加宽道具）
+  local tgt = (exp_t > 0) and 56 or 40
+  if paddle_w ~= tgt then
+    local old = paddle_w
+    paddle_w = paddle_w + (tgt - paddle_w) * 0.25
+    if abs(paddle_w - tgt) < 0.5 then paddle_w = tgt end
+    paddle_x = paddle_x - (paddle_w - old) / 2
+  end
+  paddle_x = mid(FX0, paddle_x, FX1 - paddle_w)
+end
+
+local function fire_lasers()
+  if beam_cd > 0 or #beams >= MAX_BEAMS then return end
+  add(beams, { x = paddle_x + 7, y = PY - 4 })
+  add(beams, { x = paddle_x + paddle_w - 8, y = PY - 4 })
+  beam_cd = 14
+  sfx(7)
+end
+
+local function update_beams()
+  for i = #beams, 1, -1 do
+    local bm = beams[i]
+    bm.y = bm.y - 7
+    local br = brick_at_point(bm.x, bm.y - 4)
+    if br then
+      spark(bm.x, bm.y, 3)
+      if br.kind == "kw" then sfx(8) end
+      hit_brick(br, bm.x, bm.y)
+      deli(beams, i)
+    elseif bm.y < FY0 + 4 then
+      spark(bm.x, FY0, 2)
+      deli(beams, i)
+    end
+  end
+end
+
+local function apply_cap(c)
+  local info = CAP_INFO[c.kind]
+  score = score + 50
+  sfx(info.sfx)
+  popup(info.txt, paddle_x + paddle_w / 2, PY - 14)
+  add_sparkle(paddle_x + paddle_w / 2, PY, 5)
+  if c.kind == "e" then
+    exp_t = 600
+  elseif c.kind == "l" then
+    laser_t = 600
+  elseif c.kind == "m" then
+    multiball()
+  elseif c.kind == "n" then
+    slow_t = 480
+  elseif c.kind == "p" then
+    lives = min(6, lives + 1)
+  end
+end
+
+local function update_caps()
+  for i = #caps, 1, -1 do
+    local c = caps[i]
+    c.y = c.y + c.vy
+    c.ph = c.ph + 0.05
+    if c.y > 238 then
+      deli(caps, i)
+    elseif c.y + 4 >= PY and c.y - 4 <= PY + PH
+      and c.x + 6 > paddle_x and c.x - 6 < paddle_x + paddle_w then
+      apply_cap(c)
+      deli(caps, i)
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 粒子 / 浮字
+
+local function update_parts()
+  for i = #parts, 1, -1 do
+    local p = parts[i]
+    p.x = p.x + p.vx
+    p.y = p.y + p.vy
+    p.vy = p.vy + p.g
+    p.s = p.s + 0.3
+    p.life = p.life - 1
+    if p.life <= 0 or p.y > 252 then deli(parts, i) end
+  end
+end
+
+local function update_pops()
+  for i = #pops, 1, -1 do
+    local p = pops[i]
+    p.tt = p.tt + 1
+    p.y = p.y - 0.4
+    if p.tt > 45 then deli(pops, i) end
+  end
+end
+
+-- ---------------------------------------------------------------- 关卡 / 流程
+
+local function load_level(n)
+  level = n
+  far = max(far, n)
+  grid = {}
+  bricks_left = 0
+  local lv = LEVELS[n]
+  nrows = #lv.rows
+  for j, row in ipairs(lv.rows) do
+    grid[j] = {}
+    for i = 1, #row do
+      local ch = row:sub(i, i)
+      local hp = KIND_HP[ch]
+      if hp then
+        local pow = KIND_POW[ch]
+        grid[j][i] = {
+          i = i, j = j, kind = KIND_ID[ch], hp = hp,
+          maxhp = (hp < 99) and hp or 99, pow = pow,
+          x = GRID_X + (i - 1) * CELL_W + 1,
+          y = GRID_Y + (j - 1) * CELL_H,
+          flash = 0,
+        }
+        if hp < 99 then bricks_left = bricks_left + 1 end
+      end
+    end
+  end
+  paddle_x = (256 - 40) / 2
+  paddle_vx = 0
+  paddle_w = 40
+  exp_t, laser_t, slow_t, beam_cd = 0, 0, 0, 0
+  caps = {}
+  beams = {}
+  new_stuck_ball()
+end
+
+local function save_record()
+  if score > hi then
+    hi = score
+    new_hi = true
+  end
+  dset(0, hi)
+  dset(1, far)
+  fflush()
+end
+
+local function advance_level()
+  if level >= #LEVELS then
+    won = true
+    score = score + 1000
+    state = "over"
+    state_t = 0
+    sfx(18)
+    save_record()
+  else
+    load_level(level + 1)
+    state = "ready"
+    state_t = 0
+  end
+end
+
+local function new_game()
+  score = 0
+  lives = 3
+  won = false
+  new_hi = false
+  load_level(1)
+  state = "ready"
+  state_t = 0
+  paused = false
+end
+
+local function to_title()
+  state = "title"
+  state_t = 0
+  balls = {}
+  caps = {}
+  beams = {}
+end
+
+-- ---------------------------------------------------------------- 标题演示
+
+local function init_demo()
+  demo = { x = 128, y = 100, vx = 1.6, vy = 1.1, px = 108 }
+end
+
+local function update_demo()
+  demo.x = demo.x + demo.vx
+  demo.y = demo.y + demo.vy
+  -- 演示挡板缓追球
+  demo.px = demo.px + (demo.x - 20 - demo.px) * 0.12
+  demo.px = mid(6, demo.px, 250 - 40)
+  if demo.x < 6 + BR then
+    demo.x = 6 + BR
+    demo.vx = abs(demo.vx)
+    spark(demo.x, demo.y, 2)
+  elseif demo.x > 250 - BR then
+    demo.x = 250 - BR
+    demo.vx = -abs(demo.vx)
+    spark(demo.x, demo.y, 2)
+  end
+  if demo.y < 68 then
+    demo.y = 68
+    demo.vy = abs(demo.vy)
+    spark(demo.x, demo.y, 2)
+  end
+  if demo.vy > 0 and demo.y >= 140 then
+    demo.y = 140
+    local off = mid(-1, (demo.x - (demo.px + 20)) / 20, 1)
+    local ang = off * 0.15
+    demo.vx = sin(ang) * 2.2
+    demo.vy = -cos(ang) * 2.2
+    spark(demo.x, 140, 3)
+  end
+end
+
+-- ---------------------------------------------------------------- 初始化
+
+function _init()
+  bake_sprites()
+  init_game_sfx()
+  init_bgm()
+
+  -- 以机器码低位播随机种子（每台机器手感微异，单机内仍完全确定）
+  srand(abs(peek4(0x0C1038)) + 1)
+
+  -- dget 返回浮点数，flr 归一为整数子类型（拼接不出现 .0）
+  hi = flr(dget(0))
+  far = flr(dget(1))
+  music_on = dget(2) == 0 -- 槽位 2：0 = 开（默认）
+  score, lives, level = 0, 3, 1
+  won = false
+  new_hi = false
+  for _ = 1, 26 do
+    add(stars, { x = rnd(10, 246), y = rnd(26, 232), ph = rnd(1) })
+  end
+  init_demo()
+  to_title()
+  if music_on then music(0, 400, 0xF0) end
+end
+
+-- ---------------------------------------------------------------- 帧更新
+
+local function tick_timers()
+  if exp_t > 0 then exp_t = exp_t - 1 end
+  if laser_t > 0 then laser_t = laser_t - 1 end
+  if slow_t > 0 then slow_t = slow_t - 1 end
+  if beam_cd > 0 then beam_cd = beam_cd - 1 end
+  if paddle_flash > 0 then paddle_flash = paddle_flash - 1 end
+  -- 砖块受击闪烁计数
+  for j = 1, nrows do
+    local row = grid[j]
+    if row then
+      for i = 1, NCOLS do
+        local br = row[i]
+        if br and br.flash > 0 then br.flash = br.flash - 1 end
+      end
+    end
+  end
+  if score > hi then
+    hi = score
+    new_hi = true -- 首次超过存档纪录
+  end
+end
+
+function _update()
+  t = t + 1
+  if shake_t > 0 then shake_t = shake_t - 1 end
+  update_parts()
+  update_pops()
+
+  -- Select：任意时刻音乐开关
+  if btnp(10) then toggle_music() end
+
+  if state == "title" then
+    state_t = state_t + 1
+    update_demo()
+    if btnp(4) then
+      new_game()
+      sfx(14)
+    end
+    return
+  end
+
+  if state == "over" then
+    state_t = state_t + 1
+    if state_t > 40 and btnp(4) then
+      to_title()
+      init_demo()
+    end
+    return
+  end
+
+  if state == "dying" then
+    state_t = state_t + 1
+    if state_t >= 55 then
+      state = "over"
+      state_t = 0
+      save_record()
+    end
+    return
+  end
+
+  -- Start：暂停（过关演出中不可暂停）
+  if state ~= "clear" and btnp(11) then
+    paused = not paused
+    sfx(14)
+  end
+  if paused then return end
+
+  if state == "clear" then
+    state_t = state_t + 1
+    -- 清屏波沿途火花
+    if state_t < 62 and state_t % 2 == 0 then
+      local sy = -16 + state_t * 4.5
+      spark(rnd(20, 236), mid(24, sy, 230), 2)
+    end
+    if state_t >= 100 then advance_level() end
+    return
+  end
+
+  tick_timers()
+
+  if state == "ready" then
+    state_t = state_t + 1
+    update_paddle()
+    -- 球粘挡板
+    for _, b in ipairs(balls) do
+      if b.stuck then
+        b.x = paddle_x + paddle_w / 2
+        b.y = PY - 6
+      end
+    end
+    if btnp(4) then launch_balls() end
+  else -- play
+    state_t = state_t + 1
+    update_paddle()
+    update_balls()
+    update_caps()
+    update_beams()
+    if laser_t > 0 and btnp(4) then fire_lasers() end
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制
+
+-- 挡板通用绘制：左帽 12px / 中段拉伸 / 右帽 12px，帽部保持清晰
+local function draw_paddle_at(px, pw, laser, flash, py)
+  px, pw = flr(px), flr(pw)
+  local sx, sh
+  if laser then
+    sx, sh = 192, 10
+    py = py - 2
+  else
+    sx, sh = 128, 8
+  end
+  sspr(sx, 16, 12, sh, px, py, 12, sh)
+  sspr(sx + 12, 16, 40, sh, px + 12, py, pw - 24, sh)
+  sspr(sx + 52, 16, 12, sh, px + pw - 12, py, 12, sh)
+  if flash > 0 and flr(t / 2) % 2 == 0 then
+    line(px + 3, py + 1, px + pw - 4, py + 1, 7)
+    line(px + 3, py + sh - 2, px + pw - 4, py + sh - 2, 7)
+  end
+end
+
+local function draw_field()
+  -- 场地底色 + 稀疏星点
+  rectfill(FX0, FY0, FX1 - FX0, 214, 0)
+  for i, s in ipairs(stars) do
+    if (flr(t / 40) + i) % 3 ~= 0 then
+      pset(s.x, s.y, 1)
+    end
+  end
+  -- 边墙（金属框）
+  rectfill(0, 16, 6, 221, 12)
+  rectfill(250, 16, 6, 221, 12)
+  rectfill(0, 16, 256, 6, 12)
+  line(5, FY0, 5, 234, 9)   -- 左墙内缘高光
+  line(250, FY0, 250, 234, 13) -- 右墙内缘阴影
+  line(6, FY0, 249, FY0, 9) -- 顶墙内缘高光
+  -- 铆钉
+  for yy = 26, 226, 24 do
+    pset(2, yy, 9)
+    pset(3, yy + 1, 13)
+    pset(253, yy, 9)
+    pset(254, yy + 1, 13)
+  end
+  for xx = 18, 240, 28 do
+    pset(xx, 18, 9)
+    pset(xx + 1, 19, 13)
+  end
+end
+
+local function draw_bricks()
+  for j = 1, nrows do
+    local row = grid[j]
+    if row then
+      for i = 1, NCOLS do
+        local br = row[i]
+        if br then
+          spr(brick_tile(br), GRID_X + (i - 1) * CELL_W, GRID_Y + (j - 1) * CELL_H)
+          if br.flash >= 3 then
+            rect(br.x - 1, br.y - 1, 16, 10, 7)
+          end
+        end
+      end
+    end
+  end
+end
+
+local function draw_caps()
+  for _, c in ipairs(caps) do
+    local info = CAP_INFO[c.kind]
+    local bob = sin(c.ph) * 1.5       -- 飘落起伏
+    local spin = flr(c.ph / 4) % 2 == 0 -- 翻转模拟旋转
+    spr(info.tile, flr(c.x) - 8, flr(c.y + bob) - 8, 1, 1, spin)
+  end
+end
+
+local function draw_beams()
+  for _, bm in ipairs(beams) do
+    rectfill(bm.x - 1, bm.y - 4, 2, 9, 63)
+    rectfill(bm.x, bm.y - 4, 1, 4, 31)
+  end
+end
+
+local function draw_parts()
+  for _, p in ipairs(parts) do
+    local x, y = flr(p.x), flr(p.y)
+    if p.kind == 1 then
+      -- 大块碎屑：翻转交替模拟翻滚
+      spr(11, x - 8, y - 8, 1, 1, flr(p.s) % 2 == 0, flr(p.s * 1.7) % 2 == 0)
+    elseif p.kind == 3 then
+      -- 四芒星
+      spr(32, x - 4, y - 4)
+    elseif p.kind == 2 then
+      pset(x, y, p.life % 4 < 2 and p.c or 7)
+    else
+      rectfill(x - 1, y - 1, 2, 2, p.c)
+      if p.life % 6 < 2 then pset(x, y, 7) end
+    end
+  end
+end
+
+local function draw_balls()
+  for _, b in ipairs(balls) do
+    -- 拖尾
+    for i = #b.trail, 1, -1 do
+      local tp = b.trail[i]
+      local c = (i <= 2) and 42 or ((i <= 4) and 41 or 40)
+      circfill(tp[1], tp[2], max(1, 3 - flr(i / 2)), c)
+    end
+    spr(10, flr(b.x) - 8, flr(b.y) - 8)
+  end
+end
+
+local function draw_pops()
+  for _, p in ipairs(pops) do
+    local c = p.tt < 20 and 31 or 30
+    print(p.s, flr(p.x) - tw(p.s) / 2 + 1, flr(p.y) + 1, 26)
+    print(p.s, flr(p.x) - tw(p.s) / 2, flr(p.y), c)
+  end
+end
+
+local function draw_hud()
+  rectfill(0, 0, 256, 16, 1)
+  line(0, 15, 255, 15, 3)
+  print("分 " .. score, 6, 0, 7)
+  print("高 " .. hi, 84, 0, 30)
+  local lv = "关 " .. level
+  local nl = min(lives, 6)
+  local lx = 194 - tw(lv)
+  print(lv, lx, 0, 33)
+  for i = 1, nl do
+    local bx = 200 + (i - 1) * 8
+    circfill(bx + 3, 8, 3, 41)
+    circfill(bx + 3, 8, 2, 44)
+    pset(bx + 2, 7, 7)
+  end
+end
+
+local function draw_bottom()
+  rectfill(0, 237, 256, 19, 1)
+  line(0, 237, 255, 237, 3)
+  local hints = {
+    "←→ 移动 Ⓐ 发射・激光",
+    "Start 暂停・Select 音乐",
+    "接住道具胶囊强化挡板",
+    "打碎全部可破坏砖块过关",
+  }
+  cprint(hints[flr(t / 150) % 4 + 1], 244, 6)
+end
+
+-- 大字标题：深色投影 + 描边 + 主色
+local function big_text(s, x, y, c)
+  print(s, x + 1, y + 1, 26)
+  print(s, x - 1, y, 2)
+  print(s, x + 1, y, 2)
+  print(s, x, y - 1, 2)
+  print(s, x, y + 1, 2)
+  print(s, x, y, c)
+end
+
+local function draw_title()
+  -- 装饰砖金字塔
+  local rows = { { 9, 4 }, { 7, 2 }, { 5, 1 } }
+  for ri, rr in ipairs(rows) do
+    local n, tile = rr[1], rr[2]
+    local x0 = 128 - n * 8
+    for k = 0, n - 1 do
+      spr(tile, x0 + k * 16, 30 + (ri - 1) * 10)
+    end
+  end
+  -- 演示球与挡板
+  draw_paddle_at(demo.px, 40, false, 0, 140)
+  circfill(demo.x - demo.vx * 2, demo.y - demo.vy * 2, 2, 41)
+  spr(10, flr(demo.x) - 8, flr(demo.y) - 8)
+  draw_parts()
+  -- 标题
+  local s = "打砖块"
+  local x = flr((256 - tw(s)) / 2)
+  big_text(s, x, 160, 30)
+  if flr(t / 20) % 2 == 0 then
+    spr(32, x - 12, 160)
+    spr(32, x + tw(s) + 4, 160)
+  end
+  cprint("FC-16 街机经典", 184, 6)
+  -- 开始提示
+  if flr(t / 24) % 2 == 0 then
+    cprint("Ⓐ 开始游戏", 204, 31)
+  end
+  cprint("最高 " .. hi .. "・最远 第 " .. far .. " 关・♪ " .. (music_on and "开" or "关"), 224, 9)
+  cprint("E加宽 L激光 M多球 N减速 +加命", 238, 6)
+end
+
+-- 失败 / 结算调光：显示期调色映射把亮色压暗（帧缓冲不变）
+local DIM_MAP = {
+  { 7, 6 }, { 6, 5 }, { 5, 4 }, { 4, 3 }, { 3, 2 },
+  { 8, 9 }, { 9, 11 }, { 11, 13 },
+  { 43, 42 }, { 44, 43 }, { 42, 41 }, { 41, 40 }, { 40, 39 },
+  { 33, 34 }, { 34, 35 }, { 35, 37 },
+  { 30, 29 }, { 29, 28 }, { 28, 25 }, { 25, 26 }, { 23, 20 }, { 31, 30 },
+  { 20, 19 }, { 19, 17 },
+  { 57, 56 }, { 58, 59 }, { 59, 60 }, { 56, 53 }, { 55, 53 }, { 54, 52 },
+  { 63, 62 }, { 62, 61 },
+}
+
+local function apply_dim()
+  for _, m in ipairs(DIM_MAP) do
+    pal(m[1], m[2], 1)
+  end
+end
+
+local function draw_over_panel()
+  local head = won and "通关！" or "游戏结束"
+  local sub = won and "全部关卡完成 奖励 +1000" or "挡板已被击毁"
+  rrectfill(34, 62, 188, 142, 8, 13)
+  rrect(34, 62, 188, 142, 8, 26)
+  rrect(37, 65, 182, 136, 7, 17)
+  cprint(head, 74, won and 32 or 63)
+  cprint(sub, 98, 6)
+  cprint("得分 " .. score, 120, 7)
+  cprint("最高 " .. hi, 136, 30)
+  cprint("到达 第 " .. level .. " 关", 152, 30)
+  if new_hi and flr(t / 12) % 2 == 0 then
+    cprint("★ 新纪录！ ★", 168, 63)
+  end
+  if state_t > 40 and flr(t / 20) % 2 == 0 then
+    cprint("Ⓐ 返回标题", 186, 31)
+  end
+end
+
+function _draw()
+  pal()
+  camera(0, 0)
+  if shake_t > 0 then
+    camera(flr(rnd(5)) - 2, flr(rnd(5)) - 2)
+  end
+  cls(0)
+
+  if state == "title" then
+    draw_title()
+    return
+  end
+
+  -- 失败 / 结算调光
+  if state == "over" or (state == "dying" and state_t > 10) then
+    apply_dim()
+  end
+
+  draw_field()
+  draw_bricks()
+  draw_caps()
+  draw_beams()
+  draw_parts()
+
+  if state ~= "dying" and state ~= "over" then
+    draw_paddle_at(paddle_x, paddle_w, laser_t > 0, paddle_flash, PY)
+  end
+  draw_balls()
+  draw_pops()
+
+  -- 过关清屏波
+  if state == "clear" then
+    local sy = -16 + state_t * 4.5
+    if sy < 240 then
+      rectfill(FX0, sy, FX1 - FX0, 4, 43)
+      rectfill(FX0, sy + 4, FX1 - FX0, 6, 44)
+      rectfill(FX0, sy + 10, FX1 - FX0, 2, 7)
+    end
+    if state_t > 20 then
+      cprint("过关！", 118, flr(t / 4) % 2 == 0 and 31 or 30)
+      cprint("奖励 +" .. clear_bonus, 136, 23)
+    end
+  end
+
+  -- 粘球发射提示
+  if state == "ready" then
+    local lv = "第 " .. level .. " 关・" .. LEVELS[level].name
+    rrectfill(58, 108, 140, 40, 6, 13)
+    rrect(58, 108, 140, 40, 6, 26)
+    cprint(lv, 116, 30)
+    if flr(t / 16) % 2 == 0 then
+      cprint("Ⓐ 发射", 132, 31)
+    end
+  end
+
+  draw_hud()
+  draw_bottom()
+
+  -- 掉球瞬间红闪描边
+  if state == "dying" and state_t < 12 and flr(state_t / 3) % 2 == 0 then
+    rect(2, 18, 252, 218, 59)
+    rect(4, 20, 248, 214, 63)
+  end
+
+  -- 暂停覆盖
+  if paused then
+    rrectfill(66, 104, 124, 48, 8, 13)
+    rrect(66, 104, 124, 48, 8, 26)
+    cprint("已暂停", 114, 30)
+    cprint("Start 继续", 134, 6)
+  end
+
+  if state == "over" then
+    draw_over_panel()
+  end
+end

@@ -1,0 +1,1354 @@
+-- 球球大作战 ・ FC-16 演示卡带
+-- 1024×1024 竞技场：方向键加速（速度上限随体型降低）；
+-- 半径大 15% 且包裹中心即可吞并（得 80% 质量），吃豆微成长；质量 600 获胜
+-- 多球机制：Ⓐ 分身（可分身球沿移动方向一分为二 + 前冲，可连按 1→2→4：仅受
+--   单球质量 ≥ 40 与家族 ≤ 4 限制，不吃冷却），
+--   Ⓧ 吐球（每颗分身各沿行进方向吐出一颗不受控的球：−16 质量换 12 质量球，
+--   任何球可吃——含自己与其他玩家，单球质量 ≥ 36 才能吐，场上上限 64 删最旧）；
+--   同体互不吞噬：合体冷却 6 秒（每球独立，HUD 有倒计时条），未冷却重叠轻微排斥，
+--   双方冷却结束接近自动合体（质量相加、位置取大球、速度按质量加权）；
+--   分身被拒时拒绝音 + 飘字说明原因（质量不足 / 球数已满），绝不静默失败；
+--   球数预算：AI 全体 ≤ 24 与玩家 ≤ 4 互不挤占，玩家不会因 AI 挤满而无法分身；
+--   玩家被吃光所有分身才算死亡
+-- AI 三层状态机：L1 战略（逃跑>狩猎>发育>游走，30 帧决策 + 迟滞/最短驻留）、
+--   L2 战术（10 帧：密度簇打分 / 拦截预判与可达校验 / 逃逸向量 / 分身突袭与逃逸分身）、
+--   L3 反应（每帧转向合成：威胁排斥・墙体回避・同体分离/合体吸引・食物吸引）；
+--   每 AI 生成侵略性/谨慎度/转向迟钝个性参数，全部决策走本局 rnd 确定性随机流
+-- 绘制层级：食物豆 → 吐出的球 → 光环 → 全部球按质量升序（大球压小球）→ 粒子 → 飘字
+-- 镜头随最大分身体型缩放取景 + 浅色网格、亮墙边界；HUD 质量/排名按实体总质量计，
+--   小地图画出每个玩家分身；右上排行榜按家族总质量取前四
+-- 音频：吃豆音高随体型下降 / 吞球 / 分身 / 吐球 / 死亡 / 胜利 SFX +
+--   原创 8 小节循环 BGM（Select 开关，占 ch4-7）；纪录 dset(0..2) 持久化
+-- 操作：⬅⬆⬇➡ 移动　Ⓐ 分身　Ⓧ 吐球　Ⓐ 开始/再来一局　Start 回标题
+
+-- ---------------------------------------------------------------- 常量
+
+local W = 1024                     -- 竞技场世界边长（像素）
+local GRID = 64                    -- 背景网格间距（世界像素）
+local PELLET_N = 160               -- 食物豆总量（被吃后延时重生）
+local AI_N = 12                    -- 初始 AI 家族数
+local WIN_MASS = 600               -- 达成总质量 → 胜利
+local EAT_RATIO = 1.15             -- 吞噬所需半径比（大/小 ≥ 1.15）
+local EAT_K = 0.4                  -- 吞噬深度系数（中心距 < 大r - 小r×0.4）
+local GAIN = 0.8                   -- 吞噬获得对方质量比例
+local V_BASE = 120                 -- 速度上限 = 120 / √r px/s（大球显著慢于小球）
+local ACC_IN, ACC_OUT = 0.14, 0.035 -- 速度趋近系数（有输入 / 松开滑行）
+local SPLIT_MIN_MASS = 40          -- 单球分身门槛（两半各 ≥ 20，仍可见可玩）
+local P_MAX_BALLS = 4              -- 玩家分身后总球数上限
+local AI_BALL_CAP = 24             -- AI 球数预算（玩家 4 球不计入，互不挤占）
+local BALL_ABS = 28                -- 全场绝对上限 = AI 预算 24 + 玩家 4（防超额保险）
+local AI_FAM_MAX = 2               -- AI 每族球数上限（每体至多分身 1 次）
+local SPLIT_CD = 360               -- 合体冷却（6 秒，每球独立）：只限制合体，不限制再分身
+local SPLIT_IMP = 9                -- 分身前冲初速（px/帧，摩擦衰减）
+local SPLIT_IMP_T = 30             -- 前冲期帧数（期内跳过同体排斥）
+local SPIT_COST = 16               -- 吐球消耗质量
+local SPIT_MIN_MASS = 36           -- 单球吐球门槛（吐后不低于 20；大球不受其他小球拖累）
+local SPORE_MASS = 12              -- 吐出球的质量
+local SPORE_R = 3.5                -- 吐出球半径
+local SPORE_N = 64                 -- 场上吐球上限（超限删最旧）
+local SPIT_V = 7                   -- 吐出球初速（px/帧，衰减）
+local L1_PERIOD, L2_PERIOD = 30, 10 -- AI 战略/战术决策周期（帧，按球错峰）
+local DWELL = 45                   -- AI 模式最短驻留（防抖动）
+local VIEW = 190                   -- AI 视野基准半径（世界像素）
+local CELLS, CELLW = 8, 128        -- 发育密度网格：8×8 格 × 128px
+-- 球体配色 {主色, 描边, 高光, 数字}——直接查 §2.2 色表，禁止色号算术推暗
+local SKINS = {
+  {33, 36, 32, 1}, {41, 39, 44, 7}, {30, 25, 31, 1}, {58, 60, 57, 1},
+  {46, 48, 45, 1}, {42, 41, 43, 1}, {23, 24, 21, 1}, {55, 53, 54, 7},
+  {8, 10, 7, 1},   {20, 18, 21, 1},
+}
+local P_SKIN = {31, 25, 22, 1}     -- 玩家：金黄球（描边暗橙、高光近白）
+local PELLET_COLS = {32, 33, 34, 41, 42, 43, 45, 46, 30, 31, 23, 57, 8, 21}
+local NAMES = {"绿豆", "苹果", "蓝鲸", "橙子", "紫薯", "桃子", "银币", "樱桃",
+  "柠檬", "西瓜", "葡萄", "草莓", "抹茶", "可可", "奶昔", "布丁"}
+local HINTS = {"Ⓐ 分身　Ⓧ 吐球", "同体冷却后靠近自动合体",
+  "吐出的球谁都能吃", "大球吞小球", "质量 600 即胜利", "Select 音乐开关"}
+local function fmt(n) return string.format("%d", flr(n + 0.5)) end -- 防御取整：dget 定点解码可能带尾差
+
+-- ---------------------------------------------------------------- 音频（SPEC §5.2）
+
+local function u8(a, v) poke(a, v % 256) end
+-- 写一条 SFX：steps[i] = {音高, 波形, 音量[, 效果]}，nil 步为休止
+local function write_sfx(id, speed, steps, len)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, len or #steps)
+  for i = 0, 31 do
+    local a, s = base + 16 + i * 3, steps[i + 1]
+    if s then u8(a, s[1] or 0) u8(a + 1, (s[2] or 0) * 16 + (s[3] or 0)) u8(a + 2, s[4] or 0)
+    else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) end
+  end
+end
+-- 原创循环 BGM（C 大调五声，8 小节，轻快）：每小节 = 一条 32 步 SFX（speed 4，
+-- 八分音符展开 4 步）；四声部旋律 20-27 / 琶音 32-39 / 贝斯 44-51 / 鼓 56-63，
+-- PATTERN 0-7 顺序相连并 BEGIN/END 回环，占 ch4-7（music mask 0xF0）
+local MEL = {
+  {61, 64, 67, 69, 67, 64, 61, 0}, {64, 67, 69, 67, 64, 62, 64, 0},
+  {61, 64, 67, 69, 72, 69, 67, 64}, {69, 67, 69, 72, 69, 0, 67, 0},
+  {67, 69, 72, 74, 72, 69, 67, 64}, {65, 64, 62, 64, 67, 64, 62, 59},
+  {61, 64, 67, 69, 67, 64, 62, 64}, {61, 0, 62, 64, 62, 0, 0, 0},
+}
+local ARP = {
+  {48, 52, 55}, {43, 47, 50}, {48, 52, 55}, {43, 47, 50},
+  {41, 45, 48}, {48, 52, 55}, {43, 47, 50}, {48, 52, 55},
+}
+local BASS_ROOT = {36, 31, 36, 31, 29, 36, 31, 36}
+local function init_audio()
+  -- 游戏音效（显式走 ch0-2，ch4-7 留给音乐）
+  write_sfx(0, 1, {{64, 3, 5}, {69, 3, 6}})                             -- 菜单微调
+  write_sfx(1, 1, {{58, 3, 9}, {62, 3, 10}, {65, 3, 11}, {67, 3, 12}})  -- 开局
+  for lvl = 0, 7 do -- 吃豆：体型越大音高越低（8 档）
+    local p = 74 - lvl * 3
+    write_sfx(3 + lvl, 1, {{p, 3, 9}, {p + 4, 3, 10}, {p + 7, 3, 8}})
+  end
+  write_sfx(11, 2, {{53, 8, 12, 3}, {46, 8, 11, 3}, {39, 8, 10, 3}})    -- 吞球下咽
+  write_sfx(13, 2, {{62, 2, 12, 3}, {54, 2, 11, 3}, {45, 2, 10, 3},
+    {33, 2, 12, 3}, {21, 14, 13, 3}})                                   -- 被吞坠落 + 噪声碎裂
+  write_sfx(14, 2, {{60, 3, 11}, {64, 3, 11}, {67, 3, 12}, {72, 3, 12}, nil,
+    {72, 3, 10}, {76, 3, 13}})                                          -- 胜利号角
+  write_sfx(15, 2, {{67, 8, 10}, {72, 8, 11}, {76, 8, 12}, {79, 8, 13}}) -- 新纪录
+  write_sfx(16, 1, {{50, 8, 6}, {44, 8, 5}})                            -- 远处吞咽闷响
+  write_sfx(17, 1, {{62, 3, 8}, {72, 3, 10}, {79, 3, 9}})               -- 分身弹开
+  write_sfx(18, 1, {{82, 4, 8}, {60, 4, 7}})                            -- 吐球短促
+  write_sfx(19, 1, {{43, 6, 8}, {36, 6, 6}})                            -- 分身被拒（低哑短音）
+  for bar = 0, 7 do
+    local mel, arp, bass = {}, {}, {}
+    local tri = ARP[bar + 1]
+    local patt = {tri[1], tri[2], tri[3], tri[2], tri[1], tri[2], tri[3], tri[2]}
+    for i = 1, 8 do
+      for _ = 1, 4 do
+        mel[#mel + 1] = {MEL[bar + 1][i], 8, 11}
+        arp[#arp + 1] = {patt[i], 0, 5}
+      end
+    end
+    local r = BASS_ROOT[bar + 1]
+    for _, q in ipairs({r, r + 12, r, r + 12}) do
+      for _ = 1, 8 do bass[#bass + 1] = {q, 11, 10} end
+    end
+    local dr = {} -- 鼓：底鼓 1/3 拍、军鼓 2/4 拍、踩镲后半拍
+    dr[1], dr[9] = {28, 11, 12, 3}, {56, 14, 9, 3}
+    dr[17], dr[18] = {28, 11, 12, 3}, {22, 11, 9, 3}
+    dr[25], dr[26] = {56, 14, 9, 3}, {50, 14, 6}
+    for _, hs in ipairs({5, 13, 21, 29}) do dr[hs] = {90, 15, 4} end
+    write_sfx(20 + bar, 4, mel, 32)
+    write_sfx(32 + bar, 4, arp, 32)
+    write_sfx(44 + bar, 4, bass, 32)
+    write_sfx(56 + bar, 4, dr, 32)
+    local pb = 0x063800 + bar * 16
+    u8(pb + 4, 21 + bar) u8(pb + 5, 33 + bar)
+    u8(pb + 6, 45 + bar) u8(pb + 7, 57 + bar)
+    local fl = 0
+    if bar == 0 then fl = 1 end       -- BEGIN：循环起点
+    if bar == 7 then fl = fl + 2 end  -- END：回到 BEGIN
+    u8(pb + 8, fl)
+  end
+end
+
+-- ---------------------------------------------------------------- 状态
+
+local state, t = "title", 0       -- title | play | dying | win | over
+local balls, pellets, spores, rspawns -- 球 / 食物豆 / 吐出的球 / 重生队列 {t, kind}
+local fam_counter                 -- AI 家族编号（玩家固定 0）
+local cam = {x = W / 2, y = W / 2, s = 1}
+local lb, rank, fam_n             -- 家族排行榜（总质量降序）/ 玩家名次 / 家族数
+local final_rank, final_count = 1, AI_N + 1
+local play_t, kills, max_mass     -- 生存帧数 / 吞噬数 / 峰值总质量
+local grace                       -- 开局保护帧数（防秒吞）
+local win, die_t, win_t, over_t, shake = false, 0, 0, 0, 0
+local new_mass, new_surv, new_kills = false, false, false
+local music_on, bgm_on
+local name_pool                   -- AI 名字池（取空重填，避免连续重名）
+local cells                       -- 发育密度网格（每帧重建：n 计数 + 样本点）
+local deco                        -- 标题装饰球与豆
+
+local function toggle_music()
+  music_on = not music_on
+  dset(3, music_on and 0 or 1)
+  fflush()
+  if music_on then music(0, 400, 0xF0) bgm_on = true
+  else music(-1, 400) bgm_on = false end
+end
+
+-- ---------------------------------------------------------------- 粒子・飘字・光环・吐球
+
+local parts, pops, rings
+local function burst(px, py, cols, n)
+  for _ = 1, n do
+    parts[#parts + 1] = {
+      x = px + rnd(-6, 6), y = py + rnd(-6, 6),
+      vx = rnd(-1.8, 1.8), vy = rnd(-1.8, 1.8),
+      c = cols[flr(rnd(#cols)) + 1], life = 14 + flr(rnd(16)),
+    }
+  end
+  while #parts > 200 do table.remove(parts, 1) end
+end
+local function add_pop(txt, x, y)
+  pops[#pops + 1] = {txt = txt, x = x, y = y - 14, t = 0}
+end
+local function update_fx()
+  for i = #parts, 1, -1 do
+    local q = parts[i]
+    q.x, q.y = q.x + q.vx, q.y + q.vy
+    q.vx, q.vy = q.vx * 0.94, q.vy * 0.94
+    q.life = q.life - 1
+    if q.life <= 0 then table.remove(parts, i) end
+  end
+  for i = #pops, 1, -1 do
+    pops[i].t = pops[i].t + 1
+    if pops[i].t > 44 then table.remove(pops, i) end
+  end
+  for i = #rings, 1, -1 do
+    rings[i].t = rings[i].t + 1
+    if rings[i].t > 18 then table.remove(rings, i) end
+  end
+  for i = #spores, 1, -1 do -- 吐出的球滑行 + 摩擦衰减
+    local s = spores[i]
+    s.x = mid(4, s.x + s.vx, W - 4)
+    s.y = mid(4, s.y + s.vy, W - 4)
+    s.vx, s.vy = s.vx * 0.92, s.vy * 0.92
+  end
+end
+
+-- ---------------------------------------------------------------- 生成
+
+local function take_name() -- 取不重复名字，池空重填
+  if #name_pool == 0 then
+    for i = 1, #NAMES do name_pool[i] = NAMES[i] end
+  end
+  local i = flr(rnd(#name_pool)) + 1
+  return table.remove(name_pool, i)
+end
+local function count_fam(fam) -- 某家族存活球数
+  local n = 0
+  for i = 1, #balls do
+    local b = balls[i]
+    if b.fam == fam and not b.dead then n = n + 1 end
+  end
+  return n
+end
+local function count_ai() -- 全体 AI 存活球数（球数预算与玩家互不挤占）
+  local n = 0
+  for i = 1, #balls do
+    if not balls[i].dead and balls[i].fam ~= 0 then n = n + 1 end
+  end
+  return n
+end
+local function near_player(x, y, r) -- 是否贴近任一玩家分身（用于远处音效取舍）
+  for i = 1, #balls do
+    local b = balls[i]
+    if b.fam == 0 then
+      local dx, dy = b.x - x, b.y - y
+      if dx * dx + dy * dy < r * r then return true end
+    end
+  end
+  return false
+end
+local function safe_pos(rr, margin) -- 随机取不紧邻更大球的出生点
+  for _ = 1, 24 do
+    local x, y = rnd(rr, W - rr), rnd(rr, W - rr)
+    local ok = true
+    for i = 1, #balls do
+      local b = balls[i]
+      if b.r >= rr * EAT_RATIO then
+        local dx, dy = b.x - x, b.y - y
+        local m = b.r + rr + (margin or 90)
+        if dx * dx + dy * dy < m * m then ok = false break end
+      end
+    end
+    if ok then return x, y end
+  end
+  return rnd(rr, W - rr), rnd(rr, W - rr)
+end
+local function new_ball(x, y, mass, sk, name, fam)
+  local b = {
+    x = x, y = y, vx = 0, vy = 0,
+    mass = mass, r = max(4, sqrt(mass) * 0.5), -- 显示半径平滑长到 sqrt(mass)
+    sk = sk, name = name, fam = fam,
+    face = rnd(1), ph = rnd(1),
+    split_cd = 0, -- 合体冷却：分身产生时才开始计时
+    imp_t = 0, ivx = 0, ivy = 0, dead = false,
+  }
+  if fam ~= 0 then -- AI：三层状态机状态 + 个性参数
+    b.ai = {
+      mode = "wander", mode_t = 0,
+      l1_t = flr(rnd(L1_PERIOD)), l2_t = flr(rnd(L2_PERIOD)),
+      px = x, py = y, sp = 0.55,
+      prey = nil, threat = nil,
+      want_split = false, sdirx = 0, sdiry = 0,
+    }
+    b.per = {agg = rnd(1), cau = rnd(1), slow = 0.5 + rnd(1)} -- 侵略/谨慎/转向迟钝
+  end
+  return b
+end
+local function spawn_ai(mass, margin) -- 按质量出怪（目标半径 = √质量，仅用于出生间距）
+  fam_counter = fam_counter + 1
+  local x, y = safe_pos(sqrt(mass), margin)
+  balls[#balls + 1] = new_ball(x, y, mass, SKINS[flr(rnd(#SKINS)) + 1], take_name(), fam_counter)
+end
+local function spawn_pellet()
+  pellets[#pellets + 1] = {
+    x = rnd(10, W - 10), y = rnd(10, W - 10),
+    r = 2 + (rnd(1) < 0.3 and 1 or 0), -- 半径 2~3
+    c = PELLET_COLS[flr(rnd(#PELLET_COLS)) + 1],
+  }
+end
+
+-- ---------------------------------------------------------------- 运动
+
+local function vmax_of(b, mul) return V_BASE / sqrt(b.r) * (mul or 1) end
+-- 追踪目标点的期望速度（带墙边内推，避免顶着边界打转）
+local function seek(b, tx, ty, sp)
+  local dx, dy = tx - b.x, ty - b.y
+  local d = sqrt(dx * dx + dy * dy)
+  local vmax = vmax_of(b, sp)
+  if d < 2 then return 0, 0, vmax end
+  local tvx, tvy = dx / d * vmax, dy / d * vmax
+  local m = 96 + b.r
+  if b.x < m then tvx = tvx + (m - b.x) * 0.35 end
+  if b.x > W - m then tvx = tvx - (b.x - (W - m)) * 0.35 end
+  if b.y < m then tvy = tvy + (m - b.y) * 0.35 end
+  if b.y > W - m then tvy = tvy - (b.y - (W - m)) * 0.35 end
+  local l = sqrt(tvx * tvx + tvy * tvy)
+  if l > vmax then tvx, tvy = tvx / l * vmax, tvy / l * vmax end
+  return tvx, tvy, vmax
+end
+local function move_ball(b, tx, ty, rate)
+  if b.split_cd > 0 then b.split_cd = b.split_cd - 1 end -- 合体冷却（每球独立计时）
+  b.vx = b.vx + (tx - b.vx) * rate
+  b.vy = b.vy + (ty - b.vy) * rate
+  local ix, iy = 0, 0
+  if b.imp_t > 0 then -- 分身前冲：独立冲量按帧摩擦衰减
+    b.imp_t = b.imp_t - 1
+    ix, iy = b.ivx, b.ivy
+    b.ivx, b.ivy = b.ivx * 0.9, b.ivy * 0.9
+  end
+  b.x = b.x + b.vx / 60 + ix
+  b.y = b.y + b.vy / 60 + iy
+  local lo, hi = b.r * 0.7, W - b.r * 0.7 -- 球心至少压到 0.7r，可稍贴墙
+  if b.x < lo then b.x = lo if b.vx < 0 then b.vx = 0 end end
+  if b.x > hi then b.x = hi if b.vx > 0 then b.vx = 0 end end
+  if b.y < lo then b.y = lo if b.vy < 0 then b.vy = 0 end end
+  if b.y > hi then b.y = hi if b.vy > 0 then b.vy = 0 end end
+  b.r = b.r + (sqrt(b.mass) - b.r) * 0.1 -- 半径平滑趋近 sqrt(质量)
+  local fvx, fvy = b.vx + ix * 60, b.vy + iy * 60
+  if fvx * fvx + fvy * fvy > 16 then b.face = atan2(fvx, fvy) end
+end
+
+-- ---------------------------------------------------------------- 分身与吐球
+
+local function split_ball(b, dx, dy) -- 一分为二：各半质量，新球带前冲冲量
+  if b.mass < SPLIT_MIN_MASS or #balls >= BALL_ABS then return nil end
+  local l = sqrt(dx * dx + dy * dy)
+  if l < 0.01 then dx, dy, l = cos(b.face), sin(b.face), 1 end
+  dx, dy = dx / l, dy / l
+  local half = b.mass / 2
+  b.mass = half
+  b.split_cd = SPLIT_CD
+  local nb = new_ball(b.x + dx * b.r * 0.25, b.y + dy * b.r * 0.25, half, b.sk, b.name, b.fam)
+  nb.r = b.r * 0.7
+  nb.face = atan2(dx, dy)
+  nb.ivx, nb.ivy = dx * SPLIT_IMP, dy * SPLIT_IMP -- px/帧，前冲期内跳过同体排斥
+  nb.imp_t = SPLIT_IMP_T
+  nb.split_cd = SPLIT_CD
+  balls[#balls + 1] = nb
+  burst(nb.x, nb.y, {b.sk[1], b.sk[3], 7}, 6)
+  if b.fam == 0 then sfx(17, 0)
+  elseif near_player(b.x, b.y, 420) then sfx(17, 2) end
+  return nb
+end
+local function spit_spore(b, dx, dy) -- 吐球：本球 −16 质量，吐出 12 质量不受控小球
+  local l = sqrt(dx * dx + dy * dy)
+  if l < 0.01 then dx, dy, l = cos(b.face), sin(b.face), 1 end
+  dx, dy = dx / l, dy / l
+  b.mass = b.mass - SPIT_COST
+  spores[#spores + 1] = {
+    x = b.x + dx * (b.r + 4), y = b.y + dy * (b.r + 4),
+    vx = dx * SPIT_V, vy = dy * SPIT_V, c = b.sk[1],
+  }
+  if #spores > SPORE_N then table.remove(spores, 1) end -- 超限删最旧
+  sfx(18, 1)
+end
+-- 玩家操控：方向合成单位向量作用于全部分身；Ⓐ 分身 / Ⓧ 吐球
+local function control_player()
+  local ax, ay = 0, 0
+  if btn(0) then ax = ax - 1 end
+  if btn(1) then ax = ax + 1 end
+  if btn(2) then ay = ay - 1 end
+  if btn(3) then ay = ay + 1 end
+  local il = ax ~= 0 or ay ~= 0
+  if il then
+    local l = sqrt(ax * ax + ay * ay)
+    ax, ay = ax / l, ay / l
+  end
+  if btnp(4) then -- 分身：所有可分身的球各一分为二；可连按（1→2→4），不受合体冷却限制
+    local n, done, toosmall = count_fam(0), 0, false
+    for i = 1, #balls do
+      local b = balls[i]
+      if b.fam == 0 and not b.dead and n < P_MAX_BALLS and #balls < BALL_ABS then
+        if b.mass < SPLIT_MIN_MASS then toosmall = true
+        else
+          local dx, dy = il and ax or cos(b.face), il and ay or sin(b.face)
+          if split_ball(b, dx, dy) then done, n = done + 1, n + 1 end
+        end
+      end
+    end
+    if done == 0 then -- 静默失败即"分身失灵"：拒绝音 + 飘字给出具体原因
+      local why = toosmall and "质量不足" or "球数已满"
+      local big
+      for i = 1, #balls do
+        local b = balls[i]
+        if b.fam == 0 and not b.dead and (not big or b.mass > big.mass) then big = b end
+      end
+      sfx(19, 0)
+      if big then add_pop(why, big.x, big.y - big.r - 10) end
+    end
+  end
+  if btnp(6) then -- 吐球：所有达标的分身各沿行进方向吐一颗（不受控，任何球可吃含自己）
+    local done = 0
+    for i = 1, #balls do
+      local b = balls[i]
+      if b.fam == 0 and not b.dead and b.mass >= SPIT_MIN_MASS then
+        spit_spore(b, il and ax or cos(b.face), il and ay or sin(b.face))
+        done = done + 1
+      end
+    end
+    if done == 0 then -- 全员低于门槛：拒绝音 + 飘字（与分身反馈同一原则，不静默）
+      local big
+      for i = 1, #balls do
+        local b = balls[i]
+        if b.fam == 0 and not b.dead and (not big or b.mass > big.mass) then big = b end
+      end
+      sfx(19, 0)
+      if big then add_pop("质量不足", big.x, big.y - big.r - 10) end
+    end
+  end
+  -- 同体聚心：全体分身质量加权质心（前冲期除外；冷却中用弱档，不碍分身拉开）
+  local pcx, pcy, ptm = 0, 0, 0
+  for i = 1, #balls do
+    local b = balls[i]
+    if b.fam == 0 and not b.dead then
+      pcx, pcy, ptm = pcx + b.x * b.mass, pcy + b.y * b.mass, ptm + b.mass
+    end
+  end
+  if ptm > 0 then pcx, pcy = pcx / ptm, pcy / ptm end
+  for i = 1, #balls do
+    local b = balls[i]
+    if b.fam == 0 then
+      local vmax = vmax_of(b)
+      local tx, ty = 0, 0
+      if il then tx, ty = ax * vmax, ay * vmax end
+      if b.imp_t <= 0 and ptm > 0 then
+        local gear = b.split_cd <= 0 and 0.55 or 0.18 -- 冷却结束强档 / 未结束弱档
+        local dx, dy = pcx - b.x, pcy - b.y
+        local d = sqrt(dx * dx + dy * dy)
+        if d > 6 then
+          tx, ty = tx + dx / d * vmax * gear, ty + dy / d * vmax * gear
+        end
+      end
+      move_ball(b, tx, ty, il and ACC_IN or ACC_OUT)
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- AI・L1 战略层
+-- 全局模式 = 逃跑 > 狩猎 > 发育 > 游走；每 ~30 帧决策 + 迟滞/最短驻留防抖动
+
+local function food_near(b, r) -- 周边密度格有无食物/吐球
+  local cx, cy = flr(b.x / CELLW), flr(b.y / CELLW)
+  local cr = flr(r / CELLW)
+  for y = max(0, cy - cr), min(CELLS - 1, cy + cr) do
+    for x = max(0, cx - cr), min(CELLS - 1, cx + cr) do
+      if cells[y * CELLS + x + 1].n > 0 then return true end
+    end
+  end
+  return false
+end
+local function ai_l1(b)
+  local ai = b.ai
+  ai.l1_t = L1_PERIOD
+  local per = b.per
+  local vis = VIEW + b.r * 1.5
+  -- 逃跑：存在 r ≥ 我×1.15 且逼近（30 帧预测）的威胁；感知半径收紧，留追击空间
+  local threat
+  for i = 1, #balls do
+    local o = balls[i]
+    if o ~= b and o.fam ~= b.fam and o.r >= b.r * EAT_RATIO then
+      local dx, dy = o.x - b.x, o.y - b.y
+      local d0 = sqrt(dx * dx + dy * dy)
+      if d0 < 130 + b.r * 1.2 + per.cau * 80 + o.r then
+        local px2, py2 = o.x + o.vx * 0.5, o.y + o.vy * 0.5 -- 30 帧 ≈ 0.5s 预测
+        local qx, qy = px2 - b.x, py2 - b.y
+        local d1 = sqrt(qx * qx + qy * qy)
+        if d1 < d0 + 24 or d0 < o.r + b.r + 80 then threat = o break end
+      end
+    end
+  end
+  if threat then
+    if ai.mode ~= "flee" then ai.mode, ai.mode_t = "flee", 0 end
+    ai.threat = threat
+    return
+  end
+  -- 逃跑迟滞：脱离威胁后再逃一小段（谨慎个体更久）
+  if ai.mode == "flee" then
+    if ai.mode_t < DWELL + flr(per.cau * 45) then return end
+    ai.threat = nil
+  end
+  if ai.mode ~= "wander" and ai.mode_t < DWELL then return end -- 最短驻留，防抖动
+  -- 狩猎：视野内可吃目标，近而优、玩家小分身高价值加权
+  local prey, bs = nil, 0
+  for i = 1, #balls do
+    local o = balls[i]
+    if o ~= b and o.fam ~= b.fam and o.r * EAT_RATIO <= b.r then
+      local dx, dy = o.x - b.x, o.y - b.y
+      local d = sqrt(dx * dx + dy * dy)
+      if d < vis * (0.6 + per.agg * 0.6) then
+        local s = (1 + (o.fam == 0 and 1 or 0)) * (1 + b.r / o.r) / (1 + d / 180)
+        if s > bs then prey, bs = o, s end
+      end
+    end
+  end
+  if prey then
+    if ai.mode ~= "hunt" then ai.mode, ai.mode_t = "hunt", 0 end
+    ai.prey = prey
+    return
+  end
+  -- 发育 / 游走：周边有食物则发育，否则随机航点兜底
+  ai.threat, ai.prey = nil, nil
+  if ai.mode ~= "develop" and ai.mode ~= "wander" then ai.mode, ai.mode_t = "develop", 0 end
+  if ai.mode == "wander" then
+    if ai.mode_t >= DWELL and food_near(b, 340) then ai.mode, ai.mode_t = "develop", 0 end
+  elseif ai.mode == "develop" then
+    if not food_near(b, 360) then ai.mode, ai.mode_t = "wander", 0 end
+  end
+end
+
+-- ---------------------------------------------------------------- AI・L2 战术层
+-- 每 ~10 帧产出目标点：密度簇 / 拦截预判 / 逃逸向量 / 分身突袭·逃逸分身
+
+local function best_cluster(b) -- 密度格打分 = 数量 / 距离，返回最优簇中心
+  local bx, by, bs
+  for y = 0, CELLS - 1 do
+    for x = 0, CELLS - 1 do
+      local c = cells[y * CELLS + x + 1]
+      if c.n > 0 then
+        local wx, wy = x * CELLW + CELLW / 2, y * CELLW + CELLW / 2
+        local dx, dy = wx - b.x, wy - b.y
+        local s = c.n / (14 + (dx * dx + dy * dy) * 0.0004)
+        if not bs or s > bs then bx, by, bs = wx, wy, s end
+      end
+    end
+  end
+  return bx, by
+end
+local function ai_l2(b)
+  local ai = b.ai
+  ai.l2_t = L2_PERIOD
+  local per = b.per
+  if ai.mode == "flee" then
+    local tc = ai.threat
+    if tc and not tc.dead then
+      local dx, dy = b.x - tc.x, b.y - tc.y
+      local d = max(1, sqrt(dx * dx + dy * dy))
+      local j = rnd(-0.5, 0.5) * (0.35 + per.cau * 0.3) -- 切向抖动合成逃逸向量
+      local ca, sa = cos(j), sin(j)
+      local fx = (dx * ca - dy * sa) / d
+      local fy = (dx * sa + dy * ca) / d
+      ai.px, ai.py, ai.sp = mid(30, b.x + fx * 320, W - 30),
+        mid(30, b.y + fy * 320, W - 30), 1
+      -- 被贴身且分身就绪：向逃逸方向分身（小球更快）换爆发
+      if d < tc.r + b.r + 80 and b.mass >= SPLIT_MIN_MASS
+        and count_fam(b.fam) < AI_FAM_MAX and count_ai() < AI_BALL_CAP then
+        ai.want_split, ai.sdirx, ai.sdiry = true, fx, fy
+      end
+    else
+      ai.mode, ai.mode_t = "wander", 0
+    end
+  elseif ai.mode == "hunt" then
+    local o = ai.prey
+    if not o or o.dead or o.fam == b.fam or o.r * EAT_RATIO > b.r then
+      ai.mode, ai.mode_t = "develop", 0
+    else
+      local vm = vmax_of(b, 1)
+      local dx, dy = o.x - b.x, o.y - b.y
+      local d = sqrt(dx * dx + dy * dy)
+      local tt = d / max(vm, 1) -- 我的到达时间
+      local px2, py2 = o.x + o.vx / 60 * tt, o.y + o.vy / 60 * tt -- 拦截预判点
+      -- 可达校验：我的到达时间 < 猎物逃逸时间（近似为比速优势或已贴身）
+      local vo = vmax_of(o, 1)
+      if vm > vo * (1.03 - per.agg * 0.06) or d < 150 then
+        -- 猎物近墙时拦截点钳在墙内，随猎物切向速度前置形成封堵
+        local m = b.r + 60
+        px2, py2 = mid(m, px2, W - m), mid(m, py2, W - m)
+        ai.px, ai.py, ai.sp = px2, py2, 1
+        -- 分身突袭子状态：冷却就绪、预测分身后能吞下、距离合适（前冲一击可达）
+        if d >= 60 and d <= 210 and b.mass >= SPLIT_MIN_MASS
+          and count_fam(b.fam) < AI_FAM_MAX and count_ai() < AI_BALL_CAP then
+          local half = sqrt(b.mass / 2)
+          if half >= o.r * EAT_RATIO then
+            local qx, qy = px2 - b.x, py2 - b.y
+            local dl = max(1, sqrt(qx * qx + qy * qy))
+            ai.want_split, ai.sdirx, ai.sdiry = true, qx / dl, qy / dl
+          end
+        end
+      else
+        ai.mode, ai.mode_t = "develop", 0 -- 追不上，降级发育
+      end
+    end
+  elseif ai.mode == "develop" then
+    local cx, cy = best_cluster(b)
+    if cx then ai.px, ai.py, ai.sp = cx, cy, 0.9
+    else ai.mode, ai.mode_t = "wander", 0 end
+  else -- 游走：抵达随机航点即换点
+    local dx, dy = ai.px - b.x, ai.py - b.y
+    if dx * dx + dy * dy < (b.r + 20) * (b.r + 20) then
+      ai.px, ai.py = rnd(60, W - 60), rnd(60, W - 60)
+    end
+    ai.sp = 0.6
+  end
+end
+
+-- ---------------------------------------------------------------- AI・L3 反应层
+-- 每帧转向合成：威胁排斥・同体合体吸引・食物吸引（墙体回避在 seek 内）
+
+local function ai_l3(b)
+  local ai = b.ai
+  local per = b.per
+  local tx, ty = seek(b, ai.px, ai.py, ai.sp)
+  local vmax = vmax_of(b, 1)
+  for i = 1, #balls do -- 大球威胁排斥：贴身应急回避（半径收紧，不当常驻力场用）
+    local o = balls[i]
+    if o ~= b and o.fam ~= b.fam and o.r >= b.r * EAT_RATIO then
+      local dx, dy = b.x - o.x, b.y - o.y
+      local d2 = dx * dx + dy * dy
+      local R = b.r + 44 + o.r * 0.5
+      if d2 < R * R and d2 > 0.01 then
+        local d = sqrt(d2)
+        local w = (1 - d / R) * vmax * 1.2
+        tx, ty = tx + dx / d * w, ty + dy / d * w
+      end
+    end
+  end
+  if b.split_cd <= 0 and b.imp_t <= 0 then -- 同体合体吸引（靠拢去合体）
+    for i = 1, #balls do
+      local o = balls[i]
+      if o ~= b and o.fam == b.fam and o.split_cd <= 0 and not o.dead then
+        local dx, dy = o.x - b.x, o.y - b.y
+        local d = sqrt(dx * dx + dy * dy)
+        if d < 340 and d > 1 then
+          tx, ty = tx + dx / d * vmax * 0.6, ty + dy / d * vmax * 0.6
+        end
+        break
+      end
+    end
+  end
+  local c = cells[flr(b.y / CELLW) * CELLS + flr(b.x / CELLW) + 1] -- 顺路食物吸引
+  if c and c.n > 0 then
+    local dx, dy = c.x - b.x, c.y - b.y
+    local d = sqrt(dx * dx + dy * dy)
+    if d > b.r and d < 200 then
+      tx, ty = tx + dx / d * vmax * 0.25, ty + dy / d * vmax * 0.25
+    end
+  end
+  local vm2 = vmax_of(b)
+  local l = sqrt(tx * tx + ty * ty)
+  if l > vm2 then tx, ty = tx / l * vm2, ty / l * vm2 end
+  return tx, ty, ACC_IN * (1.35 - per.slow * 0.5) -- 转向迟钝个性 → 趋近系数
+end
+local function ai_frame(b) -- 三层串接：L1 战略 → L2 战术 → L3 反应 → 运动 → 分身
+  local ai = b.ai
+  ai.mode_t = ai.mode_t + 1
+  ai.l1_t = ai.l1_t - 1
+  if ai.l1_t <= 0 then ai_l1(b) end
+  ai.l2_t = ai.l2_t - 1
+  if ai.l2_t <= 0 then ai_l2(b) end
+  local tx, ty, rate = ai_l3(b)
+  move_ball(b, tx, ty, rate)
+  if ai.want_split then -- L2 标记、本帧统一执行
+    ai.want_split = false
+    local nb = split_ball(b, ai.sdirx, ai.sdiry)
+    if nb and nb.ai then -- 新球继承狩猎/逃逸意图
+      local nai = nb.ai
+      nai.mode, nai.mode_t = ai.mode, 0
+      nai.prey, nai.threat = ai.prey, ai.threat
+      nai.px, nai.py, nai.sp = ai.px, ai.py, 1
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 吞噬与生死
+
+local player_die, try_win -- 前置声明（do_eat 与流程互调）
+local function player_mass() -- 玩家实体总质量（全部分身求和）
+  local m = 0
+  for i = 1, #balls do
+    if balls[i].fam == 0 and not balls[i].dead then m = m + balls[i].mass end
+  end
+  return m
+end
+local function largest_player() -- 镜头/烟花锚点 = 最大分身
+  local best
+  for i = 1, #balls do
+    local b = balls[i]
+    if b.fam == 0 and not b.dead and (not best or b.mass > best.mass) then best = b end
+  end
+  return best
+end
+local function family_list() -- 按家族聚合总质量并降序排序（排行榜/名次用）
+  local fams = {}
+  for i = 1, #balls do
+    local b = balls[i]
+    if not b.dead then
+      local f
+      for j = 1, #fams do
+        if fams[j].fam == b.fam then f = fams[j] break end
+      end
+      if not f then
+        f = {fam = b.fam, mass = 0, name = b.name, is_p = b.fam == 0}
+        fams[#fams + 1] = f
+      end
+      f.mass = f.mass + b.mass
+    end
+  end
+  for i = 2, #fams do
+    local f, j = fams[i], i - 1
+    while j >= 1 and fams[j].mass < f.mass do fams[j + 1] = fams[j] j = j - 1 end
+    fams[j + 1] = f
+  end
+  return fams
+end
+local function player_rank_of(fams)
+  for i = 1, #fams do
+    if fams[i].is_p then return i, #fams end
+  end
+  return #fams, #fams
+end
+-- 大吃小（同体跳过）：获得 80% 质量；玩家分身被吃光才结算死亡
+local function do_eat(big, small)
+  small.dead = true
+  big.mass = big.mass + small.mass * GAIN
+  burst(small.x, small.y, {small.sk[1], small.sk[2], small.sk[3], 7}, 8 + flr(small.r / 4))
+  rings[#rings + 1] = {x = small.x, y = small.y, t = 0}
+  if big.fam == 0 then
+    kills = kills + 1
+    add_pop("+" .. fmt(flr(small.mass * GAIN)), small.x, small.y)
+    sfx(11, 1)
+  end
+  if small.fam == 0 then
+    if count_fam(0) > 0 then -- 还有分身存活：只损失一球
+      sfx(16, 2)
+    else
+      player_die(small.x, small.y)
+    end
+  else
+    if near_player(small.x, small.y, 420) then sfx(16, 2) end
+    rspawns[#rspawns + 1] = {t = 600 + flr(rnd(600)), kind = 1}
+  end
+end
+local function merge_balls(a, b) -- 同体合体：质量相加、位置取大球、速度按质量加权
+  local big, small = a, b
+  if b.mass > a.mass then big, small = b, a end
+  local tm = big.mass + small.mass
+  big.vx = (big.vx * big.mass + small.vx * small.mass) / tm
+  big.vy = (big.vy * big.mass + small.vy * small.mass) / tm
+  big.mass = tm
+  big.split_cd, big.imp_t, big.ivx, big.ivy = 0, 0, 0, 0
+  small.dead = true
+  burst(big.x, big.y, {big.sk[1], big.sk[3], 7}, 8)
+  rings[#rings + 1] = {x = big.x, y = big.y, t = 0}
+  if big.fam == 0 then sfx(11, 1)
+  elseif near_player(big.x, big.y, 420) then sfx(16, 2) end
+end
+local function eat_pass()
+  -- 吃豆：球心距 < 球半径即吞下；豆按延时在别处重生保持总量
+  for i = #pellets, 1, -1 do
+    local f = pellets[i]
+    for j = 1, #balls do
+      local b = balls[j]
+      if not b.dead then
+        local dx, dy = f.x - b.x, f.y - b.y
+        if dx * dx + dy * dy < b.r * b.r then
+          b.mass = b.mass + f.r * f.r
+          if b.fam == 0 then
+            local lvl = flr(mid(0, (b.r - 12) / 3.5, 7))
+            sfx(3 + lvl, 0)
+            burst(f.x, f.y, {f.c, 7}, 3)
+          end
+          deli(pellets, i)
+          rspawns[#rspawns + 1] = {t = 300 + flr(rnd(300)), kind = 0}
+          break
+        end
+      end
+    end
+  end
+  -- 吐出的球：任何球可吃（含同体，可喂自己的小分身）
+  for i = #spores, 1, -1 do
+    local s = spores[i]
+    for j = 1, #balls do
+      local b = balls[j]
+      if not b.dead then
+        local dx, dy = s.x - b.x, s.y - b.y
+        if dx * dx + dy * dy < b.r * b.r then
+          b.mass = b.mass + SPORE_MASS
+          if b.fam == 0 then
+            local lvl = flr(mid(0, (b.r - 8) / 4, 7))
+            sfx(3 + lvl, 0)
+          end
+          burst(s.x, s.y, {s.c, 7}, 2)
+          deli(spores, i)
+          break
+        end
+      end
+    end
+  end
+  -- 吞球：成对扫描（大 ≥1.15 倍且包裹中心深度达标），同体跳过；当帧顺序结算。
+  -- 玩家家族只在 play 状态参与吞咬（win 庆祝 / dying 演出期间免疫）
+  for i = 1, #balls do
+    local a = balls[i]
+    if not a.dead then
+      for j = i + 1, #balls do
+        local b = balls[j]
+        if not b.dead and b.fam ~= a.fam and (state == "play" or not (a.fam == 0 or b.fam == 0)) then
+          local big, small
+          if a.r >= b.r then big, small = a, b else big, small = b, a end
+          if not (small.fam == 0 and grace > 0) and big.r >= small.r * EAT_RATIO then
+            local dx, dy = big.x - small.x, big.y - small.y
+            local need = big.r - small.r * EAT_K
+            if dx * dx + dy * dy < need * need then do_eat(big, small) end
+          end
+        end
+      end
+    end
+  end
+  -- 同体：双方冷却结束且接近重叠 → 合体；未冷却且重叠 → 轻微排斥（前冲期跳过）
+  for i = 1, #balls do
+    local a = balls[i]
+    if not a.dead then
+      for j = i + 1, #balls do
+        local b = balls[j]
+        if not b.dead and b.fam == a.fam and a.imp_t <= 0 and b.imp_t <= 0 then
+          local dx, dy = b.x - a.x, b.y - a.y
+          local d2 = dx * dx + dy * dy
+          local rr = a.r + b.r
+          if d2 < rr * rr then
+            local d = sqrt(d2)
+            if a.split_cd <= 0 and b.split_cd <= 0 then
+              if d < max(a.r, b.r) then
+                merge_balls(a, b)
+              elseif d > 0.01 then -- 已近未达合体深度：轻微吸附辅助合体
+                a.vx, a.vy = a.vx + dx / d * 0.4, a.vy + dy / d * 0.4
+                b.vx, b.vy = b.vx - dx / d * 0.4, b.vy - dy / d * 0.4
+              end
+            elseif d > 0.01 then
+              local push = (rr - d) * 0.8 + 0.4
+              a.vx, a.vy = a.vx - dx / d * push, a.vy - dy / d * push
+              b.vx, b.vy = b.vx + dx / d * push, b.vy + dy / d * push
+              a.x, a.y = a.x - dx / d * (rr - d) * 0.12, a.y - dy / d * (rr - d) * 0.12
+              b.x, b.y = b.x + dx / d * (rr - d) * 0.12, b.y + dy / d * (rr - d) * 0.12
+            end
+          end
+        end
+      end
+    end
+  end
+  for i = #balls, 1, -1 do
+    if balls[i].dead then deli(balls, i) end
+  end
+end
+function player_die(x, y) -- 全部分身被吃光 → 死亡结算
+  local fams = family_list()
+  final_rank, final_count = player_rank_of(fams)
+  burst(x, y, {31, 25, 22, 7}, 26)
+  rings[#rings + 1] = {x = x, y = y, t = 0}
+  rings[#rings + 1] = {x = x, y = y, t = -8}
+  state, die_t, shake = "dying", 0, 16
+  if bgm_on then music(-1, 300) bgm_on = false end
+  sfx(13, 0)
+end
+function try_win() -- 总质量达标 → 胜利（名次取达成时刻的真实家族名次）
+  if player_mass() >= WIN_MASS then
+    local fams = family_list()
+    final_rank, final_count = player_rank_of(fams)
+    state, win, win_t, shake = "win", true, 0, 0
+    if bgm_on then music(-1, 300) bgm_on = false end
+    sfx(14, 1)
+  end
+end
+
+-- ---------------------------------------------------------------- 密度网格
+
+local function build_cells() -- 每帧重建：豆计 1、吐球计 3（高价值），存样本点
+  for i = 1, CELLS * CELLS do
+    local c = cells[i]
+    if c then c.n = 0 else cells[i] = {n = 0, x = 0, y = 0} end
+  end
+  for i = 1, #pellets do
+    local f = pellets[i]
+    local c = cells[flr(f.y / CELLW) * CELLS + flr(f.x / CELLW) + 1]
+    c.n = c.n + 1
+    c.x, c.y = f.x, f.y
+  end
+  for i = 1, #spores do
+    local s = spores[i]
+    local c = cells[flr(s.y / CELLW) * CELLS + flr(s.x / CELLW) + 1]
+    c.n = c.n + 3
+    c.x, c.y = s.x, s.y
+  end
+end
+
+-- ---------------------------------------------------------------- 流程
+
+local function start_game()
+  state, win = "play", false
+  play_t, kills, max_mass = 0, 0, 144
+  grace = 180
+  new_mass, new_surv, new_kills = false, false, false
+  parts, pops, rings, rspawns = {}, {}, {}, {}
+  balls, pellets, spores = {}, {}, {}
+  name_pool, fam_counter = {}, 0
+  balls[1] = new_ball(W / 2, W / 2, 144, P_SKIN, "你", 0)
+  for _ = 1, AI_N do spawn_ai(flr(60 + pow(rnd(1), 1.4) * 240), 160) end -- 质量 60~300 偏小分布，玩家开局居中游
+  for _ = 1, PELLET_N do spawn_pellet() end
+  cam = {x = W / 2, y = W / 2, s = mid(0.55, 1.6 / (1 + balls[1].r / 24), 1)}
+  rank, fam_n = 1, AI_N + 1
+  lb = {}
+  build_cells()
+  if music_on and not bgm_on then music(0, 500, 0xF0) bgm_on = true end
+  sfx(1, 0)
+end
+local function to_title()
+  state = "title"
+  deco = {balls = {}, dots = {}}
+  for i = 1, 6 do
+    deco.balls[i] = {ph = rnd(1), py = rnd(1), sk = SKINS[i], m = 18 + flr(rnd(26))}
+  end
+  for i = 1, 28 do
+    deco.dots[i] = {x = rnd(8, 248), y = rnd(8, 248), c = PELLET_COLS[flr(rnd(#PELLET_COLS)) + 1]}
+  end
+  if music_on and not bgm_on then music(0, 500, 0xF0) bgm_on = true end
+end
+local function settle_records() -- 进结算面板时落盘最高纪录
+  new_mass = max_mass > dget(0)
+  new_surv = flr(play_t / 60) > dget(1)
+  new_kills = kills > dget(2)
+  if new_mass then dset(0, flr(max_mass)) end -- 取整存档：dset 定点存小数会让 dget 解出尾差
+  if new_surv then dset(1, flr(play_t / 60)) end
+  if new_kills then dset(2, kills) end
+  if new_mass or new_surv or new_kills then fflush() end
+end
+
+-- ---------------------------------------------------------------- 更新
+
+local function update_play()
+  if grace > 0 then grace = grace - 1 end
+  build_cells()
+  control_player()
+  local n = #balls
+  for i = 1, n do
+    local b = balls[i]
+    if b.fam ~= 0 then ai_frame(b) end
+  end
+  eat_pass()
+  if state ~= "play" then return end -- 本帧内玩家被吞光 / 达标即止
+  -- 重生队列：食物延时重生，球满员时顺延
+  for i = #rspawns, 1, -1 do
+    local q = rspawns[i]
+    q.t = q.t - 1
+    if q.t <= 0 then
+      if q.kind == 0 then
+        spawn_pellet()
+        deli(rspawns, i)
+      elseif count_ai() < AI_BALL_CAP then
+        spawn_ai(36 + flr(rnd(36))) -- 小球重生（质量 36~72）
+        deli(rspawns, i)
+      end
+    end
+  end
+  -- 排行榜/名次按家族总质量；峰值质量跟踪玩家实体
+  lb = family_list()
+  rank, fam_n = player_rank_of(lb)
+  local pm = player_mass()
+  if pm > max_mass then max_mass = pm end
+  try_win()
+  play_t = play_t + 1
+  -- 镜头：跟随最大分身 + 少量速度前瞻；比例随体型缩小取景
+  local p = largest_player()
+  if p then
+    local tx, ty = p.x + p.vx * 0.12, p.y + p.vy * 0.12
+    cam.x = cam.x + (tx - cam.x) * 0.1
+    cam.y = cam.y + (ty - cam.y) * 0.1
+    local ts = mid(0.55, 1.6 / (1 + p.r / 24), 1)
+    cam.s = cam.s + (ts - cam.s) * 0.04
+  end
+end
+local function update_dying()
+  die_t = die_t + 1
+  build_cells()
+  local n = #balls
+  for i = 1, n do -- 世界继续运转：AI 三层照常
+    local b = balls[i]
+    if b.fam ~= 0 then
+      b.ai.sp = b.ai.sp * 0.98 -- 演出期整体放缓
+      ai_frame(b)
+    end
+  end
+  eat_pass()
+  if die_t == 70 then settle_records() state, over_t = "over", 0 end
+end
+local function update_win()
+  win_t = win_t + 1
+  build_cells()
+  if win_t % 22 == 0 then -- 庆祝烟花
+    local p = largest_player()
+    if p then
+      local a = rnd(1)
+      local d = 20 + rnd(60)
+      local fx, fy = p.x + cos(a) * d, p.y + sin(a) * d
+      burst(fx, fy, {31, 30, 29, 43, 7}, 12)
+      rings[#rings + 1] = {x = fx, y = fy, t = 0}
+    end
+    if win_t % 66 == 0 then sfx(16, 2) end
+  end
+  local n = #balls
+  for i = 1, n do
+    local b = balls[i]
+    if b.fam == 0 then
+      move_ball(b, 0, 0, ACC_OUT) -- 冠军分身滑行减速
+    else
+      ai_frame(b)
+    end
+  end
+  if win_t == 110 then settle_records() state, over_t = "over", 0 end
+end
+local function update_over()
+  over_t = over_t + 1
+  if over_t == 36 and (new_mass or new_surv or new_kills) then sfx(15, 2) end
+  if over_t > 30 then
+    if btnp(4) then start_game()
+    elseif btnp(11) then to_title() end
+  end
+end
+local function update_title()
+  if btnp(4) then start_game()
+  elseif btnp(10) then toggle_music() end
+end
+
+-- ---------------------------------------------------------------- 绘制：世界
+
+local function wx2s(x) return (x - cam.x) * cam.s + 128 end
+local function wy2s(y) return (y - cam.y) * cam.s + 128 end
+local function draw_arena()
+  local s = cam.s
+  local ax, ay, aw = wx2s(0), wy2s(0), W * s
+  rectfill(ax, ay, aw, aw, 13)                 -- 场内底色（场外已由 cls 铺深色）
+  clip(ax, ay, aw, aw)
+  local gx0 = flr((cam.x - 128 / s) / GRID) * GRID
+  local gy0 = flr((cam.y - 128 / s) / GRID) * GRID
+  local gx1, gy1 = cam.x + 128 / s, cam.y + 128 / s
+  for wx = max(0, gx0), min(W, gx1), GRID do   -- 浅色网格：64px 细线，256px 主线
+    local c = wx % 256 == 0 and 11 or 12
+    line(wx2s(wx), ay, wx2s(wx), ay + aw, c)
+  end
+  for wy = max(0, gy0), min(W, gy1), GRID do
+    local c = wy % 256 == 0 and 11 or 12
+    line(ax, wy2s(wy), ax + aw, wy2s(wy), c)
+  end
+  clip()
+  local wt = max(2, flr(5 * s))                -- 亮墙边界 + 外圈微光
+  rect(ax - 2, ay - 2, aw + 4, aw + 4, 11)
+  rectfill(ax, ay, aw, wt, 43) rectfill(ax, ay + aw - wt, aw, wt, 43)
+  rectfill(ax, ay, wt, aw, 43) rectfill(ax + aw - wt, ay, wt, aw, 43)
+end
+local function draw_pellets() -- 最底层：食物豆
+  local s = cam.s
+  for i = 1, #pellets do
+    local f = pellets[i]
+    local sx, sy = wx2s(f.x), wy2s(f.y)
+    if sx > -4 and sx < 260 and sy > -4 and sy < 260 then
+      local pr = f.r * s
+      if pr < 1 then pset(flr(sx + 0.5), flr(sy + 0.5), f.c)
+      elseif pr < 2.2 then rectfill(flr(sx) - 1, flr(sy) - 1, 2, 2, f.c)
+      else circfill(sx, sy, pr, f.c) end
+    end
+  end
+end
+local function draw_spores() -- 次层：吐出的球（画在所有球之下）
+  local s = cam.s
+  for i = 1, #spores do
+    local p = spores[i]
+    local sx, sy = wx2s(p.x), wy2s(p.y)
+    if sx > -4 and sx < 260 and sy > -4 and sy < 260 then
+      local pr = max(1.5, SPORE_R * s)
+      circfill(sx, sy, pr, p.c)
+      if pr >= 2.5 then pset(flr(sx - pr * 0.3), flr(sy - pr * 0.3), 7) end
+    end
+  end
+end
+local function draw_ball(b)
+  local s = cam.s
+  local sx, sy = wx2s(b.x), wy2s(b.y)
+  local rs = b.r * s * (1 + 0.025 * sin(t * 0.13 + b.ph)) -- 呼吸微颤
+  if sx < -rs - 8 or sx > 264 + rs or sy < -rs - 8 or sy > 264 + rs then return end
+  local sk = b.sk
+  circfill(sx, sy, rs + max(1.2, rs * 0.14), sk[2]) -- 深色描边
+  circfill(sx, sy, rs, sk[1])                       -- 主色
+  if rs >= 3.5 then
+    circfill(sx - rs * 0.34, sy - rs * 0.36, max(1, rs * 0.26), sk[3]) -- 高光斑
+  end
+  if b.r >= 18 and rs >= 12 then                    -- 球心质量数字
+    local m = fmt(flr(b.mass))
+    print(m, sx - tw(m) / 2, sy - 8, sk[4])
+  end
+  if b.fam == 0 and rs >= 7 then                    -- 玩家分身方向小眼睛
+    local f = b.face
+    local er = max(1.6, rs * 0.2)
+    for side = -1, 1, 2 do
+      local a = f + side * 0.21
+      local ex, ey = sx + cos(a) * rs * 0.55, sy + sin(a) * rs * 0.55
+      circfill(ex, ey, er, 7)
+      circfill(ex + cos(f) * er * 0.45, ey + sin(f) * er * 0.45, max(1, er * 0.52), 1)
+    end
+    if grace > 0 then                               -- 开局保护：脉动青环
+      circ(sx, sy, rs + 5 + sin(t * 0.2) * 1.5, 42)
+    end
+  end
+end
+local function draw_balls_sorted() -- 全部球（玩家+AI 混合）按质量升序绘制：大球压小球
+  local n = #balls
+  if n == 0 then return end
+  local lst = {}
+  for i = 1, n do lst[i] = balls[i] end
+  for i = 2, n do
+    local b, j = lst[i], i - 1
+    while j >= 1 and lst[j].mass > b.mass do lst[j + 1] = lst[j] j = j - 1 end
+    lst[j + 1] = b
+  end
+  for i = 1, n do draw_ball(lst[i]) end
+end
+local function draw_effects()
+  local s = cam.s
+  for i = 1, #rings do
+    local r = rings[i]
+    if r.t >= 0 then
+      circ(wx2s(r.x), wy2s(r.y), (3 + r.t * 2.2) * s, r.t < 8 and 31 or 42)
+    end
+  end
+end
+local function draw_particles() -- 粒子与飘字压在所有球之上
+  local s = cam.s
+  for i = 1, #parts do
+    local q = parts[i]
+    local sx, sy = wx2s(q.x), wy2s(q.y)
+    if sx > -2 and sx < 258 and sy > -2 and sy < 258 then
+      rectfill(flr(sx), flr(sy), 2, 2, q.c)
+    end
+  end
+  for i = 1, #pops do
+    local p = pops[i]
+    print(p.txt, wx2s(p.x) - tw(p.txt) / 2, wy2s(p.y) - p.t * 0.6, p.t < 20 and 31 or 30)
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制：HUD
+
+local function draw_hud()
+  local alive = count_fam(0) > 0
+  -- 左上：总质量 / 名次 / Ⓐ 分身就绪 / 合体倒计时（按家族实体计）
+  rrectfill(3, 3, 108, 76, 4, 51)
+  rrect(3, 3, 108, 76, 4, 11)
+  print("质量", 10, 7, 6)
+  print(fmt(flr(alive and player_mass() or max_mass)), 42, 7, 30)
+  print("排名", 10, 24, 6)
+  local rk = alive and fmt(rank) .. "/" .. fmt(fam_n)
+    or fmt(final_rank) .. "/" .. fmt(final_count)
+  print(rk, 42, 24, 7)
+  local nf, can, cd = count_fam(0), false, 0
+  for i = 1, #balls do -- 分身资格只看质量与球数（不吃冷却）；cd 为家族最大合体剩余
+    local b = balls[i]
+    if b.fam == 0 and not b.dead then
+      if b.mass >= SPLIT_MIN_MASS then can = true end
+      if b.split_cd > cd then cd = b.split_cd end
+    end
+  end
+  print("Ⓐ分身", 10, 41, 6)
+  local st, sc = "就绪", 33
+  if nf >= P_MAX_BALLS then st, sc = "已满", 5
+  elseif not can then st, sc = "不足", 5 end
+  print(st, 66, 41, sc)
+  print("合体", 10, 58, 6)
+  if nf > 1 then
+    print(cd > 0 and ceil(cd / 60) .. "s" or "就绪", 42, 58, cd > 0 and 8 or 33)
+  else
+    print("无", 42, 58, 5)
+  end
+  -- 右上：家族总质量前四名排行榜
+  rrectfill(148, 3, 105, 86, 4, 51)
+  rrect(148, 3, 105, 86, 4, 11)
+  print("排行榜", 155, 7, 42)
+  local rowc = {31, 8, 23, 6}
+  for i = 1, min(4, lb and #lb or 0) do
+    local f = lb[i]
+    local y = 25 + (i - 1) * 16
+    print(fmt(i), 155, y, rowc[i])
+    print(f.name, 167, y, f.is_p and 43 or 8)
+    local m = fmt(flr(f.mass))
+    print(m, 246 - #m * 8, y, f.is_p and 43 or 6)
+  end
+  -- 右下：小地图（56px 方框；食物不画，球按相对半径画点，每个玩家分身带白框 + 视野框）
+  local mx, my, ms = 195, 195, 56
+  rectfill(mx - 2, my - 2, ms + 4, ms + 4, 51)
+  rect(mx - 2, my - 2, ms + 4, ms + 4, 11)
+  rectfill(mx, my, ms, ms, 14)
+  clip(mx, my, ms, ms)
+  for i = 1, #balls do
+    local b = balls[i]
+    local bx = mx + flr(b.x * ms / W)
+    local by = my + flr(b.y * ms / W)
+    local br = max(1, flr(b.r * ms / W + 0.5))
+    if b.fam == 0 then
+      rect(bx - 2, by - 2, 5, 5, 7)
+      circfill(bx, by, br, 43)
+    else
+      circfill(bx, by, br, b.sk[1])
+    end
+  end
+  local vw = ms * 256 / (W * cam.s)
+  rect(mx + flr(cam.x * ms / W - vw / 2), my + flr(cam.y * ms / W - vw / 2),
+    flr(vw) + 1, flr(vw) + 1, 6)
+  clip()
+  if state == "play" then -- 左下：轮播提示（带阴影）
+    local s2 = HINTS[flr(t / 300) % #HINTS + 1]
+    print(s2, 5, 241, 1)
+    print(s2, 4, 240, 6)
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制：面板・标题
+
+local function draw_over_panel()
+  fillp(0x8421)
+  rectfill(0, 0, 256, 256, 13 * 256 + 0)
+  fillp()
+  local bx, by, bw, bh = 38, 48, 180, 160
+  rrectfill(bx, by, bw, bh, 6, 8)
+  rrect(bx, by, bw, bh, 6, 10)
+  rectfill(bx + 2, by + 2, bw - 4, 1, 7)
+  rectfill(bx + 2, by + bh - 3, bw - 4, 1, 6)
+  local function row(txt, y, c) print(txt, (256 - tw(txt)) / 2, y, c) end
+  if win then
+    row("胜利！", 60, 25)
+  else
+    row("你被吞掉了", 60, 59)
+  end
+  local surv = fmt(flr(play_t / 60))
+  row("生存 " .. surv .. " 秒", 88, 1)
+  if new_surv and flr(t / 6) % 2 == 0 then print("★", 176, 88, 30) end
+  row("峰值质量 " .. fmt(flr(max_mass)), 108, 1)
+  if new_mass and flr(t / 6) % 2 == 0 then print("★", 176, 108, 30) end
+  row("吞噬 " .. fmt(kills) .. " 球", 128, 1)
+  if new_kills and flr(t / 6) % 2 == 0 then print("★", 176, 128, 30) end
+  row("排名 " .. fmt(final_rank) .. "/" .. fmt(final_count), 148, 1)
+  if flr(t / 24) % 4 ~= 3 then row("Ⓐ 再来一局", 174, 4) end
+  row("Start 回标题", 192, 10)
+end
+local function draw_title()
+  cls(13)
+  for x = 0, 256, 32 do line(x, 0, x, 256, 12) end -- 淡网格呼应赛场
+  for y = 0, 256, 32 do line(0, y, 256, y, 12) end
+  for i = 1, #deco.dots do                         -- 装饰豆
+    local d = deco.dots[i]
+    pset(d.x, d.y, d.c)
+  end
+  for i = 1, #deco.balls do                        -- 利萨茹巡游的装饰球
+    local d = deco.balls[i]
+    local x = 128 + cos(t * 0.0035 + d.ph) * 106
+    local y = 128 + sin(t * 0.0052 + d.py) * 102
+    circfill(x, y, 17, d.sk[2])
+    circfill(x, y, 14, d.sk[1])
+    circfill(x - 4, y - 5, 4, d.sk[3])
+    print(fmt(d.m), x - tw(fmt(d.m)) / 2, y - 8, d.sk[4])
+  end
+  rectfill(48, 26, 160, 44, 51)                    -- 标题板（斜面匾）
+  rectfill(48, 26, 160, 2, 53) rectfill(48, 26, 2, 44, 53)
+  rectfill(48, 68, 160, 2, 50) rectfill(206, 26, 2, 44, 50)
+  local chars, cols = {"球", "球", "大", "作", "战"},
+    {33, 41, 30, 55, 58}
+  for i = 1, 5 do
+    local x = 68 + (i - 1) * 26
+    local y = 38 + flr(sin(t * 0.05 + i * 0.16) * 3)
+    print(chars[i], x + 2, y + 2, 1)
+    print(chars[i], x, y, cols[i])
+  end
+  local s = "BALL BATTLE ・ FC-16"
+  print(s, (256 - tw(s)) / 2, 84, 5)
+  s = "大球吞小球　质量 600 取胜"
+  print(s, (256 - tw(s)) / 2, 110, 8)
+  s = "纪录 质量" .. fmt(dget(0)) .. "　生存" .. fmt(dget(1)) .. "秒　吞噬" .. fmt(dget(2))
+  print(s, (256 - tw(s)) / 2, 140, 30)
+  if flr(t / 20) % 2 == 0 then
+    s = "按 Ⓐ 开始游戏"
+    print(s, (256 - tw(s)) / 2 + 1, 171, 1)
+    print(s, (256 - tw(s)) / 2, 170, 7)
+  end
+  local hints = {"Ⓐ 分身　Ⓧ 吐球", "⬅⬆⬇➡ 移动　Select 音乐开关"}
+  for i = 1, 2 do print(hints[i], (256 - tw(hints[i])) / 2, 202 + (i - 1) * 18, 6) end
+  print("♪", 242, 2, music_on and 30 or 10)
+  print("FrostMiKu ・ FC-16", (256 - tw("FrostMiKu ・ FC-16")) / 2, 240, 10)
+end
+
+-- ---------------------------------------------------------------- 生命周期
+
+function _init()
+  init_audio()
+  music_on = dget(3) == 0 -- 槽位 3：0 = 开（默认）
+  bgm_on = false
+  parts, pops, rings = {}, {}, {}
+  spores = {}
+  cells = {}
+  name_pool = {}
+  to_title()
+end
+function _update()
+  t = t + 1
+  update_fx()
+  if shake > 0 then shake = shake - 1 end
+  if state == "title" then
+    update_title()
+  elseif state == "play" then
+    if btnp(10) then toggle_music() end
+    update_play()
+  elseif state == "dying" then
+    update_dying()
+  elseif state == "win" then
+    if btnp(10) then toggle_music() end
+    update_win()
+  elseif state == "over" then
+    update_over()
+  end
+end
+function _draw()
+  pal()
+  camera(0, 0)
+  if state == "title" then
+    draw_title()
+    return
+  end
+  if shake > 0 then -- 被吞震屏（与帧号绑定，保持确定性）
+    local a = min(6, shake * 0.5)
+    camera(flr(sin(t * 0.11) * a), flr(cos(t * 0.17) * a * 0.6))
+  end
+  if state == "dying" and die_t < 30 and flr(die_t / 5) % 2 == 0 then
+    pal(13, 60, 1) pal(12, 59, 1) pal(11, 26, 1) -- 显示期红闪（帧缓冲不变）
+  elseif state == "win" and flr(win_t / 6) % 4 == 0 then
+    pal(13, 51, 1) pal(12, 52, 1)                -- 胜利紫金微闪
+  end
+  draw_arena()
+  draw_pellets()
+  draw_spores()
+  draw_effects()
+  draw_balls_sorted()
+  draw_particles()
+  pal()
+  draw_hud()
+  camera(0, 0)
+  if state == "over" and over_t > 12 then draw_over_panel() end
+end

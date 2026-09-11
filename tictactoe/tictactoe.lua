@@ -1,0 +1,893 @@
+-- FC-16 井字棋演示卡带
+-- ============================================================
+-- 经典井字棋 + 终极井字棋（9 宫嵌套变体）。
+--   ・双人 / 人机（简单：赢+必堵+随机；普通：赢堵中心对角角边启发；
+--     困难：完美 minimax，negamax + 记忆化 + 协程分帧搜索，不可战胜），
+--     先手可选（玩家先 / 电脑先 / 观战演示）
+--   ・终极井字棋：9×9 嵌套，落子小格决定对手行棋宫，被占宫任选；
+--     小宫三连成格、三格成线获胜；AI 为启发式（简单随机 / 普通 /
+--     困难多一步终胜防察）
+-- 手绘描边风 X / O 棋子（_init 程序化烘焙）、落子弹入动画、胜利连线高亮、
+-- 平局演出、悔棋（Ⓑ）、Start 重开、Ⓨ 回标题、战绩存档、双音色与 BGM。
+-- ---------------------------------------------------------------- 常量
+local C_BG, C_BG_D, C_BG_L = 13, 15, 12     -- 深靛底三档
+local C_PANEL, C_PANEL2, C_INK = 22, 21, 17  -- 纸面 / 纸缘 / 棕墨
+local C_TXT, C_TXT_M, C_WHITE, C_YEL, C_YEL_L = 8, 10, 7, 30, 31
+local C_X1, C_X2, C_X3 = 41, 42, 39          -- X 棋子：蓝主色 / 亮 / 描边
+local C_O1, C_O2, C_O3 = 58, 57, 61          -- O 棋子：红主色 / 亮 / 描边
+local DIFF_NAME = { "简单", "普通", "困难" }
+local PX, PY, PS = 30, 30, 196               -- 经典面板与格
+local CS0, CS = 34, 62
+local UX, UY, US, UG = 25, 27, 66, 4         -- 终极宫 66px + 缝 4px
+local BOT_Y = 239                            -- 底栏
+local B_L, B_R, B_U, B_D = 0, 1, 2, 3        -- 输入 id（SPEC §6.1）
+local B_A, B_B, B_Y, B_SEL, B_STA = 4, 5, 7, 10, 11
+local CH_STONE, CH_UI, CH_JINGLE = 0, 1, 2   -- 音效通道；BGM 占 ch4/5
+local LINES9 = { { 1, 2, 3 }, { 4, 5, 6 }, { 7, 8, 9 }, { 1, 4, 7 },
+  { 2, 5, 8 }, { 3, 6, 9 }, { 1, 5, 9 }, { 3, 5, 7 } }
+local CELL_LINES = {}                        -- 每格所属的三连线
+for i = 1, 9 do CELL_LINES[i] = {} end
+for _, L in ipairs(LINES9) do
+  for _, c in ipairs(L) do local lst = CELL_LINES[c] lst[#lst + 1] = L end
+end
+local function ccx(i) return CS0 + (i - 1) % 3 * CS + CS / 2 end
+local function ccy(i) return CS0 + flr((i - 1) / 3) * CS + CS / 2 end
+local function cxx(i) return CS0 + (i - 1) % 3 * CS end
+local function cyy(i) return CS0 + flr((i - 1) / 3) * CS end
+local function ubx(b) return UX + (b - 1) % 3 * (US + UG) end
+local function uby(b) return UY + flr((b - 1) / 3) * (US + UG) end
+local function ucx(b, c) return ubx(b) + 3 + (c - 1) % 3 * 20 + 10 end
+local function ucy(b, c) return uby(b) + 3 + flr((c - 1) / 3) * 20 + 10 end
+local function ctext(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+-- ---------------------------------------------------------------- 音频（SPEC §5.2 布局）
+local function u8(a, val) poke(a, val % 256) end
+local function init_sfx(id, notes, wave, vol, speed)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, #notes)
+  for i = 0, 31 do local a = base + 16 + i * 3
+    if i < #notes then u8(a, notes[i + 1]) u8(a + 1, wave * 16 + vol) u8(a + 2, 0)
+    else u8(a, 0) u8(a + 1, 0) end
+  end
+end
+local function init_all_sfx()
+  init_sfx(0, { 40, 47 }, 3, 10, 1)   -- X 落子：方波低叩
+  init_sfx(1, { 64, 69 }, 10, 9, 1)   -- O 落子：铃铛高叩
+  init_sfx(2, { 64, 55 }, 6, 8, 2)    -- 悔棋：下行双音
+  init_sfx(3, { 60, 64, 67, 72, 0, 67, 72, 76 }, 3, 11, 2) -- 胜利旋律
+  init_sfx(4, { 60, 0, 60, 0, 57 }, 6, 9, 3)               -- 平局旋律
+  init_sfx(5, { 76 }, 3, 4, 1)       -- 光标移动
+  init_sfx(6, { 72 }, 3, 6, 1)       -- 菜单切换
+  init_sfx(7, { 64, 71 }, 3, 8, 2)   -- 确认 / 开始
+  init_sfx(8, { 28, 28 }, 14, 7, 1)  -- 非法操作：噪声 buzz
+  init_sfx(9, { 72, 76, 79 }, 10, 10, 2) -- 终极得宫
+  -- BGM：原创小品（C 大调，四小节回环）；旋律 ch4 ROUND / 贝斯 ch5 BASS
+  local melody = { { 64, 0, 67, 0, 60, 0, 57, 0 }, { 55, 0, 57, 0, 64, 0, 62, 0 }, { 60, 0, 64, 0, 67, 0, 64, 0 },
+    { 57, 0, 55, 0, 52, 0, 0, 0 }, }
+  local bass = { 36, 31, 33, 41 }
+  local function expand(notes, k)
+    local out = {}
+    for _, v in ipairs(notes) do
+      for _ = 1, k do out[#out + 1] = v end
+    end
+    return out
+  end
+  for bar = 1, 4 do
+    init_sfx(19 + bar, expand(melody[bar], 4), 8, 8, 5)
+    init_sfx(29 + bar, expand({ bass[bar] }, 32), 11, 9, 5)
+    local mb = 0x063800 + (bar - 1) * 16
+    u8(mb + 4, 20 + bar)   -- 旋律 SFX id+1
+    u8(mb + 5, 30 + bar)   -- 贝斯 SFX id+1
+    u8(mb + 8, bar == 1 and 1 or (bar == 4 and 2 or 0))  -- BEGIN/END 回环
+  end
+end
+-- ---------------------------------------------------------------- 精灵烘焙
+-- 精灵表像素写入：瓦片按 256B 连续块存储（SPEC §4.1/§4.2）
+local function spset(u, v, c)
+  poke((flr(v / 16) * 16 + flr(u / 16)) * 256 + (v % 16) * 16 + u % 16, c)
+end
+-- 手绘 X：两条锥形微弯笔画 + 深描边 + 左上受光；全程平方距离比较（无
+-- sqrt）；yb..ye 为行区间（分帧烘焙省单帧预算）
+local function bake_x(u0, v0, S, yb, ye)
+  local m = S * 0.21
+  local amp, outl = S * 0.028, S * 0.03
+  local E = { { m, m, S - m, S - m }, { S - m, m, m, S - m } }
+  local ST = {}
+  for k = 1, 2 do
+    local ax, ay, bx, by = E[k][1], E[k][2], E[k][3], E[k][4]
+    local dx, dy = bx - ax, by - ay
+    local l = sqrt(dx * dx + dy * dy)
+    ST[k] = { ax, ay, dx, dy, 1 / (dx * dx + dy * dy), -dy / l, dx / l, k * 0.3, min(ax, bx) - 6.5, max(ax, bx) + 6.5,
+              min(ay, by) - 6.5, max(ay, by) + 6.5 }
+  end
+  for y = yb, ye do local py = y + 0.5
+    for x = 0, S - 1 do local px, c = x + 0.5, 0
+      for k = 1, 2 do local st = ST[k]
+        if px >= st[9] and px <= st[10] and py >= st[11] and py <= st[12] then
+          local tt = ((px - st[1]) * st[3] + (py - st[2]) * st[4]) * st[5]
+          if tt < 0 then tt = 0 elseif tt > 1 then tt = 1 end
+          local w = sin(tt * 0.62 + 0.13 + st[8]) * amp
+          local ex = px - st[1] - st[3] * tt - st[6] * w
+          local ey = py - st[2] - st[4] * tt - st[7] * w
+          local d2 = ex * ex + ey * ey
+          local th = S * (0.05 + 0.026 * sin(tt * 0.5))
+          if d2 <= th * th then c = (ex + ey < 0) and C_X2 or C_X1
+          elseif d2 <= (th + outl) * (th + outl) and c == 0 then c = C_X3 end
+        end
+      end
+      spset(u0 + x, v0 + y, c)
+    end
+  end
+end
+-- 手绘 O：微偏摆圆环 + 深描边 + 左上受光（平方距离门控，环带内才开方）
+local function bake_o(u0, v0, S, yb, ye)
+  local cx, cy, R = S / 2, S / 2, S * 0.315
+  local band = S * 0.11
+  local lo2, hi2 = (R - band) * (R - band), (R + band) * (R + band)
+  for y = yb, ye do local dy = y + 0.5 - cy
+    for x = 0, S - 1 do
+      local dx, c = x + 0.5 - cx, 0
+      local d2 = dx * dx + dy * dy
+      if d2 >= lo2 and d2 <= hi2 then
+        local d = sqrt(d2)
+        local a = atan2(dx, dy)
+        local rr = R + sin(a * 2 + 0.18) * S * 0.014 + sin(a * 3 + 0.55) * S * 0.01
+        local m2 = d - rr if m2 < 0 then m2 = -m2 end
+        local th = S * (0.055 + 0.014 * sin(a * 2 + 0.9))
+        if m2 <= th then c = (dx + dy < -2) and C_O2 or C_O1
+        elseif m2 <= th + S * 0.03 then c = C_O3 end
+      end
+      spset(u0 + x, v0 + y, c)
+    end
+  end
+end
+-- ---------------------------------------------------------------- 绘图小件
+-- 弹入缩放：ease-out-back（0 → 1，过冲钳在 1.25 内）
+local function pop_scale(age)
+  if age >= 13 then return 1 end
+  local w = age / 13 - 1
+  return max(0.1, min(1 + 2.9 * w * w * w + 1.9 * w * w, 1.25))
+end
+local function draw_stone48(p, x, y, s)
+  local sz = max(4, flr(48 * s))
+  sspr(p == 1 and 0 or 64, 256, 48, 48, flr(x - sz / 2), flr(y - sz / 2), sz, sz)
+end
+-- 终极小棋子：绘图原语手绘（e 为半尺寸）
+local function draw_mini(p, x, y, e)
+  e = max(1, flr(e))
+  if p == 1 then
+    for o = -1, 1 do line(x - e, y - e + o, x + e, y + e + o, C_X3) line(x - e, y + e + o, x + e, y - e + o, C_X3) end
+    line(x - e + 1, y - e + 1, x + e - 1, y + e - 1, C_X1)
+    line(x - e + 1, y + e - 1, x + e - 1, y - e + 1, C_X1)
+  else
+    circfill(x, y, e - 1, C_PANEL)
+    circ(x, y, e, C_O3)
+    circ(x, y, e - 1, C_O1)
+  end
+end
+-- 胜利连线：法向 5px 粗的推进线
+local function draw_beam(ax, ay, bx, by, p, col)
+  local ex, ey = ax + (bx - ax) * p, ay + (by - ay) * p
+  local dx, dy = bx - ax, by - ay
+  local l = sqrt(dx * dx + dy * dy)
+  local nx, ny = -dy / l, dx / l
+  for o = -2, 2 do line(ax + nx * o, ay + ny * o, ex + nx * o, ey + ny * o, col) end
+  circfill(ax, ay, 3, col)
+  if p >= 1 then circfill(bx, by, 3, col) end
+end
+-- 手绘感微摆线（2px 粗）
+local function wavy2(x0, y0, x1, y1, col, ph)
+  local dx, dy = x1 - x0, y1 - y0
+  local n = max(1, flr(max(abs(dx), abs(dy)) / 3))
+  local horiz = abs(dx) > abs(dy)
+  local ox, oy = -dy, dx
+  local l = sqrt(ox * ox + oy * oy)
+  ox, oy = ox / l, oy / l
+  for k = 0, n - 1 do
+    local u0, u1 = k / n, (k + 1) / n
+    local sx = x0 + dx * u0 + ox * sin((u0 + ph) * 0.9) * 1.1
+    local sy = y0 + dy * u0 + oy * sin((u0 + ph) * 0.9) * 1.1
+    local tx = x0 + dx * u1 + ox * sin((u1 + ph) * 0.9) * 1.1
+    local ty = y0 + dy * u1 + oy * sin((u1 + ph) * 0.9) * 1.1
+    line(sx, sy, tx, ty, col)
+    if horiz then line(sx, sy + 1, tx, ty + 1, col)
+    else line(sx + 1, sy, tx + 1, ty, col) end
+  end
+end
+-- ---------------------------------------------------------------- 状态
+local t = 0                 -- 全局帧计数
+local state = "title"       -- title / play
+local title = { mode = 1, diff = 2, first = 1, uopp = 1 }
+local sel_row = 1
+local bake_queue = {}       -- 分帧烘焙队列（避免 _init 超单帧预算）
+local bake_done = 0
+local gmode, gdiff, gfirst, guopp  -- 本局配置快照
+local ai_side = 0           -- 0 无 / 1 / 2 / 3 双方皆电脑（观战）
+local ai_think, ai_t, ai_mv, ai_co = false, 0, nil, nil
+local ai_reopen = false     -- 悔棋退空电脑先手开局后，请求电脑重新落子
+local board, turn, winner, winline, over_t, hist, ctime
+local gx, gy = 1, 1         -- 统一光标（经典钳 0..2，终极 0..8）
+local rep = { 0, 0, 0, 0 }  -- 方向键按住计时（自实现重复）
+local stats = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+local music_on = true
+local ub, uw, ufl, unext, uhist, uat  -- 终极模式状态
+local function toggle_music()
+  music_on = not music_on
+  dset(9, music_on and 0 or 1) fflush()
+  if music_on then music(0, 200, 0x30) else music(-1, 200) end
+end
+local function mode_label()
+  if gmode == 1 then return "双人对战" end
+  if gmode == 2 then return (ai_side == 3 and "观战・" or "人机・") .. DIFF_NAME[gdiff] end
+  if guopp == 1 then return "终极・双人" end
+  return "终极・" .. (ai_side == 3 and "观战" or DIFF_NAME[gdiff])
+end
+local function result_msg()
+  if winner == 0 then return "平局" end
+  if ai_side == 1 or ai_side == 2 then
+    if winner == ((gfirst == 1) and 1 or 2) then return "你赢了！" end
+    return "电脑获胜"
+  end
+  return "获胜！"
+end
+-- ---------------------------------------------------------------- 规则（经典与终极共用 9 格线表）
+local function wins_at(b, i, p)
+  for k = 1, #CELL_LINES[i] do local L = CELL_LINES[i][k]
+    if b[L[1]] == p and b[L[2]] == p and b[L[3]] == p then return true end
+  end
+  return false
+end
+local function find_win(b, p)  -- b 上 p 方的制胜点
+  for i = 1, 9 do
+    if b[i] == 0 then
+      b[i] = p
+      local w = wins_at(b, i, p)
+      b[i] = 0
+      if w then return i end
+    end
+  end
+end
+local function line_winner(b)  -- b 上已成三连的一方（无则 0）
+  for _, L in ipairs(LINES9) do local p = b[L[1]]
+    if p ~= 0 and b[L[2]] == p and b[L[3]] == p then return p end
+  end
+  return 0
+end
+local function cwin_line()
+  for _, L in ipairs(LINES9) do local p = board[L[1]]
+    if p ~= 0 and board[L[2]] == p and board[L[3]] == p then return L end
+  end
+end
+local function ub_full(b)
+  for k = 1, 9 do
+    if ub[b][k] == 0 then return false end
+  end
+  return true
+end
+local function utarget()  -- 当前行棋目标宫（0 = 任意）
+  if unext == 0 or uw[unext] ~= 0 or ufl[unext] then return 0 end
+  return unext
+end
+local function uline_of(p)
+  for _, L in ipairs(LINES9) do
+    if uw[L[1]] == p and uw[L[2]] == p and uw[L[3]] == p then return L end
+  end
+end
+-- ---------------------------------------------------------------- 落子 / 悔棋 / 记分
+local function record()
+  if ai_side == 3 then sfx(winner == 0 and 4 or 3, CH_JINGLE)
+    return  -- 观战演示不计战绩
+  end
+  local slot
+  if gmode == 1 then slot = winner == 1 and 1 or (winner == 2 and 2 or 3)
+  elseif gmode == 2 then
+    local ps = (gfirst == 1) and 1 or 2
+    slot = winner == 0 and 6 or (winner == ps and 4 or 5)
+  else slot = winner == 1 and 7 or (winner == 2 and 8 or 9) end
+  stats[slot] = stats[slot] + 1
+  dset(slot - 1, stats[slot])
+  fflush()
+  sfx(winner == 0 and 4 or 3, CH_JINGLE)
+end
+local function cplace(i)
+  local p = turn
+  board[i] = p
+  hist[#hist + 1] = { i = i, p = p }
+  ctime[i] = t
+  sfx(p == 1 and 0 or 1, CH_STONE)
+  local wl = cwin_line()
+  if wl then winner, winline, over_t = p, wl, 0 record()
+  elseif #hist >= 9 then winner, over_t = 0, 0 record()
+  else turn = 3 - p end
+end
+local function uplace(b, c)
+  local p = turn
+  ub[b][c] = p
+  uhist[#uhist + 1] = { b = b, c = c, p = p, pn = unext }
+  uat[b][c] = t
+  sfx(p == 1 and 0 or 1, CH_STONE)
+  if wins_at(ub[b], c, p) then
+    uw[b] = p
+    sfx(9, CH_JINGLE)
+  elseif ub_full(b) then ufl[b] = true end
+  unext = c
+  local wl = uline_of(p)
+  if wl then winner, winline, over_t = p, wl, 0 record() return end
+  local done = true
+  for k = 1, 9 do if uw[k] == 0 and not ufl[k] then done = false break end end
+  if done then winner, over_t = 0, 0 record() else turn = 3 - p end
+end
+local function undo()
+  if winner ~= nil then return end
+  if ai_think then
+    -- 思考中 Ⓑ：取消思考并退玩家那手
+    if ai_side == 3 then sfx(8, CH_UI) return end
+    ai_think, ai_co = false, nil
+  elseif ai_side == 3 then sfx(8, CH_UI) return end
+  local h = (gmode == 3) and #uhist or #hist if h == 0 then sfx(8, CH_UI) return end
+  if ai_side ~= 0 then
+    -- 人机：退两手（电脑 + 玩家）；只剩电脑首手时不可悔
+    local m1 = (gmode == 3) and uhist[1] or hist[1] if h == 1 and m1.p == ai_side then sfx(8, CH_UI) return end
+    h = min(2, h)
+  end
+  for _ = 1, h do local m = (gmode == 3) and uhist[#uhist] or hist[#hist]
+    if gmode == 3 then
+      ub[m.b][m.c] = 0
+      unext = m.pn
+      uw[m.b] = line_winner(ub[m.b])
+      ufl[m.b] = ub_full(m.b)
+      uhist[#uhist] = nil
+    else
+      board[m.i] = 0
+      ctime[m.i] = nil
+      hist[#hist] = nil
+    end
+    turn = m.p
+  end
+  if ai_side ~= 0 and turn == ai_side then ai_reopen = true end  -- 退空电脑开局
+  sfx(2, CH_UI)
+end
+-- ---------------------------------------------------------------- AI
+-- 简单：赢一手 → 堵一手 → 随机
+local function simple_pick()
+  local w = find_win(board, turn) if w then return w end
+  local bl = find_win(board, 3 - turn) if bl then return bl end
+  local emp = {}
+  for i = 1, 9 do
+    if board[i] == 0 then emp[#emp + 1] = i end
+  end
+  return emp[flr(rnd(#emp)) + 1]
+end
+-- 普通：赢 → 堵 → 中心 → 对角 → 角 → 边
+local function normal_pick()
+  local w = find_win(board, turn) if w then return w end
+  local bl = find_win(board, 3 - turn) if bl then return bl end if board[5] == 0 then return 5 end
+  local o = 3 - turn
+  for _, pr in ipairs({ { 1, 9 }, { 3, 7 } }) do
+    if board[pr[1]] == o and board[pr[2]] == 0 then return pr[2] end
+    if board[pr[2]] == o and board[pr[1]] == 0 then return pr[1] end
+  end
+  local co = {}
+  for _, i in ipairs({ 1, 3, 7, 9 }) do
+    if board[i] == 0 then co[#co + 1] = i end
+  end
+  if #co > 0 then return co[flr(rnd(#co)) + 1] end
+  local si = {}
+  for _, i in ipairs({ 2, 4, 6, 8 }) do
+    if board[i] == 0 then si[#si + 1] = i end
+  end
+  return si[flr(rnd(#si)) + 1]
+end
+-- 困难：完美 minimax（negamax + 记忆化 + 协程分帧让出预算）
+-- 值编码（视角 = 行棋方）：n 手取胜 = 10-n（越快越大）；n 手告负 = n-10
+-- （越晚越大）；平 = 0。父值 v = 1-c（子值 c>0）/ -1-c（c<0）/ 0
+local MEMO = {}
+local P4 = { 1, 4, 16, 64, 256, 1024, 4096, 16384, 65536 }
+local node_cnt = 0
+local function adj(c)
+  if c > 0 then return 1 - c elseif c < 0 then return -1 - c end
+  return 0
+end
+local function solve(b, k, mover)
+  local m = MEMO[k] if m then return m end
+  node_cnt = node_cnt + 1
+  if node_cnt >= 700 then
+    node_cnt = 0
+    coroutine.yield()  -- 分帧让出预算（每 700 节点一次）
+  end
+  local best = nil
+  for i = 1, 9 do
+    if b[i] == 0 then
+      local v
+      b[i] = mover
+      if wins_at(b, i, mover) then
+        v = 9  -- 一步取胜：最强值，直接剪断
+      else v = adj(solve(b, k + mover * P4[i], 3 - mover)) end
+      b[i] = 0
+      if not best or v > best then best = v end
+      if best == 9 then break end
+    end
+  end
+  best = best or 0  -- 无空位：平局
+  MEMO[k] = best
+  return best
+end
+local function hard_pick(b, mover)
+  local k = 0
+  for i = 1, 9 do k = k + b[i] * P4[i] end
+  local bestv, cands = -99, {}
+  for i = 1, 9 do
+    if b[i] == 0 then
+      local v
+      b[i] = mover
+      if wins_at(b, i, mover) then v = 9
+      else v = adj(solve(b, k + mover * P4[i], 3 - mover)) end
+      b[i] = 0
+      if v > bestv then
+        bestv = v
+        cands = { i }
+      elseif v == bestv then cands[#cands + 1] = i end
+    end
+  end
+  return cands[flr(rnd(#cands)) + 1]  -- 同分最优中随机取一
+end
+-- 终极启发：终胜 > 防一步终败 > 小宫攻防 > 送宫惩罚 > 位置分
+local function upick()
+  local me, opp = turn, 3 - turn
+  local targ = utarget()
+  local moves = {}
+  for b = 1, 9 do
+    if (targ == 0 or b == targ) and uw[b] == 0 then
+      for c = 1, 9 do
+        if ub[b][c] == 0 then moves[#moves + 1] = { b, c } end
+      end
+    end
+  end
+  if #moves == 0 then return nil, nil end
+  if gdiff == 1 then local m = moves[flr(rnd(#moves)) + 1]
+    return m[1], m[2]
+  end
+  local bestb, bestc, bests = moves[1][1], moves[1][2], -1e9
+  for k = 1, #moves do
+    local b, c = moves[k][1], moves[k][2]
+    local s = (gdiff == 3) and 0 or (rnd(5) - 2)
+    local oppw = find_win(ub[b], opp)  -- 对手在本宫的制胜点（落前）
+    ub[b][c] = me
+    local won = wins_at(ub[b], c, me)
+    local win_u = false if won then uw[b] = me win_u = uline_of(me) ~= nil end
+    if win_u then s = s + 100000
+    elseif won then s = s + 130
+    elseif oppw == c then s = s + 70 end
+    if not win_u then local ot = c
+      if uw[ot] ~= 0 or ub_full(ot) then ot = 0 end
+      if ot == 0 then
+        s = s - 55  -- 送对手任意选：危险
+      else
+        if find_win(ub[ot], opp) then s = s - 90 end
+        if gdiff == 3 then  -- 困难：对手可否一步终胜
+          for c2 = 1, 9 do
+            if ub[ot][c2] == 0 then ub[ot][c2] = opp
+              if wins_at(ub[ot], c2, opp) then uw[ot] = opp
+                if uline_of(opp) then s = s - 800 end
+                uw[ot] = 0
+              end
+              ub[ot][c2] = 0
+            end
+          end
+        end
+      end
+    end
+    ub[b][c] = 0
+    if won then uw[b] = 0 end
+    if b == 5 then s = s + 6
+    elseif b == 1 or b == 3 or b == 7 or b == 9 then s = s + 3 end
+    if c == 5 then s = s + 4 end
+    if s > bests then bests, bestb, bestc = s, b, c end
+  end
+  return bestb, bestc
+end
+-- ---------------------------------------------------------------- 对局调度
+local function start_think()
+  ai_think = true
+  ai_t = (gmode == 3) and 16 or 20
+  ai_mv, ai_co = nil, nil
+  if gmode == 3 then local b, c = upick()
+    if b then ai_mv = { b, c } else ai_think = false end
+  elseif gdiff == 3 then
+    node_cnt = 0
+    local b, mv = {}, turn
+    for i = 1, 9 do b[i] = board[i] end
+    ai_co = coroutine.create(function() ai_mv = hard_pick(b, mv) end)
+  else ai_mv = (gdiff == 2) and normal_pick() or simple_pick() end
+end
+local function new_game()
+  gmode, gdiff, gfirst, guopp = title.mode, title.diff, title.first, title.uopp
+  board = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  hist, ctime = {}, {}
+  turn, winner, winline, over_t = 1, nil, nil, 0
+  gx, gy = (gmode == 3) and 4 or 1, (gmode == 3) and 4 or 1  -- 经典中格 / 终极中宫中心
+  ai_think, ai_co, ai_mv, ai_reopen = false, nil, nil, false
+  ub, uw, ufl, uat, uhist = {}, {}, {}, {}, {}
+  for b = 1, 9 do ub[b] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 } uw[b], ufl[b], uat[b] = 0, false, {} end
+  unext = 0
+  ai_side = 0
+  if gmode == 2 or (gmode == 3 and guopp == 2) then ai_side = (gfirst == 1) and 2 or (gfirst == 2 and 1 or 3) end
+  if ai_side == 1 or ai_side == 3 then start_think() end
+end
+-- ---------------------------------------------------------------- 更新
+local function title_rows()
+  local rows = { { label = "模式", opts = { "双人对战", "人机对战", "终极棋局" }, key = "mode" } }
+  if title.mode == 2 then
+    rows[#rows + 1] = { label = "难度", opts = DIFF_NAME, key = "diff" }
+    rows[#rows + 1] = { label = "先手", opts = { "玩家先", "电脑先", "观战" }, key = "first" }
+  elseif title.mode == 3 then rows[#rows + 1] = { label = "对手", opts = { "双人", "人机" }, key = "uopp" }
+    if title.uopp == 2 then
+      rows[#rows + 1] = { label = "难度", opts = DIFF_NAME, key = "diff" }
+      rows[#rows + 1] = { label = "先手", opts = { "玩家先", "电脑先", "观战" }, key = "first" }
+    end
+  end
+  for k = 1, #rows do rows[k].val = title[rows[k].key] end
+  return rows
+end
+local function update_title()
+  local rows = title_rows() if sel_row > #rows then sel_row = #rows end
+  if btnp(B_U) then
+    sel_row = sel_row == 1 and #rows or sel_row - 1
+    sfx(6, CH_UI)
+  elseif btnp(B_D) then
+    sel_row = sel_row % #rows + 1
+    sfx(6, CH_UI)
+  end
+  local r = rows[sel_row]
+  if btnp(B_L) then
+    title[r.key] = (r.val == 1) and #r.opts or r.val - 1
+    sfx(6, CH_UI)
+  elseif btnp(B_R) then
+    title[r.key] = r.val % #r.opts + 1
+    sfx(6, CH_UI)
+  end
+  if btnp(B_A) or btnp(B_STA) then
+    new_game()
+    state = "play"
+    sfx(7, CH_UI)
+  elseif btnp(B_SEL) then toggle_music() end
+end
+local function clamp_ucursor()  -- 光标钳入目标宫
+  local targ = utarget()
+  if targ ~= 0 then
+    gx = flr(mid((targ - 1) % 3 * 3, gx, (targ - 1) % 3 * 3 + 2))
+    gy = flr(mid(flr((targ - 1) / 3) * 3, gy, flr((targ - 1) / 3) * 3 + 2))
+  end
+end
+-- 方向键按住重复（首帧动一格，停 12 帧后每 4 帧一格）
+local function cursor_input()
+  local lim = (gmode == 3) and 8 or 2
+  for d = 0, 3 do
+    if btn(d) then rep[d + 1] = rep[d + 1] + 1
+      if rep[d + 1] == 1 or (rep[d + 1] > 12 and (rep[d + 1] - 13) % 4 == 0) then local ox, oy = gx, gy
+        if d == B_L then gx = gx - 1
+        elseif d == B_R then gx = gx + 1
+        elseif d == B_U then gy = gy - 1
+        else gy = gy + 1 end
+        gx, gy = flr(mid(0, gx, lim)), flr(mid(0, gy, lim))
+        if gmode == 3 then clamp_ucursor() end
+        if gx ~= ox or gy ~= oy then sfx(5, CH_UI) end
+      end
+    else rep[d + 1] = 0 end
+  end
+end
+local function try_place()
+  local i = gy * 3 + gx + 1
+  if gmode == 3 then
+    local b, c = flr(gy / 3) * 3 + flr(gx / 3) + 1, flr(gy % 3 * 3 + gx % 3 + 1)
+    local targ = utarget()
+    if (targ == 0 or b == targ) and ub[b][c] == 0 then uplace(b, c)
+    else sfx(8, CH_UI)
+      return
+    end
+  elseif board[i] ~= 0 then sfx(8, CH_UI)
+    return
+  else cplace(i) end
+  if winner == nil and (ai_side == turn or ai_side == 3) then start_think() end
+end
+local function update_play()
+  if btnp(B_SEL) then toggle_music() end
+  if winner ~= nil then over_t = over_t + 1
+    if btnp(B_A) or btnp(B_STA) then
+      sfx(7, CH_UI)
+      new_game()
+    elseif btnp(B_Y) then
+      state = "title"
+      sfx(7, CH_UI)
+    end
+    return
+  end
+  if ai_think then
+    if btnp(B_B) then undo()
+      return
+    end
+    ai_t = ai_t - 1
+    if ai_co then local ok, err = coroutine.resume(ai_co)
+      if not ok then error(err) end
+      if coroutine.status(ai_co) == "dead" then ai_co = nil end
+    end
+    if ai_t <= 0 and ai_co == nil then ai_think = false
+      if gmode == 3 then uplace(ai_mv[1], ai_mv[2]) else cplace(ai_mv) end
+      if winner == nil and (ai_side == 3 or ai_side == turn) then start_think() end
+    end
+    return
+  end
+  if ai_reopen then
+    ai_reopen = false
+    start_think()
+    return
+  end
+  cursor_input()
+  if gmode == 3 then clamp_ucursor() end  -- 目标宫变化后光标自动吸附
+  if btnp(B_A) then try_place()
+  elseif btnp(B_B) then undo()
+  elseif btnp(B_STA) then
+    sfx(7, CH_UI)
+    new_game()
+  elseif btnp(B_Y) then
+    state = "title"
+    sfx(7, CH_UI)
+  end
+end
+function _update()
+  t = t + 1
+  if #bake_queue > 0 then
+    -- 每帧只烘焙一张（省单帧预算；标题期即完成，不碍观瞻）
+    local f = table.remove(bake_queue, 1)
+    f()
+    bake_done = bake_done + 1
+  end
+  if state == "title" then update_title()
+  else update_play() end
+end
+-- ---------------------------------------------------------------- 绘制
+local function draw_top()  -- 顶栏：模式 / 轮次（或思考） / 手数
+  local ult = gmode == 3
+  local h = ult and 21 or 23
+  local ty = ult and 3 or 4
+  rectfill(0, 0, 256, h, C_BG_D)
+  line(0, h, 255, h, C_BG_L)
+  print(mode_label(), 6, ty, C_TXT_M)
+  draw_stone48(turn, ult and 96 or 104, h / 2, ult and 0.32 or 0.42)
+  local lb = "行棋"
+  if winner ~= nil then lb = "终局"
+  elseif ai_think then lb = "思考中" .. string.rep(".", flr(t / 12) % 4)
+  elseif ult then lb = utarget() == 0 and "任意宫" or "指宫" end
+  if ult then  -- 目标宫指示点阵（3×3）
+    local targ = utarget()
+    for bb = 1, 9 do
+      local dx, dy = 112 + (bb - 1) % 3 * 7, 4 + flr((bb - 1) / 3) * 6
+      local c = C_BG_L
+      if uw[bb] == 1 then c = C_X1
+      elseif uw[bb] == 2 then c = C_O1
+      elseif winner == nil and targ ~= 0 and bb == targ then c = flr(t / 6) % 2 == 0 and C_YEL or C_YEL_L end
+      rectfill(dx, dy, 3, 3, c)
+    end
+  end
+  print(lb, ult and 140 or 118, ty, C_TXT)
+  local s = "第 " .. ((gmode == 3 and #uhist or #hist) + 1) .. " 手"
+  print(s, 250 - tw(s), ty, C_TXT_M)
+end
+local function draw_board_c()
+  rectfill(PX + 3, PY + 4, PS, PS, C_BG_D)
+  rrectfill(PX, PY, PS, PS, 10, C_PANEL)
+  rrect(PX, PY, PS, PS, 10, C_PANEL2)
+  fillp(0x0044)  -- 纸面细点纹
+  rectfill(PX + 6, PY + 6, PS - 12, PS - 12, C_PANEL2 * 256 + C_PANEL)
+  fillp()
+  wavy2(96, 36, 96, 220, C_INK, 0.11)   -- 手绘格线
+  wavy2(158, 36, 158, 220, C_INK, 0.37)
+  wavy2(36, 96, 220, 96, C_INK, 0.61)
+  wavy2(36, 158, 220, 158, C_INK, 0.83)
+end
+local function draw_pieces_c()
+  for i = 1, 9 do local p = board[i]
+    if p ~= 0 then
+      local age = t - (ctime[i] or 0)
+      local s = pop_scale(age)
+      local x, y = ccx(i), ccy(i)
+      if winner == 0 and over_t < 70 then
+        x = x + sin(t * 0.2 + i * 0.31) * 1.5  -- 平局小演出：迟疑地扭一扭
+      end
+      ovalfill(x, y + flr(19 * s), flr(15 * s), flr(4 * s) + 1, C_PANEL2)
+      draw_stone48(p, x, y, s)
+      if age < 10 then circ(x, y, flr(15 + age * 1.3), p == 1 and C_X2 or C_O2) end
+    end
+  end
+end
+local function draw_cursor_c()
+  local i = gy * 3 + gx + 1
+  local x, y = cxx(i), cyy(i)
+  rrect(x + 2, y + 2, CS - 4, CS - 4, 7, flr(t / 8) % 2 == 0 and C_YEL or C_YEL_L)
+  -- 幽灵棋子预览（绘制期调色映射调暗）
+  pal(C_X1, 6) pal(C_X2, 6) pal(C_X3, 5)
+  pal(C_O1, 6) pal(C_O2, 6) pal(C_O3, 5)
+  draw_stone48(turn, x + CS / 2, y + CS / 2, 0.6)
+  pal()
+end
+local function draw_win_c()  -- 连线推进 + 胜子跳动
+  local L = winline
+  local c1 = winner == 1 and C_X2 or C_O2
+  draw_beam(ccx(L[1]), ccy(L[1]), ccx(L[3]), ccy(L[3]), min(1, over_t / 16),
+    flr(t / 4) % 2 == 0 and c1 or (winner == 1 and C_X1 or C_O1))
+  for k = 1, 3 do draw_stone48(winner, ccx(L[k]), ccy(L[k]) - abs(sin(t * 0.1 + k * 0.2)) * 4, 1.05) end
+end
+local function draw_ult()
+  local targ = utarget()
+  for b = 1, 9 do
+    local bx, by = ubx(b), uby(b)
+    local decided = uw[b] ~= 0 or ufl[b]
+    rectfill(bx + 2, by + 3, US, US, C_BG_D)
+    rrectfill(bx, by, US, US, 6, uw[b] ~= 0 and C_PANEL2 or C_PANEL)
+    local oc = C_PANEL2
+    if winner == nil and not decided and (targ == 0 or targ == b) then oc = flr(t / 6) % 2 == 0 and C_YEL or C_YEL_L end
+    rrect(bx, by, US, US, 6, oc)
+    line(bx + 23, by + 4, bx + 23, by + 62, C_INK)  -- 宫内格线
+    line(bx + 43, by + 4, bx + 43, by + 62, C_INK)
+    line(bx + 4, by + 23, bx + 62, by + 23, C_INK)
+    line(bx + 4, by + 43, bx + 62, by + 43, C_INK)
+    if uw[b] ~= 0 then
+      -- 已胜宫：双色抖动覆盖 + 大棋子
+      local p = uw[b]
+      fillp(0x5A5A)
+      rectfill(bx + 1, by + 1, US - 2, US - 2, (p == 1 and C_X1 or C_O1) * 256 + C_PANEL)
+      fillp()
+      local mx, my = bx + US / 2, by + US / 2
+      if p == 1 then
+        for o = -1, 1 do
+          line(mx - 16, my - 16 + o, mx + 16, my + 16 + o, C_X3)
+          line(mx - 16, my + 16 + o, mx + 16, my - 16 + o, C_X3)
+        end
+        line(mx - 15, my - 15, mx + 15, my + 15, C_X1)
+        line(mx - 15, my + 15, mx + 15, my - 15, C_X1)
+      else
+        circ(mx, my, 17, C_O3)
+        circ(mx, my, 16, C_O1)
+        circ(mx, my, 15, C_O1)
+      end
+    else
+      for c = 1, 9 do  -- 宫内棋子
+        if ub[b][c] ~= 0 then draw_mini(ub[b][c], ucx(b, c), ucy(b, c), flr(pop_scale(t - (uat[b][c] or 0)) * 5 + 0.5)) end
+      end
+    end
+  end
+end
+local function draw_cursor_u()
+  local b = flr(gy / 3) * 3 + flr(gx / 3) + 1
+  local c = flr(gy % 3 * 3 + gx % 3 + 1)
+  local x = UX + flr(gx / 3) * (US + UG) + 3 + gx % 3 * 20
+  local y = UY + flr(gy / 3) * (US + UG) + 3 + gy % 3 * 20
+  local bad = (utarget() ~= 0 and utarget() ~= b) or ub[b][c] ~= 0
+  rect(x, y, 20, 20, bad and 59 or (flr(t / 8) % 2 == 0 and C_YEL or C_YEL_L))
+end
+local function draw_win_u()  -- 连线推进 + 胜宫闪框
+  local L = winline
+  local c1 = winner == 1 and C_X2 or C_O2
+  draw_beam(ubx(L[1]) + US / 2, uby(L[1]) + US / 2, ubx(L[3]) + US / 2, uby(L[3]) + US / 2, min(1, over_t / 18),
+    flr(t / 4) % 2 == 0 and c1 or (winner == 1 and C_X1 or C_O1))
+  for k = 1, 3 do rrect(ubx(L[k]) - 2, uby(L[k]) - 2, US + 4, US + 4, 8, flr(t / 5) % 2 == 0 and C_WHITE or c1) end
+end
+local function draw_banner()  -- 终局横幅（两种模式共用）
+  if over_t <= 22 then return end
+  local u = min(1, (over_t - 22) / 8)
+  local bw, bh = flr(180 * u), flr(70 * u)
+  local x0, y0 = flr(128 - bw / 2), 92
+  rrectfill(x0, y0, bw, bh, 8, C_BG_D)
+  local bc = winner == 0 and (flr(t / 5) % 2 == 0 and C_YEL or C_YEL_L) or (winner == 1 and C_X2 or C_O2)
+  rrect(x0, y0, bw, bh, 8, bc)
+  if u < 1 then return end
+  if winner == 0 then
+    ctext("平 局", y0 + 10, C_WHITE)
+    ctext("棋逢对手", y0 + 30, C_TXT_M)
+  else
+    draw_stone48(winner, x0 + 30, y0 + 24, 0.9)
+    print(result_msg(), x0 + 56, y0 + 16, C_WHITE)
+  end
+  ctext("Ⓐ再来一局　Ⓨ回标题", y0 + 48, C_TXT)
+end
+local function draw_hints()
+  rectfill(0, BOT_Y, 256, 256 - BOT_Y, C_BG_D)
+  line(0, BOT_Y, 255, BOT_Y, C_BG_L)
+  local st = string.format("战绩 X%d O%d 平%d", stats[1], stats[2], stats[3])
+  if gmode == 2 then st = string.format("战绩 胜%d 负%d 平%d", stats[4], stats[5], stats[6])
+  elseif gmode == 3 then st = string.format("战绩 先%d 后%d 平%d", stats[7], stats[8], stats[9]) end
+  local list
+  if winner ~= nil then list = { "Ⓐ再来一局　Ⓨ回标题" }
+  elseif ai_side == 3 then list = { "观战中　Start 重开", st, "Select 音乐" }
+  elseif gmode == 3 then list = { "Ⓐ落子　Ⓑ悔棋　Start重开", "Ⓨ回标题　Select音乐", "落子入对应宫　被占则任选", st }
+  else list = { "Ⓐ落子　Ⓑ悔棋　Start重开", "Ⓨ回标题　Select音乐", st } end
+  local s = list[flr(t / 150) % #list + 1]
+  print(s, flr((256 - tw(s)) / 2), 242, C_TXT_M)
+end
+local function draw_title()
+  cls(C_BG)
+  fillp(0x0055)
+  rectfill(0, 0, 256, 256, C_BG_L * 256 + C_BG)
+  fillp()
+  for k = 1, 2 do  -- 背景淡宫格
+    local p = 85 + (k - 1) * 85
+    line(p, 0, p, 256, 14)
+    line(0, p, 256, p, 14)
+  end
+  if bake_done >= 4 then  -- 浮动大棋子（烘焙完成前不画）
+    local bob1 = sin(t * 0.019) * 3
+    local bob2 = sin(t * 0.023 + 0.4) * 3
+    sspr(0, 256, 48, 48, 16, flr(56 + bob1), 64, 64)
+    sspr(64, 256, 48, 48, 176, flr(148 + bob2), 64, 64)
+    sspr(0, 256, 48, 48, 206, flr(30 - bob2), 34, 34)
+    sspr(64, 256, 48, 48, 18, flr(196 - bob1), 34, 34)
+  end
+  local s = "井字棋"  -- 厚描边大字
+  local tx = flr((256 - tw(s)) / 2)
+  for k = 0, 7 do local a = k * 0.125 print(s, tx + flr(cos(a) + 0.5), 26 + flr(sin(a) + 0.5), C_BG_D) end
+  print(s, tx, 26, C_YEL_L)
+  ctext("TIC・TAC・TOE", 50, C_TXT_M)
+  local rows = title_rows()  -- 菜单面板（行数随模式动态变化）
+  if sel_row > #rows then sel_row = #rows end
+  local ph = #rows * 26 + 14
+  rrectfill(38, 68, 180, ph, 8, C_BG_D)
+  rrect(38, 68, 180, ph, 8, C_BG_L)
+  for k = 1, #rows do
+    local r = rows[k]
+    local y = 76 + (k - 1) * 26
+    local sel = sel_row == k if sel and flr(t / 10) % 2 == 0 then print("▶", 44, y + 2, C_YEL_L) end
+    print(r.label, 58, y + 2, sel and C_WHITE or C_TXT_M)
+    rrect(112, y - 1, 92, 18, 4, sel and C_YEL or C_BG_L)
+    local vs = r.opts[r.val]
+    print(vs, flr(158 - tw(vs) / 2), y + 2, sel and C_WHITE or C_TXT)
+  end
+  local y0 = 68 + ph + 10  -- 战绩面板
+  rrectfill(38, y0, 180, 62, 6, C_BG_D)
+  rrect(38, y0, 180, 62, 6, C_BG_L)
+  ctext(string.format("双人　X%d　O%d　平%d", stats[1], stats[2], stats[3]), y0 + 6, C_TXT)
+  ctext(string.format("人机　胜%d　负%d　平%d", stats[4], stats[5], stats[6]), y0 + 24, C_TXT)
+  ctext(string.format("终极　先%d　后%d　平%d", stats[7], stats[8], stats[9]), y0 + 42, C_TXT)
+  rectfill(0, BOT_Y, 256, 256 - BOT_Y, C_BG_D)
+  line(0, BOT_Y, 255, BOT_Y, C_BG_L)
+  local hs = "⬅➡调整　⬆⬇选行　Ⓐ开始"
+  print(hs, flr((256 - tw(hs)) / 2), 242, C_TXT_M)
+end
+function _draw()
+  pal()  -- 复位两级映射（幽灵棋子的绘制期映射每帧局部设置）
+  if state == "title" then draw_title()
+    return
+  end
+  cls(C_BG)
+  local human_turn = not ai_think and ai_side ~= 3 and ai_side ~= turn
+  local showdown = winner ~= nil and winner ~= 0  -- 有胜方才有连线演出
+  draw_top()
+  if gmode == 3 then draw_ult()
+    if showdown then draw_win_u()
+    elseif human_turn then draw_cursor_u() end
+  else
+    draw_board_c()
+    draw_pieces_c()
+    if showdown then draw_win_c()
+    elseif human_turn then draw_cursor_c() end
+  end
+  draw_banner()
+  draw_hints()
+end
+-- ---------------------------------------------------------------- 初始化
+function _init()
+  -- 棋子烘焙分四帧执行（瓦片 (0..2,16..18)=X / (4..6,16..18)=O）
+  bake_queue[1] = function() bake_x(0, 256, 48, 0, 23) end
+  bake_queue[2] = function() bake_x(0, 256, 48, 24, 47) end
+  bake_queue[3] = function() bake_o(64, 256, 48, 0, 23) end
+  bake_queue[4] = function() bake_o(64, 256, 48, 24, 47) end
+  init_all_sfx()
+  for i = 1, 9 do
+    stats[i] = flr(dget(i - 1))  -- dget 返回定点数，转整数计数
+  end
+  music_on = dget(9) == 0
+  if music_on then music(0, 400, 0x30) end  -- ch4-5 交给音乐
+  t = 0
+  state = "title"
+  sel_row = 1
+  new_game()
+end

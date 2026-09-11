@@ -1,0 +1,1690 @@
+-- 暗夜幸存者（FC-16）
+-- 吸血鬼幸存者式割草生存：无限墓园地图，武器自动出击，收集经验结晶升级
+--
+-- 操作：WASD 移动 / 武器全自动 / 升级选卡 ←→ + J / Start 暂停
+-- 目标：活过 10 分钟，见到黎明（死神将在 10:00 降临）
+-- 纯 Lua 卡带：精灵表与地图在 _init 程序化生成（sset / poke2），音频 poke 写入（§5.2）
+
+function u8(a, v) poke(a, v % 256) end
+
+-- ---------------------------------------------------------------- 音频合成器
+
+-- 写一条 SFX（SPEC §5.2 v0.31：每条 112B = 头 16B + 32 步 × 3B）
+-- notes: 音高表（1–96 = MIDI 12–107）；wave 0–13 固件音色 / 14–15 噪声
+function init_sfx(id, notes, wave, vol, spd, lps)
+  local base = 0x060000 + id * 112
+  u8(base, spd or 2)      -- 速度：每步帧数
+  u8(base + 1, #notes) -- 有效步数
+  if lps then u8(base + 2, lps) u8(base + 3, #notes) u8(base + 4, 1) end
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    if i < #notes then
+      u8(a, notes[i + 1])
+      u8(a + 1, wave * 16 + vol)
+      u8(a + 2, 0)
+    else
+      u8(a, 0) u8(a + 1, 0)
+    end
+  end
+end
+
+-- BGM：A 和声小调暗黑乐句。两条 SFX 各自按 speed/length 播放，
+-- 控制声部完成后重触发 Pattern（Am F G E 安达卢西亚进行）
+function init_music()
+  init_sfx(4, {22,34,22,34, 18,30,18,30, 20,32,20,32, 17,29,17,29}, 11, 12, 8) -- BASS
+  init_sfx(5, {46,49,53,49, 42,46,49,46, 44,48,51,48, 41,45,44,41}, 0, 8, 8) -- TRIANGLE
+  local mb = 0x063800
+  u8(mb + 4, 5) u8(mb + 5, 6)
+  u8(mb + 8, 3)
+end
+
+-- ---------------------------------------------------------------- 位图精灵
+
+-- 字符 → ENDESGA-64 的 FC-16 固定索引（SPEC §2.2）；'.' 不写 = 透明色 0
+PIX = {
+  K = 0,  -- 纯黑实色
+  k = 2,  -- 近黑
+  G = 3,  -- 暗灰
+  g = 6,  -- 亮灰
+  w = 7,  -- 白
+  W = 37, -- 暗青绿（草底暗斑）
+  ["3"] = 36, -- 深绿（草底）
+  R = 62, -- 暗红
+  r = 60, -- 亮红
+  o = 58, -- 浅红
+  M = 16, -- 深棕
+  m = 19, -- 棕
+  y = 30, -- 黄
+  E = 36, -- 深绿
+  e = 34, -- GB 亮绿
+  n = 35, -- 鲜绿
+  D = 39, -- 暗蓝
+  B = 41, -- 蓝
+  b = 42, -- 亮蓝
+  c = 43, -- 青
+  P = 53, -- 紫
+  p = 55, -- 亮紫
+}
+
+-- 把字符位图画到精灵表瓦片 t（0–1023）
+function draw_bitmap(t, rows)
+  local bx, by = (t % 16) * 16, flr(t / 16) * 16
+  for y = 0, #rows - 1 do
+    local row = rows[y + 1]
+    for x = 0, #row - 1 do
+      local c = PIX[string.sub(row, x + 1, x + 1)]
+      if c then sset(bx + x, by + y, c) end
+    end
+  end
+end
+
+-- 精灵位图（16×16，程序化烘焙进精灵表）
+BMP_HERO = {
+  "................",
+  ".....DDDDDD.....",
+  ".....D....D.....",
+  "...DDDDDDDDDD...",
+  "..DDDDDDDDDDDD..",
+  "...wwwwwwwwww...",
+  "...wKwwwwwwKw...",
+  "...wwwwwwwwww...",
+  "....rrrrrrrr....",
+  "...rrrrrrrrrr...",
+  "....BBBBBBBB....",
+  "...BBDBBBBDBB...",
+  "..BBBBBBBBBBBB..",
+  "..BBB.BBBB.BBB..",
+  "...KK..BB..KK...",
+  "................",
+}
+BMP_BAT1 = {
+  "................",
+  "................",
+  "................",
+  ".pp..........pp.",
+  ".ppp........ppp.",
+  ".pppp......pppp.",
+  ".ppppP.....Pppp.",
+  "..pppppPPppppp..",
+  "...ppPyyPPppp...",
+  "....pppppppp....",
+".....p....p.....",
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+}
+BMP_BAT2 = {
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+  "......p..p......",
+  "......pppp......",
+  ".pp...pppp...pp.",
+  ".pppppPyyPpppp..",
+  "..ppppppppppp...",
+  "....pp....pp....",
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+}
+BMP_ZOMB = {
+  "................",
+  "................",
+  ".....eeeeee.....",
+  "....eeeeeeee....",
+  "....eKreeeKr....",
+  "....eeeeeeee....",
+  ".....eKeeKe.....",
+  "....eeeeeeee....",
+  "...ee.eeee.ee...",
+  "...ee.eeee.ee...",
+  "....e.eeee.e....",
+  "......eeee......",
+  ".....ee..ee.....",
+  ".....E....E.....",
+  "................",
+  "................",
+}
+BMP_SKEL = {
+  "................",
+  "................",
+  ".....wwwwww.....",
+  "....wwwwwwww....",
+  "....wKwwwwKw....",
+  "....wwwwwwww....",
+  ".....wKwwKw.....",
+  ".....wwwwww.....",
+  "......w..w......",
+  "...w.wwwwww.w...",
+  "..ww.wwwwww.ww..",
+  "..w..wKwwKw..w..",
+  ".....wwwwww.....",
+  "......ww.ww.....",
+  ".....ww...ww....",
+  "................",
+}
+BMP_GHOST = {
+  "................",
+  "................",
+  ".....gggggg.....",
+  "...gggggggggg...",
+  "..gggggggggggg..",
+  "..ggKggggggKgg..",
+  "..gggggggggggg..",
+  "..gggKggggKggg..",
+  "..gggggggggggg..",
+  "..gggggggggggg..",
+  "..gggggggggggg..",
+  "..gg.gg.gg.gg...",
+  "..g...g...g.....",
+  "................",
+  "................",
+  "................",
+}
+-- 恶魔精英 32×32（瓦片 6,7,22,23 组成 2×2）
+BMP_DEMON = {
+  "................................",
+  "...ww......................ww...",
+  "...www....................www...",
+  "....www..................www....",
+  ".....www................www.....",
+  "......ww................ww......",
+  ".......RRRRRRRRRRRRRRRR.........",
+  "......RRRRRRRRRRRRRRRRRR........",
+  ".....RRRrrrrrrrrrrrrrrRRR.......",
+  "....RRRRRRRRRRRRRRRRRRRRRR......",
+  "...RRRRRRRRRRRRRRRRRRRRRRRR.....",
+  "..RRRRRRyyRRRRRRRRyyRRRRRRR.....",
+  "..RRRRRRyyRRRRRRRRyyRRRRRRR.....",
+  "..RRRRRRRRRRRRRRRRRRRRRRRRR.....",
+  "..RRRRRRKRRRRRRRRRRKRRRRRRR.....",
+  "..RRRRRRKKRRRRRRRRKKRRRRRRR.....",
+  "..RRRRRRRRRRRRRRRRRRRRRRRRR.....",
+  "..RRRRRwwKwwwwwwwwKwwRRRRRR.....",
+  "..RRRRRwKKRRRRRRRRKKwRRRRRR.....",
+  "..RRRRRRRRRRRRRRRRRRRRRRRRR.....",
+  "...RRRRRRRRRRRRRRRRRRRRRRR......",
+  "...RRRRRRRRRRRRRRRRRRRRRRR......",
+  "....RRRRRRRRRRRRRRRRRRRRR.......",
+  ".....RRRRRRRRRRRRRRRRRRR........",
+  "......RRRRRRRRRRRRRRRRR.........",
+  ".......RRRRRRRRRRRRRRR..........",
+  "........RRRRRRRRRRRRR...........",
+  ".........RRRRRRRRRRR............",
+  "..........RRRRRRRRR.............",
+  ".........wwRRRRRRRww............",
+  ".........ww........ww...........",
+  "................................",}
+-- 死神 32×32（瓦片 8,9,24,25 组成 2×2）
+BMP_DEATH = {
+  "................................",
+  "..............kkkkk.............",
+  ".............kkkkkkk............",
+  "............kkkkkkkkk...........",
+  "............kkkkkkkkk...........",
+  "............kwwwwwwwk...........",
+  "............kwKKwwwKwk..........",
+  "............kwwwwwwwwk..........",
+  "............kwwKKwwwwk..........",
+  ".............kwwwwwwk...........",
+  "............kkkkkkkkk...........",
+  "...........kkkkkkkkkkk..........",
+  "..........kkkkkkkkkkkk..........",
+  ".........kkkkkkkkkkkkkk.........",
+  "........kkkkkkkkkkkkkkkk........",
+  ".......kkkkkkkkkkkkkkkkkk.......",
+  "......kkkkkkkkkkkkkkkkkkkk......",
+  ".....kkkkkkkkkkkkkkkkkkkkkk.....",
+  "....kkkkkkkkkkkkkkkkkkkkkkkk....",
+  "...kkkkkkkkkkkkkkkkkkkkkkkkkk...",
+  "..kkkkkkkkkkkkkkkkkkkkkkkkkkkk..",
+  "..kkkkkkkkkkkkkkkkkkkkkkkkkkkk..",
+  ".kkkkkkkkkkkkkkkkkkkkkkkkkkkkk..",
+  ".kkkkkkkkkkkkkkkkkkkkkkkkkkkk...",
+  ".kkkkkkkkkkkkkkkkkkkkkkkkkkk....",
+  ".kkkkkkkkkkkkkkkkkkkkkkkkkk.....",
+  ".kkkkkkkkkkkkkkkkkkkkkkkkk......",
+  ".kkkkkkkkkkkkkkkkkkkkkkkk.......",
+  "..kkkkkkkkkkkkkkkkkkkkkk........",
+  "...kkkk.kkkkkk.kkkkkk...........",
+  "....................mm..........",
+  "................................",}
+-- 地图装饰瓦片（tile 16 起）
+BMP_T_GRASS = {
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+BMP_T_WEED = {
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333W33333333",
+  "333333WWW3333333",
+  "33333WWWW3333333",
+  "333333WWW3333W33",
+  "3333W3WWW3333333",
+  "3333333W33333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+BMP_T_SPROUT = {
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "33333e3333333333",
+  "33333e3333333333",
+  "3333333333333333",
+  "3333333333e33333",
+  "33333333333e3333",
+  "3333333333e33333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+BMP_T_FLW_Y = {
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333y33333333333",
+  "333yyy3333333333",
+  "3333y333333e3333",
+  "3333e333333e3333",
+  "3333e3333e333333",
+  "333333333e333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+BMP_T_FLW_R = {
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333r33333",
+  "333333333rrr3333",
+  "3333r33333r33333",
+  "3333e33333333333",
+  "3333e33333333333",
+  "33333e3333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+BMP_T_STONE = {
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "333333GGG3333333",
+  "33333GGGGG333333",
+  "33333GGgGG333333",
+  "33333GGGGGG33333",
+  "333333GGGG333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+BMP_T_BONE = {
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333ww3333333333",
+  "33333333ww333333",
+  "3333333ww3333333",
+  "3333333333333333",
+  "3333w33333333333",
+  "3333w33333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+BMP_T_GRAVE = {
+  "3333333333333333",
+  "3333333333333333",
+  "333333GGGG333333",
+  "333333GGGG333333",
+  "333333GKKG333333",
+  "333333GGGG333333",
+  "333333GKKG333333",
+  "333333GGGG333333",
+  "333333GGGG333333",
+  "333333GGGG333333",
+  "33333EGGGGE33333",
+  "3333EEEggEEE3333",
+  "3333EEEEEEEE3333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+BMP_T_TREE = {
+  "3333333333333333",
+  "33333m3333333333",
+  "33333mmm3333333m",
+  "33333mMmm33333mm",
+  "333333mMmmmmmmmm",
+  "3333333mmMMMMM33",
+  "3333333mMM333333",
+  "333333mMMM333333",
+  "3333333MMm333333",
+  "3333333mMM333333",
+  "3333333MMm333333",
+  "33333333MM333333",
+  "33333333MM333333",
+  "3333333MMMM33333",
+  "333333MMMMMM3333",
+  "3333333333333333",
+}
+BMP_T_BUSH = {
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333EEE333333",
+  "33333EEEEEE33333",
+  "333EEEEEEEEEE333",
+  "33EEEEeEEEEEEE33",
+  "33EEeEEEEEEEEE33",
+  "333EEEEEEEEEE333",
+  "3333EEEEEEEE3333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+  "3333333333333333",
+}
+
+-- ---------------------------------------------------------------- 数据表
+
+-- 武器：每级参数表（dmg 伤害 / cd 冷却帧 / n 数量 / r 半径）
+W = {
+  magic = {
+    name = "魔力飞弹", d1 = "魔弹追踪", d2 = "最近之敌",
+    lv = { { n = 1, dmg = 8, cd = 50 }, { n = 1, dmg = 12, cd = 46 },
+           { n = 2, dmg = 12, cd = 46 }, { n = 2, dmg = 17, cd = 40 },
+           { n = 3, dmg = 22, cd = 36 } },
+  },
+  cross = {
+    name = "十字回旋", d1 = "掷出十字", d2 = "穿透敌阵",
+    lv = { { n = 1, dmg = 10 }, { n = 1, dmg = 14 }, { n = 2, dmg = 14 },
+           { n = 2, dmg = 19 }, { n = 3, dmg = 24 } },
+    cd = 110,
+  },
+  bible = {
+    name = "圣光经书", d1 = "圣书环绕", d2 = "护体结界",
+    lv = { { n = 1, dmg = 8, r = 32 }, { n = 2, dmg = 8, r = 32 },
+           { n = 2, dmg = 13, r = 38 }, { n = 3, dmg = 13, r = 38 },
+           { n = 4, dmg = 18, r = 44 } },
+  },
+  bolt = {
+    name = "天罚惊雷", d1 = "天雷落下", d2 = "随机轰击",
+    lv = { { n = 1, dmg = 24, cd = 130 }, { n = 2, dmg = 24, cd = 130 },
+           { n = 2, dmg = 34, cd = 115 }, { n = 3, dmg = 34, cd = 115 },
+           { n = 4, dmg = 46, cd = 100 } },
+  },
+  aura = {
+    name = "血色领域", d1 = "猩红结界", d2 = "持续灼烧",
+    lv = { { r = 26, dmg = 4 }, { r = 34, dmg = 4 }, { r = 34, dmg = 7 },
+           { r = 42, dmg = 7 }, { r = 50, dmg = 11 } },
+    tick = 26,
+  },
+}
+WORDER = { "magic", "cross", "bible", "bolt", "aura" }
+
+-- 被动圣物
+P = {
+  boots = { name = "疾风之靴", max = 3, d1 = "身轻如燕", d2 = "移动加速" },
+  heart = { name = "生命之心", max = 3, d1 = "心之容器", d2 = "生命上限" },
+  power = { name = "力量之手", max = 3, d1 = "力量灌注", d2 = "伤害提升" },
+  hour = { name = "时之沙漏", max = 3, d1 = "光阴倒转", d2 = "冷却缩短" },
+  mag = { name = "拾荒磁石", max = 2, d1 = "磁力全开", d2 = "范围提升" },
+}
+PORDER = { "boots", "heart", "power", "hour", "mag" }
+
+-- 敌人基础数据：hp / 速度 / 碰撞半径 / 经验 / 触碰伤害 / 精灵 / 受击闪主色
+E = {
+  bat =  { hp = 8, sp = 0.85, r = 6, xp = 1, dmg = 6, bmp = 2, flash = 55, frames = 2 },
+  zomb = { hp = 20, sp = 0.55, r = 7, xp = 2, dmg = 10, bmp = 3, flash = 34, frames = 1 },
+  skel = { hp = 32, sp = 0.75, r = 7, xp = 3, dmg = 12, bmp = 4, flash = 7, frames = 1 },
+  ghost = { hp = 46, sp = 0.95, r = 7, xp = 4, dmg = 14, bmp = 5, flash = 6, frames = 1 },
+  demon = { hp = 320, sp = 0.4, r = 15, xp = 30, dmg = 25, bmp = 6, flash = 60, frames = 1, big = true },
+  death = { hp = 999999, sp = 1.45, r = 14, xp = 0, dmg = 999, bmp = 8, flash = 2, frames = 1, big = true },
+}
+
+-- 精英出现时刻（秒）
+ELITES = { 120, 240, 360, 480 }
+DEATH_TIME = 600 -- 死神降临（10 分钟）
+
+-- ---------------------------------------------------------------- 全局状态
+
+state = "title" -- title | play | levelup | pause | over
+t = 0           -- 全局帧（标题动画等）
+gt = 0          -- 本局游戏帧
+player = nil
+cam = { x = 0, y = 0 }
+foes, gems, picks, parts, shards, crosses, bolts = {}, {}, {}, {}, {}, {}, {}
+weapons, passives = {}, {}
+kill, pending_lv, choices, choice_sel = 0, 0, {}, 1
+inv_flash, shake, banner_txt, banner_t, banner_c = 0, 0, "", 0, 7
+elites_done, death_come, over_t, new_best, final_time = 0, false, 0, false, 0
+best_t = 0
+
+-- ---------------------------------------------------------------- 初始化
+
+function build_sprites()
+  draw_bitmap(1, BMP_HERO)
+  draw_bitmap(2, BMP_BAT1) draw_bitmap(2 + 16, BMP_BAT2)
+  draw_bitmap(3, BMP_ZOMB)
+  draw_bitmap(4, BMP_SKEL)
+  draw_bitmap(5, BMP_GHOST)
+  draw_bitmap(6, BMP_DEMON)
+  draw_bitmap(8, BMP_DEATH)
+  -- 地图装饰瓦片 16–24
+  draw_bitmap(16, BMP_T_GRASS)
+  draw_bitmap(17, BMP_T_WEED)
+  draw_bitmap(18, BMP_T_SPROUT)
+  draw_bitmap(19, BMP_T_FLW_Y)
+  draw_bitmap(20, BMP_T_FLW_R)
+  draw_bitmap(21, BMP_T_STONE)
+  draw_bitmap(22, BMP_T_BONE)
+  draw_bitmap(23, BMP_T_GRAVE)
+  draw_bitmap(24, BMP_T_TREE)
+  draw_bitmap(25, BMP_T_BUSH)
+end
+
+-- 无限墓园：地图坐标按 256 取模（4096px 周期平铺），铺满一版即可
+function build_map()
+  local MAPBASE = 0x040000
+  local deco = { { 17, 0.05 }, { 18, 0.04 }, { 19, 0.012 }, { 20, 0.012 },
+                 { 21, 0.02 }, { 22, 0.008 }, { 25, 0.025 }, { 23, 0.0035 }, { 24, 0.0035 } }
+  for y = 0, 255 do
+    local row = MAPBASE + y * 512
+    for x = 0, 255 do
+      local tile = 16
+      local r = rnd()
+      local acc = 0
+      for i = 1, #deco do
+        acc = acc + deco[i][2]
+        if r < acc then tile = deco[i][1] break end
+      end
+      poke2(row + x * 2, tile)
+    end
+  end
+end
+
+function new_game()
+  gt, kill, pending_lv = 0, 0, 0
+  spawn_t = 0
+  foes, gems, picks, parts, shards, crosses, bolts = {}, {}, {}, {}, {}, {}, {}
+  weapons = { { id = "magic", lv = 1, cd = 20 } }
+  passives = { boots = 0, heart = 0, power = 0, hour = 0, mag = 0 }
+  player = {
+    x = 0, y = 0, hp = 100, maxhp = 100, face = 1, inv = 0, walk = 0,
+    xp = 0, lv = 1, next = xp_need(1),
+  }
+  cam = { x = player.x - 120, y = player.y - 120 }
+  elites_done, death_come = 0, false
+  banner("活过 10 分钟", 7, 150)
+end
+
+function banner(s, c, n)
+  banner_txt, banner_c, banner_t = s, c or 7, n or 120
+end
+
+function _init()
+  srand(20250828)
+  build_sprites()
+  build_map()
+  -- 音效：0 飞弹 1 敌死 2 受伤 3 宝石 4 升级 5 确认 6 回血 7 雷击 8 警报 9 结束 10 回旋镖 11 磁铁
+  init_sfx(0, { 70, 82 }, 4, 6)
+  init_sfx(1, { 40, 30, 18 }, 15, 12)
+  init_sfx(2, { 36, 28, 20 }, 3, 14)
+  init_sfx(3, { 80, 87 }, 4, 6)
+  init_sfx(4, { 58, 65, 70, 77 }, 5, 10)
+  init_sfx(5, { 72, 79 }, 5, 9)
+  init_sfx(6, { 50, 57, 62 }, 4, 10)
+  init_sfx(7, { 60, 45, 30 }, 15, 14)
+  init_sfx(8, { 25, 20, 25, 20 }, 3, 13)
+  init_sfx(9, { 60, 53, 46, 40, 34, 28 }, 4, 12, 4)
+  init_sfx(10, { 55, 67 }, 5, 7)
+  init_sfx(11, { 46, 58, 70, 82 }, 4, 9)
+  init_music()
+  best_t = dget(0)
+  new_game()
+  state = "title"
+end
+
+-- ---------------------------------------------------------------- 数值与工具
+
+function wdef(id) return W[id] end
+
+function weapon_lv(id)
+  for i = 1, #weapons do
+    if weapons[i].id == id then return weapons[i].lv end
+  end
+  return 0
+end
+
+-- 被动效果系数
+function dmg_mul() return 1 + 0.15 * passives.power end
+function cd_mul() return 1 - 0.10 * passives.hour end
+function move_sp() return 1.3 * (1 + 0.12 * passives.boots) end
+function pick_r() return 38 * (1 + 0.35 * passives.mag) end
+
+function dist2(ax, ay, bx, by)
+  local dx, dy = ax - bx, ay - by
+  return dx * dx + dy * dy
+end
+
+function clock_str(sec)
+  return string.format("%d:%02d", flr(sec / 60), flr(sec) % 60)
+end
+
+function dtext(s, x, y, c)
+  print(s, x + 1, y + 1, 0)
+  print(s, x, y, c)
+end
+
+function boom(x, y, c, n)
+  for i = 1, n do
+    local a = i / n + rnd(0.1)
+    local sp = 0.5 + rnd(1, 3)
+    parts[#parts + 1] = { x = x, y = y, vx = cos(a) * sp, vy = sin(a) * sp,
+                          life = 12 + flr(rnd(1, 10)), c = c }
+  end
+end
+
+-- ---------------------------------------------------------------- 敌人
+
+-- 时间轴难度：分钟 m
+function diff_min() return gt / 3600 end
+
+function spawn_pool(m)
+  if m < 0.75 then return { "bat" } end
+  if m < 1.5 then return { "bat", "bat", "zomb" } end
+  if m < 2.5 then return { "bat", "zomb", "zomb", "skel" } end
+  if m < 4 then return { "bat", "zomb", "skel", "skel", "ghost" } end
+  return { "zomb", "skel", "skel", "ghost", "ghost" }
+end
+
+function spawn_foe(kind, ang, dist)
+  local d = E[kind]
+  local m = diff_min()
+  local a = ang or rnd(1)
+  local r = dist or rnd(190, 220)
+  local hp = d.hp
+  if not d.big then hp = hp * (1 + m * 0.5) end
+  foes[#foes + 1] = {
+    kind = kind, x = player.x + cos(a) * r, y = player.y + sin(a) * r,
+    hp = hp, maxhp = hp, kx = 0, ky = 0, flash = 0, ihit = 0,
+  }
+end
+
+function update_spawns()
+  local m = diff_min()
+  -- 常规刷怪
+  if not spawn_t then spawn_t = 0 end
+  spawn_t = spawn_t - 1
+  local alive_max = min(150, 40 + m * 12)
+  if spawn_t <= 0 and #foes < alive_max then
+    local gap = max(14, (m < 1 and 75 or 60) - m * 8)
+    spawn_t = gap
+    local count = min(4, 1 + flr(m / 1.2))
+    local pool = spawn_pool(m)
+    for i = 1, count do
+      if #foes < alive_max then spawn_foe(pool[flr(rnd(#pool)) + 1]) end
+    end
+  end
+  -- 精英恶魔
+  while elites_done < #ELITES and gt >= ELITES[elites_done + 1] * 60 do
+    elites_done = elites_done + 1
+    spawn_foe("demon")
+    foes[#foes].hp = foes[#foes].hp * (1 + elites_done * 0.5)
+    foes[#foes].maxhp = foes[#foes].hp
+    banner("恶魔领主 出现！", 11, 150)
+    sfx(8, 1)
+    shake = 10
+  end
+  -- 死神降临
+  if not death_come and gt >= DEATH_TIME * 60 then
+    death_come = true
+    spawn_foe("death", rnd(1), 230)
+    banner("死亡降临！", 11, 240)
+    music(-1)
+    sfx(8, 2)
+    sfx(8, 3)
+    shake = 20
+  end
+end
+
+function update_foes()
+  local px, py = player.x, player.y
+  for i = #foes, 1, -1 do
+    local f = foes[i]
+    local d = E[f.kind]
+    local a = atan2(px - f.x, py - f.y)
+    local sp = d.sp * min(1.6, 1 + diff_min() * 0.04)
+    f.x = f.x + cos(a) * sp + f.kx
+    f.y = f.y + sin(a) * sp + f.ky
+    f.kx = f.kx * 0.85
+    f.ky = f.ky * 0.85
+    if f.flash > 0 then f.flash = f.flash - 1 end
+    if f.ihit > 0 then f.ihit = f.ihit - 1 end
+    -- 触碰玩家（伤害频率由玩家无敌帧限制）
+    local rr = d.r + 4
+    if dist2(f.x, f.y, px, py) < rr * rr then
+      hurt_player(d.dmg)
+      if state ~= "play" then return end
+    end
+  end
+end
+
+function damage_foe(f, idx, dmg, kx, ky)
+  f.hp = f.hp - dmg
+  f.flash = 4
+  f.kx = f.kx + (kx or 0)
+  f.ky = f.ky + (ky or 0)
+  if f.hp <= 0 then
+    local d = E[f.kind]
+    table.remove(foes, idx)
+    kill = kill + 1
+    boom(f.x, f.y, d.big and 11 or 34, d.big and 16 or 6)
+    if f.kind == "death" then
+      -- 死神不可战胜（保险分支）
+      spawn_foe("death", rnd(1), 240)
+      return
+    end
+    sfx(1)
+    -- 经验结晶
+    add_gem(f.x, f.y, d.xp)
+    -- 掉落
+    local roll = rnd(1, 100)
+    if d.big then
+      picks[#picks + 1] = { x = f.x - 10, y = f.y, kind = "meat" }
+      picks[#picks + 1] = { x = f.x + 10, y = f.y, kind = "mag" }
+      sfx(11)
+    else
+      if roll <= 0.4 then
+        picks[#picks + 1] = { x = f.x, y = f.y, kind = "meat" }
+      elseif roll <= 0.65 then
+        picks[#picks + 1] = { x = f.x, y = f.y, kind = "mag" }
+      end
+    end
+    -- 血色领域：击杀吸血
+    if weapon_lv("aura") > 0 and player.hp < player.maxhp then
+      player.hp = min(player.maxhp, player.hp + 1)
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 玩家
+
+function hurt_player(dmg)
+  if player.inv > 0 or state ~= "play" then return end
+  player.hp = player.hp - dmg
+  player.inv = 50
+  inv_flash = 8
+  shake = max(shake, 6)
+  sfx(2)
+  boom(player.x, player.y, 11, 8)
+  if player.hp <= 0 then
+    player.hp = 0
+    final_time = gt / 60
+    new_best = final_time > best_t
+    if new_best then
+      best_t = final_time
+      dset(0, best_t)
+      dset(1, kill)
+      fflush()
+    end
+    state = "over"
+    over_t = 0
+    music(-1)
+    sfx(9)
+  end
+end
+
+function update_player()
+  local dx, dy = 0, 0
+  if btn(0) then dx = dx - 1 end
+  if btn(1) then dx = dx + 1 end
+  if btn(2) then dy = dy - 1 end
+  if btn(3) then dy = dy + 1 end
+  local l = sqrt(dx * dx + dy * dy)
+  if l > 0 then
+    local sp = move_sp()
+    player.x = player.x + dx / l * sp
+    player.y = player.y + dy / l * sp
+    if dx ~= 0 then player.face = sgn(dx) end
+    player.walk = player.walk + 0.14
+  else
+    player.walk = 0
+  end
+  if player.inv > 0 then player.inv = player.inv - 1 end
+  -- 摄像机平滑跟随
+  cam.x = cam.x + (player.x - 120 - cam.x) * 0.18
+  cam.y = cam.y + (player.y - 120 - cam.y) * 0.18
+end
+
+-- ---------------------------------------------------------------- 武器
+
+function nearest_foe(x, y, maxd)
+  local best, bd = nil, (maxd or 150) * (maxd or 150)
+  for i = 1, #foes do
+    local f = foes[i]
+    local d2 = dist2(f.x, f.y, x, y)
+    if d2 < bd then bd, best = d2, i end
+  end
+  return best
+end
+
+function update_weapons()
+  local dm = dmg_mul()
+  local cm = cd_mul()
+  -- 魔力飞弹：锁定最近敌人
+  local w = find_weapon("magic")
+  if w then
+    w.cd = w.cd - 1
+    if w.cd <= 0 then
+      local p = wdef("magic").lv[w.lv]
+      w.cd = p.cd * cm
+      local ti = nearest_foe(player.x, player.y, 160)
+      if ti then
+        local tf = foes[ti]
+        local a = atan2(tf.x - player.x, tf.y - player.y)
+        for j = 1, p.n do
+          local ja = a + (j - (p.n + 1) / 2) * 0.06
+          shards[#shards + 1] = { x = player.x, y = player.y,
+            vx = cos(ja) * 4, vy = sin(ja) * 4, life = 80, dmg = p.dmg }
+        end
+        sfx(0)
+      end
+    end
+  end
+  -- 十字回旋
+  w = find_weapon("cross")
+  if w then
+    w.cd = w.cd - 1
+    if w.cd <= 0 then
+      local p = wdef("cross").lv[w.lv]
+      w.cd = wdef("cross").cd * cm
+      for j = 1, p.n do
+        local a
+        if p.n == 1 then
+          a = player.face == 1 and 0 or 0.5
+        else
+          a = (j - 1) / p.n -- 多枚均分圆周
+        end
+        local ti = nearest_foe(player.x, player.y, 120)
+        if ti and j == 1 then a = atan2(foes[ti].x - player.x, foes[ti].y - player.y) end
+        crosses[#crosses + 1] = { x = player.x, y = player.y, vx = cos(a) * 3.4,
+          vy = sin(a) * 3.4, ret = 34, rot = 0, dmg = p.dmg }
+      end
+      sfx(10)
+    end
+  end
+  -- 圣光经书：常驻环绕，直接按角度结算命中
+  w = find_weapon("bible")
+  if w then
+    local p = wdef("bible").lv[w.lv]
+    w.ang = (w.ang or 0) + 0.006
+    for j = 1, p.n do
+      local a = w.ang + (j - 1) / p.n
+      local bx = player.x + cos(a) * p.r
+      local by = player.y + sin(a) * p.r
+      for i = #foes, 1, -1 do
+        local f = foes[i]
+        if f.ihit <= 0 and dist2(f.x, f.y, bx, by) < 100 then
+          local fa = atan2(f.x - player.x, f.y - player.y)
+          damage_foe(f, i, p.dmg * dm, cos(fa) * 1.2, sin(fa) * 1.2)
+        end
+      end
+    end
+  end
+  -- 天罚惊雷
+  w = find_weapon("bolt")
+  if w then
+    w.cd = w.cd - 1
+    if w.cd <= 0 then
+      local p = wdef("bolt").lv[w.lv]
+      w.cd = p.cd * cm
+      local used = {} -- 已命中敌人（对象引用，索引会随击杀移动）
+      for j = 1, p.n do
+        local tf = nearest_screen_foe(used)
+        if tf then
+          used[#used + 1] = tf
+          bolts[#bolts + 1] = { x = tf.x, y = tf.y, life = 14 }
+          for i = #foes, 1, -1 do
+            local g = foes[i]
+            if dist2(g.x, g.y, tf.x, tf.y) < 196 then
+              damage_foe(g, i, p.dmg * dm, 0, 0)
+            end
+          end
+        end
+      end
+      if #used > 0 then
+        sfx(7, 1)
+        shake = max(shake, 4)
+      end
+    end
+  end
+  -- 血色领域：周期跳伤
+  w = find_weapon("aura")
+  if w then
+    local p = wdef("aura").lv[w.lv]
+    w.cd = (w.cd or 0) - 1
+    if w.cd <= 0 then
+      w.cd = wdef("aura").tick
+      w.pulse = 8
+      for i = #foes, 1, -1 do
+        local f = foes[i]
+        if dist2(f.x, f.y, player.x, player.y) < p.r * p.r then
+          damage_foe(f, i, p.dmg * dm, 0, 0)
+        end
+      end
+    end
+    if w.pulse and w.pulse > 0 then w.pulse = w.pulse - 1 end
+  end
+end
+
+function find_weapon(id)
+  for i = 1, #weapons do
+    if weapons[i].id == id then return weapons[i] end
+  end
+  return nil
+end
+
+-- 屏幕内尚未被本次雷击锁定的敌人（返回对象引用）
+function nearest_screen_foe(used)
+  local best, bd = nil, 1e18
+  for i = 1, #foes do
+    local f = foes[i]
+    local ok = true
+    for j = 1, #used do
+      if used[j] == f then ok = false break end
+    end
+    if ok and abs(f.x - player.x) < 130 and abs(f.y - player.y) < 130 then
+      local d2 = dist2(f.x, f.y, player.x, player.y)
+      if d2 < bd then bd, best = d2, f end
+    end
+  end
+  return best
+end
+
+function update_shots()
+  -- 魔弹
+  for i = #shards, 1, -1 do
+    local s = shards[i]
+    s.x = s.x + s.vx
+    s.y = s.y + s.vy
+    s.life = s.life - 1
+    local hit = false
+    for j = #foes, 1, -1 do
+      local f = foes[j]
+      local d = E[f.kind]
+      if dist2(f.x, f.y, s.x, s.y) < (d.r + 3) * (d.r + 3) then
+        local a = atan2(s.vx, s.vy)
+        damage_foe(f, j, s.dmg * dmg_mul(), cos(a) * 0.8, sin(a) * 0.8)
+        hit = true
+        break
+      end
+    end
+    if hit or s.life <= 0 then table.remove(shards, i) end
+  end
+  -- 回旋十字
+  for i = #crosses, 1, -1 do
+    local c = crosses[i]
+    c.rot = c.rot + 0.25
+    if c.ret > 0 then
+      c.ret = c.ret - 1
+      c.x = c.x + c.vx
+      c.y = c.y + c.vy
+      if c.ret == 0 then
+        local a = atan2(player.x - c.x, player.y - c.y)
+        c.vx = cos(a) * 4.4
+        c.vy = sin(a) * 4.4
+      end
+    else
+      local a = atan2(player.x - c.x, player.y - c.y)
+      c.vx = cos(a) * 4.4
+      c.vy = sin(a) * 4.4
+      c.x = c.x + c.vx
+      c.y = c.y + c.vy
+      if dist2(c.x, c.y, player.x, player.y) < 64 then
+        table.remove(crosses, i)
+      end
+    end
+    for j = #foes, 1, -1 do
+      local f = foes[j]
+      local d = E[f.kind]
+      if f.ihit <= 0 and dist2(f.x, f.y, c.x, c.y) < (d.r + 6) * (d.r + 6) then
+        local a = atan2(c.vx, c.vy)
+        damage_foe(f, j, c.dmg * dmg_mul(), cos(a) * 1.5, sin(a) * 1.5)
+      end
+    end
+  end
+  -- 雷击特效
+  for i = #bolts, 1, -1 do
+    local b = bolts[i]
+    b.life = b.life - 1
+    if b.life <= 0 then table.remove(bolts, i) end
+  end
+end
+
+-- ---------------------------------------------------------------- 结晶与拾取
+
+function add_gem(x, y, xp)
+  if #gems >= 120 then table.remove(gems, 1) end
+  gems[#gems + 1] = { x = x + rnd(-4, 4), y = y + rnd(-4, 4), xp = xp, mag = false }
+end
+
+function update_gems()
+  local pr = pick_r()
+  for i = #gems, 1, -1 do
+    local g = gems[i]
+    local d2 = dist2(g.x, g.y, player.x, player.y)
+    if g.mag or d2 < pr * pr then
+      local a = atan2(player.x - g.x, player.y - g.y)
+      local sp = g.mag and 4.5 or 3
+      g.x = g.x + cos(a) * sp
+      g.y = g.y + sin(a) * sp
+      if d2 < 81 then
+        table.remove(gems, i)
+        gain_xp(g.xp)
+        sfx(3)
+      end
+    end
+  end
+  -- 拾取物（烤鸡 / 磁铁）
+  for i = #picks, 1, -1 do
+    local p = picks[i]
+    if dist2(p.x, p.y, player.x, player.y) < 144 then
+      table.remove(picks, i)
+      if p.kind == "meat" then
+        player.hp = min(player.maxhp, player.hp + 30)
+        banner("回复 30 生命", 38, 70)
+        sfx(6)
+      else
+        for j = 1, #gems do gems[j].mag = true end
+        banner("磁石！全部结晶吸来", 44, 70)
+        sfx(11)
+      end
+    end
+  end
+end
+
+function gain_xp(n)
+  player.xp = (player.xp or 0) + n
+  player.next = player.next or xp_need(1)
+  while player.xp >= player.next do
+    player.xp = player.xp - player.next
+    player.lv = (player.lv or 1) + 1
+    player.next = xp_need(player.lv)
+    pending_lv = pending_lv + 1
+    player.hp = min(player.maxhp, player.hp + 8)
+    sfx(4)
+    boom(player.x, player.y, 27, 12)
+  end
+end
+
+function xp_need(lv)
+  return 6 + lv * 4
+end
+
+-- ---------------------------------------------------------------- 升级选卡
+
+function roll_choices()
+  local pool = {}
+  for i = 1, #WORDER do
+    local id = WORDER[i]
+    if weapon_lv(id) < 5 then pool[#pool + 1] = { kind = "w", id = id } end
+  end
+  for i = 1, #PORDER do
+    local id = PORDER[i]
+    if passives[id] < P[id].max then pool[#pool + 1] = { kind = "p", id = id } end
+  end
+  local out = {}
+  while #out < 3 and #pool > 0 do
+    local j = flr(rnd(#pool)) + 1
+    out[#out + 1] = pool[j]
+    table.remove(pool, j)
+  end
+  if #out == 0 then
+    out = { { kind = "heal" }, { kind = "nuke" } }
+  elseif #out < 3 then
+    out[#out + 1] = { kind = "heal" }
+  end
+  return out
+end
+
+function apply_choice(c)
+  if c.kind == "w" then
+    local found = false
+    for i = 1, #weapons do
+      if weapons[i].id == c.id then
+        weapons[i].lv = weapons[i].lv + 1
+        found = true
+        break
+      end
+    end
+    if not found then
+      -- 武器实例状态完备（cd/ang/pulse）：绘制可能先于首次 update 执行
+      weapons[#weapons + 1] = { id = c.id, lv = 1, cd = 30, ang = 0, pulse = 0 }
+    end
+  elseif c.kind == "p" then
+    passives[c.id] = passives[c.id] + 1
+    if c.id == "heart" then
+      player.maxhp = 100 + 20 * passives.heart
+      player.hp = min(player.maxhp, player.hp + 20)
+    end
+  elseif c.kind == "heal" then
+    player.hp = min(player.maxhp, player.hp + 40)
+    banner("回复 40 生命", 38, 70)
+  elseif c.kind == "nuke" then
+    for i = #foes, 1, -1 do
+      local f = foes[i]
+      if not E[f.kind].big and abs(f.x - player.x) < 150 and abs(f.y - player.y) < 150 then
+        damage_foe(f, i, 200, 0, 0)
+      end
+    end
+    shake = 10
+    banner("灵魂冲击！", 27, 70)
+  end
+  sfx(5)
+end
+
+-- ---------------------------------------------------------------- 粒子
+
+function update_parts()
+  for i = #parts, 1, -1 do
+    local p = parts[i]
+    p.x = p.x + p.vx
+    p.y = p.y + p.vy
+    p.life = p.life - 1
+    if p.life <= 0 then table.remove(parts, i) end
+  end
+end
+
+-- ---------------------------------------------------------------- 主更新
+
+function update_play()
+  gt = gt + 1
+  update_player()
+  update_spawns()
+  update_foes()
+  if state ~= "play" then return end
+  update_weapons()
+  update_shots()
+  update_gems()
+  update_parts()
+  if shake > 0 then shake = shake - 1 end
+  if inv_flash > 0 then inv_flash = inv_flash - 1 end
+  if banner_t > 0 then banner_t = banner_t - 1 end
+  -- 氛围提示
+  if gt == 300 * 60 then banner("夜更深了……", 59, 120) end
+  if gt == 540 * 60 then banner("黎明前最后的黑暗", 11, 150) end
+  if death_come and gt % 60 == 0 then banner("快跑！！", 11, 40) end
+  -- 升级队列
+  if pending_lv > 0 then
+    choices = roll_choices()
+    choice_sel = 1
+    state = "levelup"
+  end
+end
+
+function _update()
+  t = t + 1
+  if state == "title" then
+    if btnp(11) or btnp(4) then
+      new_game()
+      state = "play"
+      music(0, 500, 48) -- ch4-5 交给音乐
+    end
+  elseif state == "play" then
+    if btnp(11) then
+      state = "pause"
+    else
+      update_play()
+    end
+  elseif state == "levelup" then
+    if btnp(0) then
+      choice_sel = choice_sel - 1
+      if choice_sel < 1 then choice_sel = #choices end
+    end
+    if btnp(1) then
+      choice_sel = choice_sel + 1
+      if choice_sel > #choices then choice_sel = 1 end
+    end
+    if btnp(4) or btnp(11) then
+      apply_choice(choices[choice_sel])
+      pending_lv = pending_lv - 1
+      if pending_lv > 0 then
+        choices = roll_choices()
+        choice_sel = 1
+      else
+        state = "play"
+      end
+    end
+  elseif state == "pause" then
+    if btnp(11) then
+      state = "play"
+      if not death_come then music(0, 0, 48) end
+    end
+  elseif state == "over" then
+    over_t = over_t + 1
+    if over_t > 45 and (btnp(11) or btnp(4)) then
+      state = "title"
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制：世界
+
+-- 无限地图：可见区按 256 格取模分块绘制（map 坐标出界返回瓦片 0）。
+-- map 的 tx,ty 为世界像素坐标（内部统一减 camera，与 spr 等原语一致）
+function draw_world_map()
+  local tx = flr(cam.x / 16)
+  local ty = flr(cam.y / 16)
+  local ox = tx * 16
+  local oy = ty * 16
+  local cx0, cy0 = tx % 256, ty % 256
+  local w1, h1 = min(17, 256 - cx0), min(17, 256 - cy0)
+  local tw, th = 17, 17
+  map(cx0, cy0, ox, oy, w1, h1)
+  if w1 < tw then map(0, cy0, ox + w1 * 16, oy, tw - w1, h1) end
+  if h1 < th then map(cx0, 0, ox, oy + h1 * 16, w1, th - h1) end
+  if w1 < tw and h1 < th then map(0, 0, ox + w1 * 16, oy + h1 * 16, tw - w1, th - h1) end
+end
+
+function draw_gems()
+  for i = 1, #gems do
+    local g = gems[i]
+    local x, y = flr(g.x), flr(g.y)
+    local bob = (i % 3 == 0) and 1 or 0
+    local c1, c2 = 41, 7 -- 蓝晶
+    if g.xp >= 8 then c1, c2 = 58, 7
+    elseif g.xp >= 3 then c1, c2 = 34, 7 end
+    trifill(x, y - 3 - bob, x - 2, y - bob, x + 2, y - bob, c1)
+    trifill(x, y + 3 - bob, x - 2, y - bob, x + 2, y - bob, c1)
+    pset(x, y - 1 - bob, c2)
+  end
+end
+
+function draw_picks()
+  for i = 1, #picks do
+    local p = picks[i]
+    local x, y = flr(p.x), flr(p.y + sin((t / 20 + i) * 0.16) * 2)
+    if p.kind == "meat" then
+      ovalfill(x - 2, y, 5, 4, 8)
+      ovalfill(x - 1, y, 3, 2, 22)
+      rectfill(x + 2, y - 1, 4, 2, 7)
+      circfill(x + 6, y - 1, 1, 7)
+      circfill(x + 6, y + 1, 1, 7)
+    else
+      -- U 形磁铁
+      rectfill(x - 4, y - 4, 3, 8, 60)
+      rectfill(x + 1, y - 4, 3, 8, 60)
+      rectfill(x - 4, y - 4, 3, 3, 7)
+      rectfill(x + 1, y - 4, 3, 3, 7)
+    end
+  end
+end
+
+function draw_foes()
+  for i = 1, #foes do
+    local f = foes[i]
+    local d = E[f.kind]
+    if abs(f.x - cam.x - 128) < 170 and abs(f.y - cam.y - 128) < 170 then
+      local frame = d.frames > 1 and flr(t / 10) % 2 or 0
+      local tile = d.bmp + frame * (d.frames > 1 and 16 or 0)
+      if f.flash > 0 then pal(d.flash, 7) end -- 受击闪白：主色 → 白
+      if d.big then
+        spr(tile, f.x - 16, f.y - 16, 2, 2)
+      else
+        spr(tile, f.x - 8, f.y - 8)
+      end
+      if f.flash > 0 then pal() end
+      -- 精英血条
+      if d.big and f.kind == "demon" then
+        local w = flr(24 * f.hp / f.maxhp)
+        rectfill(f.x - 13, f.y - 21, 26, 3, 2)
+        if w > 0 then rectfill(f.x - 12, f.y - 20, w, 1, 60) end
+      end
+    end
+  end
+end
+
+function draw_player()
+  if player.inv > 0 and flr(t / 4) % 2 == 1 then return end
+  local x, y = flr(player.x), flr(player.y)
+  local bob = player.walk > 0 and flr(sin(player.walk) * 1.2) or 0
+  spr(1, x - 8, y - 8 + bob)
+end
+
+-- 血色领域：贴地半透明层（暗红网点 + 草地底色透出），在全部实体之前绘制，
+-- 领域内的敌人不受遮挡（SPEC §2.3 fillp 双色抖动无透明位，以"底色透出 + 先画"实现半透明）
+function draw_aura()
+  local aw = find_weapon("aura")
+  if not aw then return end
+  local p = wdef("aura").lv[aw.lv]
+  fillp(0xAAAA)
+  circfill(player.x, player.y, p.r, 62 * 256 + 36)
+  fillp()
+  circ(player.x, player.y, p.r, 60)
+  if (aw.pulse or 0) > 0 then circ(player.x, player.y, p.r + 2, 58) end
+end
+
+function draw_weapons_fx()
+  local dm = dmg_mul()
+  -- 魔弹
+  for i = 1, #shards do
+    local s = shards[i]
+    local x, y = flr(s.x), flr(s.y)
+    circfill(x, y, 2, 9)
+    pset(x - flr(s.vx), y - flr(s.vy), 40)
+    pset(x, y, 7)
+  end
+  -- 回旋十字
+  for i = 1, #crosses do
+    local c = crosses[i]
+    local x, y = c.x, c.y
+    circfill(x, y, 8, 2)
+    for k = 0, 3 do
+      local a = c.rot + k * 0.25
+      line(x, y, x + cos(a) * 8, y + sin(a) * 8, 42)
+    end
+    circfill(x, y, 2, 7)
+  end
+  -- 圣光经书
+  local bw = nil
+  for i = 1, #weapons do
+    if weapons[i].id == "bible" then bw = weapons[i] end
+  end
+  if bw then
+    local p = wdef("bible").lv[bw.lv]
+    for j = 1, p.n do
+      local a = bw.ang + (j - 1) / p.n
+      local bx = player.x + cos(a) * p.r
+      local by = player.y + sin(a) * p.r
+      rectfill(bx - 3, by - 4, 6, 8, 30)
+      rectfill(bx - 3, by - 4, 2, 8, 58)
+      line(bx, by - 4, bx, by + 3, 21)
+    end
+  end
+  -- 天罚惊雷
+  for i = 1, #bolts do
+    local b = bolts[i]
+    local x, y = flr(b.x), flr(b.y)
+    if b.life > 8 then
+      -- 落雷阶段：自上而下劈落
+      local prog = (16 - b.life) / 6
+      line(x + 20, y - 160, x + 8, y - 160 + 50 * prog, 7)
+    else
+      line(x + 8, y - 110, x, y - 60, 7)
+      line(x, y - 60, x + 4, y - 30, 7)
+      line(x + 4, y - 30, x, y, 7)
+      line(x, y, x - 3, y + 20, 7)
+      if b.life > 5 then circfill(x, y, 5, 7) end
+      circ(x, y, 10, 30)
+    end
+  end
+  -- 粒子
+  for i = 1, #parts do
+    pset(flr(parts[i].x), flr(parts[i].y), parts[i].c)
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制：HUD
+
+function draw_icon(id, x, y, sel)
+  -- 12×12 升级卡图标（几何绘制）
+  if id == "magic" then
+    circfill(x + 8, y + 6, 3, 9)
+    line(x + 1, y + 10, x + 5, y + 8, 40)
+    line(x + 1, y + 3, x + 5, y + 5, 40)
+  elseif id == "cross" then
+    rectfill(x + 6, y + 1, 2, 10, 42)
+    rectfill(x + 2, y + 5, 10, 2, 42)
+    circfill(x + 7, y + 6, 2, 7)
+  elseif id == "bible" then
+    rectfill(x + 3, y + 2, 8, 9, 30)
+    line(x + 7, y + 2, x + 7, y + 10, 21)
+    rectfill(x + 3, y + 2, 2, 9, 58)
+  elseif id == "bolt" then
+    line(x + 9, y + 1, x + 5, y + 6, 30)
+    line(x + 5, y + 6, x + 8, y + 6, 30)
+    line(x + 8, y + 6, x + 4, y + 11, 30)
+  elseif id == "aura" then
+    circ(x + 7, y + 6, 5, 60)
+    fillp(0xAAAA)
+    circfill(x + 7, y + 6, 2, 62 * 256 + 0)
+    fillp()
+  elseif id == "boots" then
+    rectfill(x + 5, y + 1, 3, 7, 30)
+    rectfill(x + 5, y + 8, 7, 2, 30)
+  elseif id == "heart" then
+    print("♥", x + 1, y, 60)
+  elseif id == "power" then
+    line(x + 7, y + 1, x + 7, y + 9, 7)
+    line(x + 4, y + 3, x + 10, y + 3, 7)
+    rectfill(x + 6, y + 9, 3, 2, 30)
+  elseif id == "hour" then
+    trifill(x + 3, y + 1, x + 11, y + 1, x + 7, y + 6, 42)
+    trifill(x + 3, y + 11, x + 11, y + 11, x + 7, y + 6, 42)
+  elseif id == "mag" then
+    rectfill(x + 4, y + 1, 2, 7, 60)
+    rectfill(x + 8, y + 1, 2, 7, 60)
+    rectfill(x + 4, y + 7, 6, 2, 60)
+    rectfill(x + 4, y + 1, 2, 2, 7)
+    rectfill(x + 8, y + 1, 2, 2, 7)
+  elseif id == "heal" then
+    ovalfill(x + 6, y + 7, 4, 3, 8)
+    rectfill(x + 9, y + 6, 3, 1, 7)
+  elseif id == "nuke" then
+    circfill(x + 6, y + 6, 4, 30)
+    circ(x + 6, y + 6, 6, 58)
+  end
+end
+
+function draw_hud()
+  -- 顶部经验条
+  rectfill(0, 0, 256, 4, 2)
+  local nw = flr(256 * (player.xp or 0) / (player.next or 1))
+  if nw > 0 then rectfill(0, 0, nw, 4, 9) end
+  -- 生命
+  local hw = flr(60 * player.hp / player.maxhp)
+  rectfill(4, 9, 62, 6, 2)
+  rect(4, 9, 62, 6, 0)
+  if hw > 0 then rectfill(5, 10, hw, 4, player.hp / player.maxhp < 0.3 and 60 or 34) end
+  print("♥", 70, 5, 60)
+  print(string.format("%d", flr(player.hp)), 88, 8, 7)
+  -- 时间（死神临近变红闪）
+  local sec = gt / 60
+  local tc = 7
+  if sec >= 540 then tc = flr(t / 15) % 2 == 0 and 11 or 12 end
+  dtext(clock_str(sec), 108, 9, tc)
+  -- 击杀与等级
+  print(string.format("K %d", kill), 216, 9, 6)
+  print(string.format("Lv.%d", player.lv or 1), 216, 22, 30)
+  -- 左侧：武器栏
+  for i = 1, #weapons do
+    local w = weapons[i]
+    local y = 20 + (i - 1) * 14
+    rectfill(3, y - 1, 14, 13, 2)
+    draw_icon(w.id, 4, y)
+    print(string.format("%d", w.lv), 18, y + 2, 6)
+  end
+  -- 右侧：被动栏
+  local n = 0
+  for i = 1, #PORDER do
+    local id = PORDER[i]
+    if passives[id] > 0 then
+      n = n + 1
+      local y = 20 + (n - 1) * 14
+      rectfill(239, y - 1, 14, 13, 2)
+      draw_icon(id, 240, y)
+      print(string.format("%d", passives[id]), 232, y + 2, 6)
+    end
+  end
+  -- 横幅
+  if banner_t > 0 and flr(banner_t / 8) % 4 ~= 3 then
+    dtext(banner_txt, flr((256 - tw(banner_txt)) / 2), 200, banner_c)
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制：界面
+
+function draw_levelup()
+  fillp(0x5555)
+  rectfill(0, 0, 256, 256, 0)
+  fillp()
+  dtext("升级！", flr((256 - tw("升级！")) / 2), 34, 27)
+  dtext("选择一项强化", flr((256 - tw("选择一项强化")) / 2), 54, 7)
+  for i = 1, #choices do
+    local c = choices[i]
+    local x = 8 + (i - 1) * 82
+    local sel = i == choice_sel
+    local name, lv_txt, d1, d2
+    if c.kind == "w" then
+      local d = W[c.id]
+      local lv = weapon_lv(c.id)
+      name = d.name
+      d1, d2 = d.d1, d.d2
+      lv_txt = lv == 0 and "新武器！" or string.format("Lv.%d>%d", lv, lv + 1)
+    elseif c.kind == "p" then
+      local d = P[c.id]
+      name = d.name
+      d1, d2 = d.d1, d.d2
+      lv_txt = string.format("Lv.%d>%d", passives[c.id], passives[c.id] + 1)
+    elseif c.kind == "heal" then
+      name = "大块烤鸡"
+      d1, d2 = "回复 40", "生命"
+      lv_txt = "补给"
+    else
+      name = "灵魂冲击"
+      d1, d2 = "净化周身", "敌群"
+      lv_txt = "爆发"
+    end
+    rrectfill(x, 78, 76, 104, 4, 2)
+    if sel then
+      rrect(x - 2, 76, 80, 108, 5, 30)
+    else
+      rrect(x - 2, 76, 80, 108, 5, 11)
+    end
+    rectfill(x + 22, 84, 32, 24, 0)
+    local icon_id = (c.kind == "w" or c.kind == "p") and c.id or c.kind
+    draw_icon(icon_id, x + 32, 90, sel)
+    dtext(name, x + flr((76 - tw(name)) / 2), 112, sel and 7 or 5)
+    print(lv_txt, x + flr((76 - tw(lv_txt)) / 2), 128, sel and 30 or 10)
+    print(d1, x + flr((76 - tw(d1)) / 2), 146, 6)
+    print(d2, x + flr((76 - tw(d2)) / 2), 162, 6)
+  end
+  if flr(t / 20) % 2 == 0 then
+    print("←→ 选择　J 确认", flr((256 - tw("←→ 选择　J 确认")) / 2), 196, 10)
+  end
+end
+
+function draw_pause()
+  fillp(0x5555)
+  rectfill(0, 0, 256, 256, 0)
+  fillp()
+  dtext("已暂停", flr((256 - tw("已暂停")) / 2), 24, 7)
+  print("武器", 40, 56, 30)
+  for i = 1, #weapons do
+    local w = weapons[i]
+    draw_icon(w.id, 40, 74 + (i - 1) * 18)
+    print(W[w.id].name, 60, 78 + (i - 1) * 18, 7)
+    print(string.format("Lv.%d", w.lv), 150, 78 + (i - 1) * 18, 6)
+  end
+  print("圣物", 180, 56, 42)
+  local n = 0
+  for i = 1, #PORDER do
+    local id = PORDER[i]
+    if passives[id] > 0 then
+      n = n + 1
+      draw_icon(id, 180, 74 + (n - 1) * 18)
+      print(P[id].name, 200, 78 + (n - 1) * 18, 7)
+    end
+  end
+  local y = 190
+  print(string.format("伤害 x%d%%　冷却 x%d%%", flr(dmg_mul() * 100), flr(cd_mul() * 100)),
+    flr((256 - tw("伤害 x100%　冷却 x100%")) / 2), y, 6)
+  print(string.format("移速 x%d%%　拾取 %dpx", flr(move_sp() / 1.3 * 100), flr(pick_r())),
+    flr((256 - tw("移速 x100%　拾取 26px")) / 2), y + 12, 6)
+  if flr(t / 20) % 2 == 0 then
+    print("按 Start 继续", flr((256 - tw("按 Start 继续")) / 2), 226, 10)
+  end
+end
+
+function draw_over()
+  fillp(0x5555)
+  rectfill(0, 0, 256, 256, 0)
+  fillp()
+  local dawn = final_time >= DEATH_TIME
+  local title = dawn and "你在黎明前倒下" or "夜幕吞没了你"
+  local tc = dawn and 27 or 11
+  dtext(title, flr((256 - tw(title)) / 2), 60, tc)
+  local rows = {
+    { "存活", clock_str(final_time) },
+    { "等级", string.format("%d", player.lv or 1) },
+    { "击杀", string.format("%d", kill) },
+  }
+  for i = 1, #rows do
+    print(rows[i][1], 88, 104 + i * 20, 6)
+    print(rows[i][2], 136, 104 + i * 20, 7)
+  end
+  if new_best then
+    if flr(t / 15) % 2 == 0 then
+      dtext("新纪录！", flr((256 - tw("新纪录！")) / 2), 180, 27)
+    end
+  else
+    print("最佳 " .. clock_str(best_t), flr((256 - tw("最佳 0:00")) / 2), 180, 10)
+  end
+  if over_t > 45 and flr(t / 20) % 2 == 0 then
+    print("按 Start 返回", flr((256 - tw("按 Start 返回")) / 2), 216, 10)
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制：标题
+
+local stars = nil
+
+function init_stars()
+  stars = {}
+  local sc = { 5, 7, 53, 58 }
+  for i = 1, 46 do
+    stars[i] = { x = flr(rnd(1, 254)), y = flr(rnd(1, 150)), sp = 0.3 + rnd(1, 3) / 2,
+                 c = sc[(i % 4) + 1] }
+  end
+end
+
+function draw_title()
+  if not stars then init_stars() end
+  -- 夜空渐变（fillp 抖动分层）
+  cls(38)
+  fillp(0xEEEE) rectfill(0, 40, 256, 216, 38 * 256 + 53) fillp()
+  fillp(0xDDDD) rectfill(0, 70, 256, 186, 53 * 256 + 15) fillp()
+  -- 星
+  for i = 1, #stars do
+    local s = stars[i]
+    pset(s.x, s.y, (t * s.sp + i * 13) % 30 < 22 and s.c or 38)
+  end
+  -- 月亮
+  circfill(196, 52, 26, 30)
+  circfill(188, 46, 20, 21)
+  circ(196, 52, 26, 21)
+  for i = 0, 3 do
+    circfill(202 + i * 3, 60 + i * 2, 1, 18)
+  end
+  -- 远处墓园剪影（地平线用双色抖动软化）
+  rectfill(0, 168, 256, 88, 36)
+  fillp(0xAAAA)
+  rectfill(0, 160, 256, 8, 36 * 256 + 15)
+  fillp()
+  -- 墓碑与枯树剪影
+  local graves = { { 30, 178 }, { 58, 174 }, { 200, 180 }, { 228, 172 } }
+  for i = 1, #graves do
+    local gx, gy = graves[i][1], graves[i][2]
+    rectfill(gx, gy, 14, 26, 1)
+    rectfill(gx + 3, gy + 4, 8, 2, 1)
+    rectfill(gx + 3, gy + 10, 8, 2, 1)
+  end
+  line(110, 200, 110, 160, 1)
+  line(110, 172, 98, 158, 1)
+  line(110, 166, 124, 152, 1)
+  line(110, 178, 100, 170, 1)
+  -- 飞过的蝙蝠群
+  for i = 0, 4 do
+    local bx = (t * (1.1 + i * 0.18) + i * 90) % 400 - 40
+    local by = 90 + i * 9 + sin(t / 30 + i) * 10
+    spr(2 + flr(t / 8 + i) % 2 * 16, bx, by)
+  end
+  -- 标题
+  dtext("暗夜幸存者", flr((256 - tw("暗夜幸存者")) / 2), 76, 11)
+  print("DARK SURVIVORS", flr((256 - tw("DARK SURVIVORS")) / 2), 104, 6)
+  if flr(t / 25) % 2 == 0 then
+    dtext("按 Start 开始", flr((256 - tw("按 Start 开始")) / 2), 140, 7)
+  end
+  print("WASD 移动　武器自动出击", flr((256 - tw("WASD 移动　武器自动出击")) / 2), 196, 9)
+  print("收集结晶升级　活过 10 分钟", flr((256 - tw("收集结晶升级　活过 10 分钟")) / 2), 212, 9)
+  if best_t > 0 then
+    print("最佳存活 " .. clock_str(best_t), flr((256 - tw("最佳存活 0:00")) / 2), 236, 30)
+  end
+end
+
+-- ---------------------------------------------------------------- 主绘制
+
+function _draw()
+  if state == "title" then
+    draw_title()
+    return
+  end
+  -- 受击红闪（显示期映射，呈现整屏偏红）
+  if inv_flash > 0 then
+    pal(0, 60, 1)
+    pal(2, 58, 1)
+    pal(36, 15, 1)
+  end
+  local sx, sy = 0, 0
+  if shake > 0 then
+    sx, sy = rnd(-2, 2), rnd(-2, 2)
+  end
+  cls(0)
+  camera(flr(cam.x + sx), flr(cam.y + sy))
+  draw_world_map()
+  draw_aura()
+  draw_gems()
+  draw_picks()
+  draw_foes()
+  draw_weapons_fx()
+  draw_player()
+  camera(0, 0)
+  draw_hud()
+  if inv_flash > 0 then pal() end
+  if state == "levelup" then draw_levelup() end
+  if state == "pause" then draw_pause() end
+  if state == "over" then draw_over() end
+end

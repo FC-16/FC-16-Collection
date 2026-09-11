@@ -1,0 +1,1693 @@
+fc16
+name: 德州扑克
+author: FrostMiKu
+save_id: holdem
+version: 1
+flags: 0
+icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
+@sprites 0
+@map 0
+@sfx 0
+@patterns 0
+@sflags 0
+@free 0
+@code 51835
+-- FC-16 德州扑克（demo/holdem）
+-- 无限注德州扑克：4/6 人桌，1-4 人热座 + AI 补位，三档 AI 难度。
+-- 流程：标题（人数/玩家/难度）→ 盲注发牌 → 四轮下注（翻前/翻牌/转牌/河牌）
+--   → 摊牌（7 选 5 最佳牌型，含 A2345 轮子顺）或全桌弃牌收池 → 分层边池结算 → 淘汰。
+-- 下注规则：最小加注 = 上一增量；不足额全下不重开加注权；每 8 手盲注翻倍。
+-- 热座隐私：多人类玩家轮到行动前显示遮罩，行动结束手牌立即隐藏。
+-- 操作：⬅➡ 选动作　⬆⬇ 调加注档（最小/四分之一池/半池/满池/全下）　Ⓐ 确认
+--       Ⓑ 快捷弃牌　Ⓧ 按住加速　Select 音乐开关　Start/Ⓐ 继续
+-- 存档：dset 槽 0 累计手数、1 人类累计胜局、2 人类最佳单池、3 音乐开关。
+-- 全部资产程序化生成：迷你字形牌面、绿毡椭圆桌、筹码、SFX 与 BGM（SPEC §5.2 poke 写入）。
+
+-- ================================================================ 常量与配色
+
+local SB0 = 10                   -- 起始小盲
+local START_CHIPS = 1000         -- 初始筹码
+local BLIND_UP = 8               -- 每 N 手盲注翻倍
+local AI_NAMES = {"阿福", "艾达", "老K", "妮可", "小满"}
+local DIFF_NAME = {"简单", "普通", "困难"}
+local STR_NAME = {"翻牌前", "翻牌", "转牌", "河牌"}
+local CAT_NAME = {"高牌", "一对", "两对", "三条", "顺子", "同花", "葫芦", "四条", "同花顺"}
+local RANK_STR = {"2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"}
+
+-- ENDESGA-64 的 FC-16 固定索引（SPEC §2.2），禁止色号算术推导明暗
+local C_STRIP = 13   -- 顶栏
+local C_BG = 14      -- 底栏
+local C_FELT = 36    -- 桌面毛毡绿
+local C_FELT_HI = 35
+local C_RIM = 37
+local C_RIM_D = 38
+local C_PANEL = 11   -- 座位铭牌
+local C_PANEL_BD = 9
+local C_CREAM = 22
+local C_GOLD = 30
+local C_GOLD2 = 31
+local C_RED = 59     -- 红花色
+local C_BLACK = 1    -- 黑花色
+local C_DIM = 10     -- 次要文字
+local C_BACK = 12    -- 牌背深蓝
+local C_BACK_LN = 8
+local C_WHITE = 7
+local C_GRAY = 5
+
+-- 座位布局：铭牌左上角 / 下注筹码点 / 牌画在铭牌左侧
+local LAYOUT = {
+  [4] = {
+    plq = {{82, 150}, {8, 84}, {82, 18}, {182, 84}},
+    bet = {{128, 136}, {40, 66}, {128, 58}, {216, 66}},
+    left = {false, false, false, true},
+  },
+  [6] = {
+    plq = {{82, 150}, {2, 118}, {2, 44}, {82, 18}, {190, 44}, {190, 118}},
+    bet = {{128, 136}, {34, 100}, {34, 26}, {128, 58}, {222, 26}, {222, 100}},
+    left = {false, false, false, false, true, true},
+  },
+}
+
+-- ================================================================ 迷你字形（3×5 点数 / 5×5 花色）
+
+local GLYPH = {
+  ["1"] = {2, 6, 2, 2, 7}, ["2"] = {7, 1, 7, 4, 7}, ["3"] = {7, 1, 7, 1, 7},
+  ["4"] = {5, 5, 7, 1, 1}, ["5"] = {7, 4, 7, 1, 7}, ["6"] = {7, 4, 7, 5, 7},
+  ["7"] = {7, 1, 1, 1, 1}, ["8"] = {7, 5, 7, 5, 7}, ["9"] = {7, 5, 7, 1, 7},
+  ["0"] = {7, 5, 5, 5, 7}, ["J"] = {7, 2, 2, 2, 6}, ["Q"] = {7, 5, 5, 7, 1},
+  ["K"] = {5, 6, 4, 6, 5}, ["A"] = {2, 5, 7, 5, 5},
+}
+local SUIT_G = {
+  {4, 14, 31, 31, 4},  -- ♠
+  {10, 31, 31, 14, 4}, -- ♥
+  {4, 14, 31, 14, 4},  -- ♦
+  {14, 31, 31, 4, 4},  -- ♣
+}
+
+local function glyph(pat, x, y, c, sc, w)
+  sc = sc or 1
+  for r = 1, 5 do
+    local bits = pat[r]
+    for i = 0, w - 1 do
+      if (bits >> (w - 1 - i)) & 1 == 1 then
+        rectfill(x + i * sc, y + (r - 1) * sc, sc, sc, c)
+      end
+    end
+  end
+end
+
+local function rank_of(c) return flr(c / 4) end
+local function suit_of(c) return c % 4 end
+local function card_col(c) return (c % 4 == 1 or c % 4 == 2) and C_RED or C_BLACK end
+local function rank_str(r) return RANK_STR[r - 1] end
+
+-- ================================================================ 牌型评估器（7 选 5）
+
+-- 5 张牌评分：类别 0..8 + 决胜链打包为整数，可直接比较
+local function eval5(cs)
+  local cnt = {}
+  local rs = {}
+  local flush = true
+  local s0 = cs[1] % 4
+  for i = 1, 5 do
+    local c = cs[i]
+    local r = flr(c / 4)
+    cnt[r] = (cnt[r] or 0) + 1
+    rs[i] = r
+    if c % 4 ~= s0 then flush = false end
+  end
+  table.sort(rs)
+  local quad, trip, p1, p2
+  local uniq = 0
+  local plist = {}
+  for r, n in pairs(cnt) do
+    uniq = uniq + 1
+    if n == 4 then quad = r
+    elseif n == 3 then trip = r
+    elseif n == 2 then plist[#plist + 1] = r end
+  end
+  if #plist == 2 then
+    table.sort(plist)
+    p1 = plist[2] p2 = plist[1]
+  elseif #plist == 1 then
+    p1 = plist[1]
+  end
+  -- 顺子（含 A2345 轮子）
+  local sh = 0
+  if uniq == 5 then
+    if rs[5] - rs[1] == 4 then sh = rs[5]
+    elseif rs[1] == 2 and rs[2] == 3 and rs[3] == 4 and rs[4] == 5 and rs[5] == 14 then sh = 5 end
+  end
+  local cat, t1, t2, t3, t4, t5
+  if flush and sh > 0 then
+    cat = 8 t1 = sh
+  elseif quad then
+    cat = 7 t1 = quad
+    for i = 5, 1, -1 do if rs[i] ~= quad then t2 = rs[i] break end end
+  elseif trip and p1 then
+    cat = 6 t1 = trip t2 = p1
+  elseif flush then
+    cat = 5 t1 = rs[5] t2 = rs[4] t3 = rs[3] t4 = rs[2] t5 = rs[1]
+  elseif sh > 0 then
+    cat = 4 t1 = sh
+  elseif trip then
+    cat = 3 t1 = trip
+    local ks = {}
+    for i = 5, 1, -1 do if rs[i] ~= trip then ks[#ks + 1] = rs[i] end end
+    t2 = ks[1] t3 = ks[2]
+  elseif p2 then
+    cat = 2 t1 = p1 t2 = p2
+    for i = 5, 1, -1 do if rs[i] ~= p1 and rs[i] ~= p2 then t3 = rs[i] break end end
+  elseif p1 then
+    cat = 1 t1 = p1
+    local ks = {}
+    for i = 5, 1, -1 do if rs[i] ~= p1 then ks[#ks + 1] = rs[i] end end
+    t2 = ks[1] t3 = ks[2] t4 = ks[3]
+  else
+    cat = 0 t1 = rs[5] t2 = rs[4] t3 = rs[3] t4 = rs[2] t5 = rs[1]
+  end
+  local score = cat * 1048576 + t1 * 65536 + (t2 or 0) * 4096
+    + (t3 or 0) * 256 + (t4 or 0) * 16 + (t5 or 0)
+  return {score = score, cat = cat, hi = sh > 0 and sh or t1,
+    cards = {cs[1], cs[2], cs[3], cs[4], cs[5]}}
+end
+
+-- 从 5..7 张牌枚举 C(n,5) 取最佳
+local function best_hand(cards)
+  local n = #cards
+  local best = nil
+  local idx = {1, 2, 3, 4, 5}
+  while true do
+    local e = eval5({cards[idx[1]], cards[idx[2]], cards[idx[3]],
+      cards[idx[4]], cards[idx[5]]})
+    if best == nil or e.score > best.score then best = e end
+    local i = 5
+    while i >= 1 and idx[i] == n - 5 + i do i = i - 1 end
+    if i == 0 then break end
+    idx[i] = idx[i] + 1
+    for j = i + 1, 5 do idx[j] = idx[j - 1] + 1 end
+  end
+  return best
+end
+
+local function hand_name(ev)
+  if ev.cat == 8 and ev.hi == 14 then return "皇家同花顺" end
+  return CAT_NAME[ev.cat + 1]
+end
+
+-- ================================================================ 边池构建（纯函数）
+
+-- 按 committed 分层；每层资格 = 未弃牌且投入达到该层高度；返回 {{amt, elig={seat..}}, ...}
+local function build_pots(ps)
+  local remain = {}
+  for i = 1, #ps do remain[i] = ps[i].committed or 0 end
+  local pots = {}
+  while true do
+    local lvl = nil
+    for i = 1, #ps do
+      if not ps[i].folded and remain[i] > 0 then
+        if lvl == nil or remain[i] < lvl then lvl = remain[i] end
+      end
+    end
+    if lvl == nil then break end
+    local amount = 0
+    local elig = {}
+    for i = 1, #ps do
+      local take = min(remain[i], lvl)
+      amount = amount + take
+      remain[i] = remain[i] - take
+      if not ps[i].folded and take > 0 then elig[#elig + 1] = i end
+    end
+    pots[#pots + 1] = {amt = amount, elig = elig}
+  end
+  return pots
+end
+
+-- ================================================================ 音频（SPEC §5.2）
+
+local function u8(a, v) poke(a, v % 256) end
+
+local function sfx_steps(id, speed, steps)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, #steps)
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    local st = steps[i + 1]
+    if st then
+      u8(a, st[1] or 0)
+      u8(a + 1, (st[2] or 0) * 16 + (st[3] or 0))
+      u8(a + 2, st[4] or 0)
+    else
+      u8(a, 0) u8(a + 1, 0)
+    end
+  end
+end
+
+local function init_audio()
+  sfx_steps(0, 1, {{76, 15, 4}})                                     -- 发牌嗒
+  sfx_steps(1, 1, {{58, 3, 4}})                                      -- 菜单
+  sfx_steps(2, 1, {{70, 14, 7}, {64, 14, 5}})                        -- 筹码
+  sfx_steps(3, 1, {{44, 3, 7, 3}, {36, 3, 5, 3}})                    -- 弃牌
+  sfx_steps(4, 1, {{64, 3, 7}, {71, 3, 8}})                          -- 加注
+  sfx_steps(5, 2, {{76, 3, 11}, {0}, {76, 3, 11}, {0}, {79, 3, 13}}) -- 全下警报
+  sfx_steps(6, 1, {{50, 14, 8}, {50, 14, 5}})                        -- 过牌敲桌
+  sfx_steps(7, 1, {{72, 3, 6}, {77, 3, 6}})                          -- 亮牌
+  sfx_steps(8, 4, {{64, 3, 9}, {68, 3, 9}, {71, 3, 10}, {76, 3, 12}})-- 赢池
+  sfx_steps(9, 5, {{30, 3, 9, 3}, {22, 3, 7, 3}})                    -- 淘汰
+  sfx_steps(10, 1, {{26, 3, 8}})                                     -- 非法提示
+  sfx_steps(11, 1, {{68, 0, 6}})                                     -- 开手
+  sfx_steps(12, 2, {{60, 3, 7}, {64, 3, 7}, {67, 3, 8}})             -- 盲注升级
+  -- BGM：ch6 贝斯 + ch7 管风琴切分和弦，C-Am-Dm-G 循环
+  sfx_steps(20, 8, {
+    {37, 11, 7}, {0}, {44, 11, 5}, {0}, {37, 11, 7}, {0}, {44, 11, 5}, {49, 11, 5},
+    {34, 11, 7}, {0}, {41, 11, 5}, {0}, {34, 11, 7}, {0}, {41, 11, 5}, {46, 11, 5},
+    {38, 11, 7}, {0}, {45, 11, 5}, {0}, {38, 11, 7}, {0}, {45, 11, 5}, {50, 11, 5},
+    {35, 11, 7}, {0}, {42, 11, 5}, {0}, {35, 11, 7}, {0}, {42, 11, 5}, {47, 11, 5},
+  })
+  sfx_steps(21, 8, {
+    {0}, {0}, {56, 6, 3}, {0}, {60, 6, 3}, {0}, {56, 6, 3}, {0},
+    {0}, {0}, {53, 6, 3}, {0}, {57, 6, 3}, {0}, {53, 6, 3}, {0},
+    {0}, {0}, {57, 6, 3}, {0}, {62, 6, 3}, {0}, {57, 6, 3}, {0},
+    {0}, {0}, {55, 6, 3}, {0}, {59, 6, 3}, {0}, {55, 6, 3}, {0},
+  })
+  local mb = 0x063800
+  u8(mb + 6, 21) -- ch6 ← SFX 20
+  u8(mb + 7, 22) -- ch7 ← SFX 21
+  u8(mb + 8, 3)  -- BEGIN|END 回环
+end
+
+-- ================================================================ 全局状态
+
+local state, t             -- 状态机 / 全局帧
+local seats_n, humans_n, diffn -- 配置：人数 / 人类数 / 难度
+local players              -- 座位表
+local button, sb_amt, bb_amt
+local deck, deck_i, board, street
+local cur_bet, min_raise, turn, think_t
+local hand_no
+local deal_i, deal_t, deal_fly
+local collect_t, runout_t
+local reveal_q, reveal_i, reveal_t
+local award_pots, award_t, award_lines
+local summary
+local menu, mask
+local title_row, over_data
+local msg, msg_c, msg_t
+local st_hands, st_wins, st_best, bgm_on
+local result_cache
+
+local function fmt(n) return string.format("%d", n) end
+
+local function say(s, c, dur)
+  msg = s msg_c = c or C_CREAM msg_t = dur or 100
+end
+
+local function pot_now()
+  local s = 0
+  for i = 1, seats_n do s = s + players[i].committed end
+  return s
+end
+
+local function cur_pot_bets()
+  local s = 0
+  for i = 1, seats_n do s = s + players[i].bet end
+  return s
+end
+
+local function alive_cnt()
+  local n = 0
+  for i = 1, seats_n do if not players[i].out then n = n + 1 end
+  end
+  return n
+end
+
+local function in_hand_cnt()
+  local n = 0
+  for i = 1, seats_n do
+    local p = players[i]
+    if not p.out and not p.folded then n = n + 1 end
+  end
+  return n
+end
+
+local function actable_cnt()
+  local n = 0
+  for i = 1, seats_n do
+    local p = players[i]
+    if not p.out and not p.folded and not p.allin and p.chips > 0 then n = n + 1 end
+  end
+  return n
+end
+
+local function next_seat(s) return s % seats_n + 1 end
+
+local function next_alive(s)
+  for _ = 1, seats_n do
+    s = next_seat(s)
+    if not players[s].out then return s end
+  end
+  return s
+end
+
+-- 位置指数：0=按钮（最后行动），越大越早
+local function pos_index(s)
+  if button == s then return 0 end
+  local n = 0
+  local c = button
+  for _ = 1, seats_n do
+    c = next_alive(c)
+    n = n + 1
+    if c == s then return n end
+  end
+  return 0
+end
+
+local function opp_aggr(s)
+  local m = 0
+  for i = 1, seats_n do
+    local p = players[i]
+    if i ~= s and not p.out and not p.folded and p.aggr > m then m = p.aggr end
+  end
+  return m
+end
+
+-- ================================================================ 下注状态机
+
+local function pay(p, amt)
+  amt = min(amt, p.chips)
+  p.chips = p.chips - amt
+  p.bet = p.bet + amt
+  p.committed = p.committed + amt
+  if p.chips == 0 then p.allin = true end
+  return amt
+end
+
+local function legal(s)
+  local p = players[s]
+  local owe = cur_bet - p.bet
+  local la = {}
+  la.owe = owe
+  la.can_fold = owe > 0
+  la.can_check = owe <= 0
+  la.call_amt = min(owe, p.chips)
+  la.max_to = p.bet + p.chips
+  la.min_to = min(cur_bet + min_raise, la.max_to)
+  la.can_raise = (not p.allin) and p.chips > owe and la.max_to > cur_bet and p.may_raise
+  return la
+end
+
+-- 统一动作入口：非法输入一律收敛为最接近的合法动作
+local function apply_action(s, act, to)
+  local p = players[s]
+  local la = legal(s)
+  -- 归一化
+  if act == "fold" and la.owe <= 0 then act = "check" end
+  if act == "call" and la.owe <= 0 then act = "check" end
+  if act == "check" and la.owe > 0 then act = "call" end
+  if (act == "raise" or act == "allin") and not la.can_raise then
+    act = la.owe > 0 and "call" or "check"
+  end
+  if act == "fold" then
+    p.folded = true
+    p.acted = true
+    sfx(3)
+    say(p.name .. " 弃牌", C_DIM, 60)
+  elseif act == "check" then
+    p.acted = true
+    sfx(6)
+    say(p.name .. " 过牌", C_CREAM, 60)
+  elseif act == "call" then
+    pay(p, la.owe)
+    p.acted = true
+    if p.allin then
+      sfx(5)
+      say(p.name .. " 全下跟注 " .. fmt(p.bet), C_GOLD2, 80)
+    else
+      sfx(2)
+      say(p.name .. " 跟注 " .. fmt(p.bet), C_CREAM, 60)
+    end
+  else -- raise / allin（归一化后必为合法加注）
+    local amt = mid(la.min_to, to or la.max_to, la.max_to)
+    local full = (amt - cur_bet) >= min_raise
+    local was_owe = la.owe > 0
+    pay(p, amt - p.bet)
+    p.aggr = p.aggr + 1
+    if street == 0 and cur_bet <= bb_amt then p.pf_raiser = true end
+    for i = 1, seats_n do
+      local q = players[i]
+      if i ~= s and not q.out and not q.folded and not q.allin then
+        q.acted = false
+        if full then q.may_raise = true end
+      end
+    end
+    if full then min_raise = amt - cur_bet end
+    cur_bet = amt
+    p.acted = true
+    if p.allin then
+      sfx(5)
+      say(p.name .. " 全下 " .. fmt(amt) .. "！", C_GOLD2, 90)
+    else
+      sfx(4)
+      say(p.name .. (was_owe and " 加注到 " or " 下注 ") .. fmt(amt), C_CREAM, 70)
+    end
+  end
+  p.may_raise = false
+  -- 全桌弃牌：最后下注者直接收池
+  if in_hand_cnt() == 1 then
+    local w = 0
+    for i = 1, seats_n do
+      if not players[i].out and not players[i].folded then w = i end
+    end
+    local amt = pot_now()
+    players[w].chips = players[w].chips + amt
+    award_pots = {{amt = amt, elig = {w}, foldwin = true}}
+    award_lines = {{seat = w, amt = amt, name = nil}}
+    result_cache = nil
+    state = "award"
+    award_t = 110
+  end
+end
+
+local function next_to_act(from)
+  local s = from
+  for _ = 1, seats_n do
+    s = next_seat(s)
+    local p = players[s]
+    if not p.out and not p.folded and not p.allin
+      and (not p.acted or p.bet < cur_bet) then
+      return s
+    end
+  end
+  return 0
+end
+
+-- 构建人类动作菜单（含加注档位）
+local function build_menu(s)
+  local p = players[s]
+  local la = legal(s)
+  local opts = {}
+  if la.can_fold then opts[#opts + 1] = {id = "fold", label = "弃牌"} end
+  if la.can_check then
+    opts[#opts + 1] = {id = "check", label = "过牌"}
+  else
+    opts[#opts + 1] = {id = "call",
+      label = la.call_amt >= p.chips and ("全下跟 " .. fmt(la.call_amt)) or ("跟注 " .. fmt(la.call_amt))}
+  end
+  if la.can_raise then
+    local ladder = {}
+    local function tryadd(v)
+      v = flr(v / 10) * 10
+      if v < la.min_to then v = la.min_to end
+      if v <= la.max_to and v > cur_bet and (ladder[#ladder] == nil or v > ladder[#ladder]) then
+        ladder[#ladder + 1] = v
+      end
+    end
+    tryadd(la.min_to)
+    tryadd(cur_bet + pot_now() * 0.25)
+    tryadd(cur_bet + pot_now() * 0.5)
+    tryadd(cur_bet + pot_now())
+    tryadd(la.max_to)
+    if la.max_to > la.min_to then
+      opts[#opts + 1] = {id = "raise", label = "加注", ladder = ladder, li = 1}
+    end
+    opts[#opts + 1] = {id = "allin", label = "全下 " .. fmt(la.max_to)}
+  end
+  menu = {opts = opts, cur = min(2, #opts)}
+end
+
+local function begin_turn()
+  local p = players[turn]
+  if p.human then
+    if humans_n > 1 then
+      mask = true -- 热座遮罩
+      menu = nil
+    else
+      build_menu(turn)
+      say("轮到 " .. p.name .. " 行动", C_CREAM, 80)
+    end
+  else
+    menu = nil
+    think_t = 18 + flr(rnd(22))
+  end
+end
+
+local function start_street()
+  cur_bet = 0
+  min_raise = bb_amt
+  for i = 1, seats_n do
+    local p = players[i]
+    p.bet = 0 p.acted = false p.may_raise = true
+  end
+  if actable_cnt() <= 1 then
+    state = "runout"
+    runout_t = 50
+    return
+  end
+  turn = next_to_act(button)
+  state = "bet"
+  begin_turn()
+end
+
+local function deal_board(n)
+  for _ = 1, n do
+    board[#board + 1] = deck[deck_i]
+    deck_i = deck_i + 1
+  end
+  sfx(7)
+end
+
+local function end_street()
+  state = "collect"
+  collect_t = 22
+end
+
+local function after_collect()
+  for i = 1, seats_n do players[i].bet = 0 end
+  if street >= 3 then
+    state = "reveal"
+    reveal_q = {}
+    local s = button
+    for _ = 1, seats_n do
+      s = next_seat(s)
+      local p = players[s]
+      if not p.out and not p.folded then reveal_q[#reveal_q + 1] = s end
+    end
+    reveal_i = 0
+    reveal_t = 24
+    return
+  end
+  street = street + 1
+  if street == 1 then deal_board(3) else deal_board(1) end
+  say(STR_NAME[street + 1], C_CREAM, 50)
+  start_street()
+end
+
+-- 摊牌计算与发奖（含边池分层）
+local function resolve_showdown()
+  local pots = build_pots(players)
+  local evs = {}
+  local names = {}
+  for i = 1, seats_n do
+    local p = players[i]
+    if not p.out and not p.folded then
+      local all = {p.hole[1], p.hole[2]}
+      for j = 1, #board do all[#all + 1] = board[j] end
+      evs[i] = best_hand(all)
+      names[i] = hand_name(evs[i])
+    end
+  end
+  local totals = {}
+  local winners_set = {}
+  for _, pot in ipairs(pots) do
+    local best, winners = nil, {}
+    for _, s in ipairs(pot.elig) do
+      if best == nil or evs[s].score > best then
+        best = evs[s].score winners = {s}
+      elseif evs[s].score == best then
+        winners[#winners + 1] = s
+      end
+    end
+    -- 零头给按钮后最早的可赢座位
+    local ordered = {}
+    local s = button
+    for _ = 1, seats_n do
+      s = next_seat(s)
+      for _, w in ipairs(winners) do if w == s then ordered[#ordered + 1] = s end end
+    end
+    local base = flr(pot.amt / #ordered)
+    local rem = pot.amt - base * #ordered
+    for k, w in ipairs(ordered) do
+      local v = base + (k <= rem and 1 or 0)
+      totals[w] = (totals[w] or 0) + v
+      winners_set[w] = true
+    end
+  end
+  award_pots = pots
+  award_lines = {}
+  for w, v in pairs(totals) do
+    players[w].chips = players[w].chips + v
+    award_lines[#award_lines + 1] = {seat = w, amt = v, name = names[w]}
+  end
+  table.sort(award_lines, function(a, b) return a.amt > b.amt end)
+  result_cache = {evs = evs, names = names, winners = winners_set}
+  state = "award"
+  award_t = 110
+  sfx(8)
+end
+
+local function finish_hand()
+  summary = {lines = {}}
+  st_hands = st_hands + 1
+  local any_human = false
+  for _, l in ipairs(award_lines or {}) do
+    local p = players[l.seat]
+    if p.human then
+      any_human = true
+      if l.amt > st_best then st_best = l.amt end
+    end
+  end
+  if any_human then st_wins = st_wins + 1 end
+  dset(0, st_hands) dset(1, st_wins) dset(2, st_best)
+  fflush()
+  if award_pots and award_pots[1] and award_pots[1].foldwin then
+    local l = award_lines[1]
+    summary.lines[#summary.lines + 1] =
+      {players[l.seat].name .. " 收池 " .. fmt(l.amt), C_CREAM}
+  else
+    for _, l in ipairs(award_lines or {}) do
+      summary.lines[#summary.lines + 1] =
+        {players[l.seat].name .. " 以" .. (l.name or "") .. " 赢 " .. fmt(l.amt), C_GOLD2}
+    end
+  end
+  for i = 1, seats_n do
+    local p = players[i]
+    if not p.out and p.chips <= 0 then
+      p.out = true
+      summary.lines[#summary.lines + 1] = {p.name .. " 被淘汰", C_RED}
+      sfx(9)
+    end
+  end
+  if alive_cnt() <= 1 then
+    local champ = 0
+    for i = 1, seats_n do if not players[i].out then champ = i end end
+    over_data = {champ = champ}
+    state = "over"
+    if champ > 0 and players[champ].human then sfx(8) end
+    return
+  end
+  state = "handend"
+end
+
+local function start_hand()
+  hand_no = hand_no + 1
+  local lvl = flr((hand_no - 1) / BLIND_UP)
+  local nsb = SB0
+  for _ = 1, lvl do nsb = nsb * 2 end
+  if nsb ~= sb_amt and hand_no > 1 then
+    say("盲注升至 " .. fmt(nsb) .. "/" .. fmt(nsb * 2), C_GOLD2, 90)
+    sfx(12)
+  end
+  sb_amt = nsb bb_amt = nsb * 2
+  deck = {}
+  for r = 2, 14 do
+    for s = 0, 3 do deck[#deck + 1] = r * 4 + s end
+  end
+  for i = #deck, 2, -1 do
+    local j = flr(rnd(i)) + 1
+    deck[i], deck[j] = deck[j], deck[i]
+  end
+  deck_i = 1
+  board = {}
+  street = 0
+  cur_bet = 0
+  min_raise = bb_amt
+  button = (hand_no == 1) and flr(rnd(seats_n)) + 1 or next_alive(button)
+  for i = 1, seats_n do
+    local p = players[i]
+    p.hole = {}
+    p.bet = 0 p.committed = 0
+    p.folded = p.out
+    p.allin = false p.acted = false p.may_raise = true
+    p.aggr = 0 p.pf_raiser = false p.revealed = false
+  end
+  menu = nil mask = false
+  award_lines = nil award_pots = nil result_cache = nil
+  deal_i = 0
+  deal_t = 20
+  deal_fly = nil
+  state = "deal"
+  msg_t = 0
+  sfx(11)
+end
+
+local function start_game()
+  players = {}
+  for i = 1, seats_n do
+    players[i] = {
+      name = i <= humans_n and ("玩家" .. i) or AI_NAMES[i - humans_n],
+      human = i <= humans_n,
+      chips = START_CHIPS,
+      hole = {}, bet = 0, committed = 0,
+      folded = false, allin = false, acted = false, may_raise = true,
+      out = false, aggr = 0, pf_raiser = false, revealed = false,
+    }
+  end
+  hand_no = 0
+  sb_amt = 0 bb_amt = SB0
+  button = 1
+  start_hand()
+end
+
+local function post_blinds()
+  local sb = next_alive(button)
+  local bb = next_alive(sb)
+  pay(players[sb], sb_amt)
+  pay(players[bb], bb_amt)
+  cur_bet = bb_amt
+  min_raise = bb_amt
+  sfx(2)
+  if actable_cnt() <= 1 then
+    state = "runout"
+    runout_t = 50
+    return
+  end
+  -- 翻前首行动：大盲后第一个可行动者（单挑时自然回到按钮/小盲）
+  turn = next_to_act(bb)
+  if turn == 0 then
+    end_street()
+    return
+  end
+  state = "bet"
+  begin_turn()
+end
+
+-- ================================================================ AI
+
+-- 起手牌 Chen 公式估值
+local function chen(hole)
+  local a, b = rank_of(hole[1]), rank_of(hole[2])
+  if a < b then a, b = b, a end
+  local pv
+  if a == 14 then pv = 10
+  elseif a == 13 then pv = 8
+  elseif a == 12 then pv = 7
+  elseif a == 11 then pv = 6
+  else pv = a / 2 end
+  if a == b then
+    pv = max(pv * 2, 5)
+  else
+    if suit_of(hole[1]) == suit_of(hole[2]) then pv = pv + 2 end
+    local gap = a - b - 1
+    if gap == 1 then pv = pv - 1
+    elseif gap == 2 then pv = pv - 2
+    elseif gap == 3 then pv = pv - 4
+    elseif gap >= 4 then pv = pv - 5 end
+    if gap == 0 and a < 11 then pv = pv + 1 end
+  end
+  return flr(pv + 0.5)
+end
+
+-- 听牌数估计（同花 9 / 两端顺 8 / 卡顺 4，取大）
+local function outs_count(hole, bd)
+  local suitc = {[0] = 0, 0, 0, 0}
+  local present = {}
+  local cards = {hole[1], hole[2]}
+  for i = 1, #bd do cards[#cards + 1] = bd[i] end
+  for _, c in ipairs(cards) do
+    suitc[suit_of(c)] = suitc[suit_of(c)] + 1
+    present[rank_of(c)] = true
+  end
+  present[1] = present[14]
+  local outs = 0
+  for s = 0, 3 do
+    if suitc[s] == 4 and (suit_of(hole[1]) == s or suit_of(hole[2]) == s) then outs = 9 end
+  end
+  local gs = 0
+  for s = 1, 10 do
+    local miss = 0
+    for r = s, s + 4 do
+      if not present[r] then
+        miss = miss + 1
+        if miss > 1 then break end
+      end
+    end
+    if miss == 1 then gs = gs + 1 end
+  end
+  local sd = gs >= 2 and 8 or (gs == 1 and 4 or 0)
+  if sd > outs then outs = sd end
+  return outs
+end
+
+-- 翻后成牌强度（0..1 近似胜率）
+local function strength_post(s)
+  local p = players[s]
+  local all = {p.hole[1], p.hole[2]}
+  for i = 1, #board do all[#all + 1] = board[i] end
+  local ev = best_hand(all)
+  local use = 0
+  for _, c in ipairs(ev.cards) do
+    if c == p.hole[1] or c == p.hole[2] then use = use + 1 end
+  end
+  local bmax = 0
+  local bcnt = {}
+  for _, c in ipairs(board) do
+    local r = rank_of(c)
+    bcnt[r] = (bcnt[r] or 0) + 1
+    if r > bmax then bmax = r end
+  end
+  local bpaired = false
+  for _, n in pairs(bcnt) do if n >= 2 then bpaired = true end end
+  local se
+  if ev.cat >= 4 then
+    se = 0.78 + (ev.cat - 4) * 0.05
+    if use == 0 then se = se - 0.18 end -- 公共牌成顺
+  elseif ev.cat == 3 then
+    se = use >= 2 and 0.74 or (use == 1 and 0.64 or 0.5)
+  elseif ev.cat == 2 then
+    if use >= 3 then se = 0.66
+    elseif use >= 1 then se = 0.58
+    else se = 0.24 end
+  elseif ev.cat == 1 then
+    local prr = 0
+    for _, c in ipairs(ev.cards) do
+      local r = rank_of(c)
+      local inn = 0
+      for _, d in ipairs(ev.cards) do if rank_of(d) == r then inn = inn + 1 end end
+      if inn == 2 then prr = r end
+    end
+    if use == 2 then
+      se = prr >= bmax and 0.55 or 0.44
+    elseif use == 1 then
+      se = prr >= bmax and 0.5 or 0.36
+    else
+      se = 0.18
+    end
+  else
+    local hr = max(rank_of(p.hole[1]), rank_of(p.hole[2]))
+    se = hr >= 14 and 0.22 or (hr > bmax and 0.16 or 0.11)
+    if bpaired then se = se - 0.03 end
+  end
+  local outs = outs_count(p.hole, board)
+  local eq = min(0.98, se + outs * (street < 3 and 0.032 or 0.018))
+  return ev, se, outs, eq
+end
+
+local function raise_to_amt(la, frac)
+  local target = cur_bet + max(min_raise, flr(pot_now() * frac / 10) * 10)
+  return mid(la.min_to, target, la.max_to)
+end
+
+local function ai_preflop(s, la)
+  local p = players[s]
+  local c = chen(p.hole)
+  local owe = cur_bet - p.bet
+  local late = pos_index(s) <= 1
+  local early = pos_index(s) >= alive_cnt() - 2
+  local stack_bb = p.chips / bb_amt
+
+  -- 短码推/弃
+  if diffn >= 2 and stack_bb <= 6 and la.can_raise then
+    local thr = (diffn == 3 and late) and 5 or 7
+    if c >= thr then return "raise", la.max_to end
+    if owe <= 0 then return "check" end
+    if owe <= bb_amt and c >= 4 then return "call" end
+    return "fold"
+  end
+
+  if diffn == 1 then
+    -- 简单：松散被动，几乎不加注
+    if owe <= 0 then return "check" end
+    if c >= 13 and rnd(1) < 0.08 then return "raise", raise_to_amt(la, 0.4) end
+    if c >= 4 or owe <= bb_amt * 2 or rnd(1) < 0.75 then return "call" end
+    return "fold"
+  end
+
+  if owe <= 0 then
+    -- 大盲选择或平跟后：考虑开局加注
+    local thr
+    if diffn == 3 then thr = late and 6 or (early and 9 or 8)
+    else thr = late and 8 or 9 end
+    if c >= thr then
+      return "raise", raise_to_amt(la, diffn == 3 and (late and 0.18 or 0.25) or 0.3)
+    end
+    return "check"
+  end
+
+  if cur_bet <= bb_amt then
+    -- 面对平跟
+    local thr = diffn == 3 and (late and 5 or 7) or 6
+    if c >= thr + 2 then return "raise", raise_to_amt(la, 0.3) end
+    if c >= thr - 1 then return "call" end
+    if owe <= bb_amt and c >= 3 then return "call" end
+    return "fold"
+  end
+
+  -- 面对加注
+  local price = owe / (pot_now() + owe)
+  if diffn == 3 then
+    if c >= 11 or (late and c >= 9 and la.can_raise and rnd(1) < 0.5) then
+      return "raise", mid(la.min_to, cur_bet * 3, la.max_to)
+    end
+    if c >= 8 then return "call" end
+    if price < 0.22 and c >= 6 then return "call" end
+    if rank_of(p.hole[1]) == rank_of(p.hole[2]) and rank_of(p.hole[1]) <= 10 and price < 0.1 then
+      return "call" -- 小对埋伏
+    end
+    return "fold"
+  end
+  if c >= 11 and la.can_raise and rnd(1) < 0.5 then
+    return "raise", mid(la.min_to, cur_bet * 3, la.max_to)
+  end
+  if c >= 7 then return "call" end
+  if price < 0.2 and c >= 5 then return "call" end
+  if owe <= bb_amt and c >= 4 then return "call" end
+  return "fold"
+end
+
+local function ai_postflop(s, la)
+  local p = players[s]
+  local ev, se, outs, eq = strength_post(s)
+  local owe = cur_bet - p.bet
+  local heads = in_hand_cnt() == 2
+  local late = pos_index(s) <= 1
+
+  if owe <= 0 then
+    -- 无人下注
+    if diffn == 1 then
+      if se >= 0.75 and rnd(1) < 0.3 then return "raise", raise_to_amt(la, 0.4) end
+      return "check"
+    end
+    if diffn == 3 then
+      if se >= 0.85 and rnd(1) < 0.3 then return "check" end -- 慢打陷阱
+      if p.pf_raiser and heads and rnd(1) < 0.75 then
+        return "raise", raise_to_amt(la, 0.66) -- 持续下注
+      end
+      if outs >= 8 and rnd(1) < 0.5 then return "raise", raise_to_amt(la, 0.5) end -- 半诈唬
+      if se >= 0.8 then return "raise", raise_to_amt(la, 0.75) end
+      if se >= 0.55 then return "raise", raise_to_amt(la, 0.55) end
+      if late and heads and rnd(1) < 0.4 then return "raise", raise_to_amt(la, 0.5) end -- 位置偷池
+      return "check"
+    end
+    if se >= 0.75 then return "raise", raise_to_amt(la, 0.66) end
+    if se >= 0.55 then return "raise", raise_to_amt(la, 0.5) end
+    if outs >= 8 and rnd(1) < 0.3 then return "raise", raise_to_amt(la, 0.5) end
+    return "check"
+  end
+
+  -- 面对下注
+  local price = owe / (pot_now() + owe)
+  if diffn == 1 then
+    if la.call_amt >= p.chips and se < 0.6 then return "fold" end
+    if se < 0.3 and price > 0.45 and rnd(1) < 0.5 then return "fold" end
+    if rnd(1) < 0.08 then return "fold" end
+    if se >= 0.8 and rnd(1) < 0.15 then return "raise", raise_to_amt(la, 0.8) end
+    return "call"
+  end
+  local margin = diffn == 3 and 1 + opp_aggr(s) * 0.08 or 1
+  local need = price * margin * 0.85
+  if diffn == 3 then
+    if se >= 0.85 and la.can_raise and rnd(1) < 0.8 then
+      return "raise", raise_to_amt(la, 0.9)
+    end
+    if outs >= 8 and eq > price * 2.2 and la.can_raise and rnd(1) < 0.35 then
+      return "raise", raise_to_amt(la, 0.7) -- 听牌加注
+    end
+    if eq >= 0.62 and la.can_raise and rnd(1) < 0.5 then
+      return "raise", raise_to_amt(la, 0.75)
+    end
+    if eq > need then return "call" end
+    if price < 0.12 and outs >= 4 then return "call" end
+    return "fold"
+  end
+  if se >= 0.8 and la.can_raise and rnd(1) < 0.6 then return "raise", raise_to_amt(la, 0.8) end
+  if eq > price * 0.85 then return "call" end
+  if price < 0.15 and outs >= 8 then return "call" end
+  return "fold"
+end
+
+local function ai_decide(s)
+  local la = legal(s)
+  if street == 0 then return ai_preflop(s, la) end
+  return ai_postflop(s, la)
+end
+
+-- ================================================================ 输入
+
+-- 返回 true 表示本帧完成了一次确认行动
+local function human_menu_input()
+  local n = #menu.opts
+  if btnp(0) then
+    menu.cur = (menu.cur - 2) % n + 1
+    sfx(1)
+  end
+  if btnp(1) then
+    menu.cur = menu.cur % n + 1
+    sfx(1)
+  end
+  local opt = menu.opts[menu.cur]
+  if opt.id == "raise" and #opt.ladder > 1 then
+    if btnp(2) then
+      opt.li = min(#opt.ladder, opt.li + 1)
+      sfx(1)
+    end
+    if btnp(3) then
+      opt.li = max(1, opt.li - 1)
+      sfx(1)
+    end
+  end
+  if btnp(5) then -- Ⓑ 快捷选中弃牌
+    for i, o in ipairs(menu.opts) do
+      if o.id == "fold" then menu.cur = i end
+    end
+  end
+  if btnp(4) then
+    local o = menu.opts[menu.cur]
+    local amt = 0
+    if o.id == "raise" then amt = o.ladder[o.li] end
+    if o.id == "allin" then amt = legal(turn).max_to end
+    local s = turn
+    menu = nil
+    apply_action(s, o.id, amt)
+    return true
+  end
+  return false
+end
+
+-- ================================================================ 更新
+
+local function update_title()
+  if btnp(2) then title_row = (title_row - 2) % 3 + 1 sfx(1) end
+  if btnp(3) then title_row = title_row % 3 + 1 sfx(1) end
+  local function cyc(v, lo, hi, d)
+    v = v + d
+    if v < lo then v = hi elseif v > hi then v = lo end
+    return v
+  end
+  if btnp(0) or btnp(1) then
+    local d = btnp(1) and 1 or -1
+    if title_row == 1 then seats_n = seats_n == 4 and 6 or 4 -- 只提供 4/6 人桌
+    elseif title_row == 2 then humans_n = cyc(humans_n, 1, min(4, seats_n), d)
+    else diffn = cyc(diffn, 1, 3, d) end
+    if humans_n > min(4, seats_n) then humans_n = min(4, seats_n) end
+    sfx(1)
+  end
+  if btnp(4) or btnp(11) then
+    start_game()
+    if bgm_on then music(0, 500, 0xC0) end
+    sfx(8)
+  end
+end
+
+local function update_deal(spd)
+  deal_t = deal_t - spd
+  while deal_t <= 0 do
+    if deal_i < seats_n * 2 then
+      deal_i = deal_i + 1
+      deal_fly = {seat = (deal_i - 1) % seats_n + 1, p = 0}
+      local p = players[deal_fly.seat]
+      p.hole[#p.hole + 1] = deck[deck_i]
+      deck_i = deck_i + 1
+      sfx(0)
+      deal_t = deal_t + 5
+    else
+      deal_fly = nil
+      post_blinds()
+      return
+    end
+  end
+  if deal_fly then
+    deal_fly.p = min(1, deal_fly.p + 0.25 * spd)
+  end
+end
+
+local function update_bet(spd)
+  if turn == 0 then
+    end_street()
+    return
+  end
+  local p = players[turn]
+  local acted = false
+  if p.human then
+    if mask then
+      if btnp(4) or btnp(5) then
+        mask = false
+        build_menu(turn)
+        sfx(7)
+      end
+    else
+      acted = human_menu_input()
+    end
+  else
+    think_t = think_t - spd
+    if think_t <= 0 then
+      local s = turn
+      local act, to = ai_decide(s)
+      apply_action(s, act, to)
+      acted = true
+    end
+  end
+  if acted and state == "bet" then
+    local n = next_to_act(turn)
+    if n == 0 then
+      end_street()
+    else
+      turn = n
+      begin_turn()
+    end
+  end
+end
+
+local function update_collect(spd)
+  collect_t = collect_t - spd
+  if collect_t <= 0 then after_collect() end
+end
+
+local function update_runout(spd)
+  runout_t = runout_t - spd
+  if runout_t > 0 then return end
+  -- 先亮出所有未弃牌手牌
+  local any_hidden = false
+  for i = 1, seats_n do
+    local p = players[i]
+    if not p.out and not p.folded and not p.revealed then any_hidden = true end
+  end
+  if any_hidden then
+    for i = 1, seats_n do
+      local p = players[i]
+      if not p.out and not p.folded then p.revealed = true end
+    end
+    sfx(5)
+    say("全下摊牌！", C_GOLD2, 90)
+    runout_t = 60
+    return
+  end
+  if #board < 5 then
+    if #board == 0 then deal_board(3) else deal_board(1) end
+    street = #board == 3 and 1 or (#board == 4 and 2 or 3)
+    runout_t = 55
+  else
+    street = 3
+    state = "reveal"
+    reveal_q = {}
+    local s = button
+    for _ = 1, seats_n do
+      s = next_seat(s)
+      local p = players[s]
+      if not p.out and not p.folded then reveal_q[#reveal_q + 1] = s end
+    end
+    reveal_i = 0
+    reveal_t = 20
+  end
+end
+
+local function update_reveal(spd)
+  reveal_t = reveal_t - spd
+  if reveal_t > 0 then return end
+  if reveal_i < #reveal_q then
+    reveal_i = reveal_i + 1
+    players[reveal_q[reveal_i]].revealed = true
+    sfx(7)
+    reveal_t = 26
+  else
+    resolve_showdown()
+  end
+end
+
+local function update_award(spd)
+  award_t = award_t - spd
+  if award_t <= 0 then finish_hand() end
+end
+
+function _update()
+  t = t + 1
+  local spd = btn(6) and 4 or 1 -- Ⓧ 加速
+  if msg_t > 0 then msg_t = msg_t - 1 end
+  if btnp(10) then
+    bgm_on = not bgm_on
+    if bgm_on then music(0, 400, 0xC0) else music(-1, 300) end
+    dset(3, bgm_on and 1 or 0)
+    fflush()
+  end
+  if state == "title" then
+    update_title()
+  elseif state == "deal" then
+    update_deal(spd)
+  elseif state == "bet" then
+    update_bet(spd)
+  elseif state == "collect" then
+    update_collect(spd)
+  elseif state == "runout" then
+    update_runout(spd)
+  elseif state == "reveal" then
+    update_reveal(spd)
+  elseif state == "award" then
+    if btnp(4) then award_t = 0 end
+    update_award(spd)
+  elseif state == "handend" then
+    if btnp(4) or btnp(11) then start_hand() end
+  elseif state == "over" then
+    if btnp(4) or btnp(11) then
+      state = "title"
+      music(-1, 300)
+    end
+  end
+end
+
+-- ================================================================ 绘制：卡牌
+
+local function draw_back(x, y, w, h)
+  rectfill(x, y, w, h, C_WHITE)
+  rectfill(x + 1, y + 1, w - 2, h - 2, C_BACK)
+  if w >= 16 and h >= 20 then
+    fillp(0x8142)
+    rectfill(x + 3, y + 3, w - 6, h - 6, C_BACK_LN * 256 + C_BACK)
+    fillp()
+  else
+    rectfill(flr(x + w / 2) - 1, flr(y + h / 2) - 1, 2, 2, C_BACK_LN)
+  end
+end
+
+local function card_rank_suit(x, y, c, sc)
+  local col = card_col(c)
+  local s = rank_str(rank_of(c))
+  local gx = x
+  for i = 1, #s do
+    glyph(GLYPH[s:sub(i, i)], gx, y, col, sc, 3)
+    gx = gx + 4 * sc
+  end
+  return col
+end
+
+local function draw_card_std(x, y, c, on) -- 20×28 公共牌
+  rectfill(x, y, 20, 28, C_WHITE)
+  if on then
+    rect(x - 1, y - 1, 22, 30, C_GOLD2)
+    rect(x, y, 20, 28, C_GOLD)
+  else
+    rect(x, y, 20, 28, 3)
+  end
+  local col = card_rank_suit(x + 2, y + 2, c, 1)
+  glyph(SUIT_G[suit_of(c) + 1], x + 2, y + 9, col, 1, 5)
+  glyph(SUIT_G[suit_of(c) + 1], x + 12, y + 19, col, 1, 5)
+end
+
+local function draw_card_big(x, y, c) -- 26×36 底牌
+  rectfill(x, y, 26, 36, C_WHITE)
+  rect(x, y, 26, 36, 3)
+  local col = card_rank_suit(x + 3, y + 3, c, 2)
+  glyph(SUIT_G[suit_of(c) + 1], x + 3, y + 16, col, 2, 5)
+  glyph(SUIT_G[suit_of(c) + 1], x + 15, y + 27, col, 1, 5)
+end
+
+local function draw_card_mini(x, y, c, on) -- 12×17 座位牌
+  rectfill(x, y, 12, 17, C_WHITE)
+  if on then
+    rect(x - 1, y - 1, 14, 19, C_GOLD2)
+    rect(x, y, 12, 17, C_GOLD)
+  else
+    rect(x, y, 12, 17, 3)
+  end
+  local col = card_rank_suit(x + 1, y + 2, c, 1)
+  glyph(SUIT_G[suit_of(c) + 1], x + 3, y + 9, col, 1, 5)
+end
+
+-- ================================================================ 绘制：筹码与桌面
+
+local function chip_color(amt)
+  if amt >= 1000 then return C_GOLD end
+  if amt >= 500 then return 47 end
+  if amt >= 100 then return 2 end
+  if amt >= 50 then return 33 end
+  return 41
+end
+
+local function draw_chip(x, y, col)
+  circfill(x, y, 4, col)
+  circ(x, y, 4, C_WHITE)
+  circfill(x, y, 1, C_WHITE)
+end
+
+local function draw_room()
+  cls(C_RIM_D)
+  ovalfill(128, 100, 122, 70, C_RIM)
+  ovalfill(128, 100, 114, 62, C_FELT)
+  fillp(0x1084)
+  ovalfill(128, 100, 110, 58, C_FELT_HI * 256 + C_FELT)
+  fillp()
+  oval(128, 100, 96, 48, C_RIM)
+  oval(128, 100, 42, 24, C_RIM)
+  rectfill(0, 196, 256, 60, C_BG)
+  line(0, 196, 255, 196, C_STRIP)
+  rectfill(0, 0, 256, 16, C_STRIP)
+  line(0, 16, 255, 16, 3)
+end
+
+local function draw_topbar()
+  local s = "盲" .. fmt(sb_amt) .. "/" .. fmt(bb_amt)
+  print(s, 2, 0, C_CREAM)
+  local s2 = "第" .. fmt(hand_no) .. "手"
+  print(s2, 88, 0, C_CREAM)
+  local s3 = DIFF_NAME[diffn] .. " " .. fmt(seats_n) .. "人" .. (bgm_on and "♪" or "")
+  print(s3, 254 - tw(s3), 0, C_GRAY)
+end
+
+local function seat_card_x(i)
+  local lay = LAYOUT[seats_n]
+  local px = lay.plq[i][1]
+  if lay.left[i] then return px - 28 end
+  return px + 66
+end
+
+local function draw_seat(i)
+  local p = players[i]
+  local lay = LAYOUT[seats_n]
+  local px, py = lay.plq[i][1], lay.plq[i][2]
+  local acting = (state == "bet" and turn == i)
+  local dim = p.out or p.folded
+  rrectfill(px, py, 64, 34, 6, dim and 13 or C_PANEL)
+  rrect(px, py, 64, 34, 6, acting and (flr(t / 8) % 2 == 0 and C_GOLD2 or C_GOLD)
+    or (i <= humans_n and C_GOLD or C_PANEL_BD))
+  print(p.name, px + 4, py + 1, dim and C_DIM or C_CREAM)
+  if p.out then
+    print("出局", px + 4, py + 17, C_DIM)
+  else
+    print(fmt(p.chips), px + 4, py + 17, dim and C_DIM or C_GOLD2)
+  end
+  if p.allin and not p.out then
+    print("全下", px + 40, py + 17, C_RED)
+  end
+  -- 庄家钮
+  if button == i and not p.out then
+    circfill(px + 56, py - 4, 5, C_GOLD2)
+    circ(px + 56, py - 4, 5, C_WHITE)
+    print("D", px + 52, py - 12, 13)
+  end
+  -- 底牌
+  if not dim and #p.hole == 2 then
+    if p.revealed then
+      local ev = result_cache and result_cache.evs[i] or nil
+      local isw = result_cache and result_cache.winners[i] or false
+      for k = 1, 2 do
+        local on = false
+        if ev and isw then
+          for _, bc in ipairs(ev.cards) do
+            if bc == p.hole[k] then on = true end
+          end
+        end
+        draw_card_mini(seat_card_x(i) + (k - 1) * 10, py, p.hole[k], on)
+      end
+      if result_cache and result_cache.names[i] then
+        local nm = result_cache.names[i]
+        print(nm, seat_card_x(i) - 2, py + 18, C_GOLD2)
+      end
+    elseif p.human and humans_n == 1 then
+      draw_card_mini(seat_card_x(i), py, p.hole[1], false)
+      draw_card_mini(seat_card_x(i) + 10, py, p.hole[2], false)
+    else
+      draw_back(seat_card_x(i), py, 9, 14)
+      draw_back(seat_card_x(i) + 10, py, 9, 14)
+    end
+  end
+  -- 当前下注
+  if p.bet > 0 then
+    local bx, by = lay.bet[i][1], lay.bet[i][2]
+    draw_chip(bx - flr(tw(p.bet) / 2) - 8, by - 8, chip_color(p.bet))
+    print(fmt(p.bet), bx - flr(tw(p.bet) / 2) + 2, by - 8, C_WHITE)
+  end
+  -- 行动思考点
+  if acting then
+    local nd = flr(t / 10) % 3 + 1
+    for k = 1, nd do
+      circfill(px + 8 + k * 4, py + 44, 1, C_GOLD2)
+    end
+  end
+end
+
+local function draw_center()
+  if state == "deal" or state == "collect" or state == "runout" then
+    draw_back(118, 48, 14, 20)
+  end
+  for i = 1, #board do
+    local on = false
+    if result_cache then
+      for _, l in ipairs(award_lines or {}) do
+        local ev = result_cache.evs[l.seat]
+        if ev then
+          for _, bc in ipairs(ev.cards) do
+            if bc == board[i] then on = true end
+          end
+        end
+      end
+    end
+    draw_card_std(70 + (i - 1) * 24, 76, board[i], on)
+  end
+  local pot = pot_now() - cur_pot_bets()
+  local s = "池 " .. fmt(pot)
+  print(s, flr((256 - tw(s)) / 2), 108, C_GOLD2)
+  if msg_t > 0 then
+    print(msg, flr((256 - tw(msg)) / 2), 128, msg_c)
+  end
+end
+
+local function draw_bottom()
+  -- 找到当前可展示底牌的人类
+  local hs = nil
+  for i = 1, seats_n do
+    local p = players[i]
+    if p.human and not p.out and not p.folded then
+      if humans_n == 1 then
+        hs = p
+      elseif state == "bet" and turn == i and not mask then
+        hs = p
+      end
+    end
+  end
+  -- 行 A：状态行
+  local left_txt = ""
+  if hs then
+    if #board >= 3 then
+      local all = {hs.hole[1], hs.hole[2]}
+      for j = 1, #board do all[#all + 1] = board[j] end
+      left_txt = hand_name(best_hand(all))
+    elseif #hs.hole == 2 then
+      local a, b = rank_of(hs.hole[1]), rank_of(hs.hole[2])
+      if a == b then left_txt = "对" .. rank_str(a)
+      else left_txt = "高" .. rank_str(max(a, b)) end
+    end
+  end
+  if left_txt == "" and #board < 4 then left_txt = STR_NAME[min(#board + 1, 4)] end
+  print(left_txt, 4, 198, C_DIM)
+  if state == "bet" and players[turn] and players[turn].human and not mask and menu then
+    local opt = menu.opts[menu.cur]
+    local hint = "Ⓐ确认 Ⓑ弃牌"
+    if opt.id == "raise" then
+      hint = "加至" .. fmt(opt.ladder[opt.li]) .. " ⬆⬇调 " .. fmt(opt.li) .. "/" .. fmt(#opt.ladder) .. " Ⓐ确认"
+    end
+    print(hint, 254 - tw(hint), 198, C_GOLD2)
+  else
+    local hint = "Ⓧ加速 Select音乐"
+    print(hint, 254 - tw(hint), 198, C_DIM)
+  end
+  -- 左侧大底牌
+  if hs and #hs.hole == 2 then
+    draw_card_big(8, 216, hs.hole[1])
+    draw_card_big(36, 216, hs.hole[2])
+  else
+    rectfill(8, 216, 62, 36, 13)
+    if humans_n > 1 then
+      local s = "手牌保密"
+      print(s, 8 + flr((62 - tw(s)) / 2), 226, C_DIM)
+    end
+  end
+  -- 动作按钮 / 状态
+  if state == "bet" and players[turn] and players[turn].human and not mask and menu then
+    for k, o in ipairs(menu.opts) do
+      local x = 70 + ((k - 1) % 2) * 92
+      local y = 216 + flr((k - 1) / 2) * 22
+      local label = o.label
+      if o.id == "raise" then label = "加至" .. fmt(o.ladder[o.li]) end
+      local sel = k == menu.cur
+      rectfill(x, y, 88, 18, sel and 15 or 11)
+      rect(x, y, 88, 18, sel and C_GOLD2 or C_PANEL_BD)
+      print(label, x + flr((88 - tw(label)) / 2), y + 1, sel and C_WHITE or C_CREAM)
+    end
+  else
+    local stxt = ""
+    if state == "bet" and players[turn] then
+      local p = players[turn]
+      stxt = p.human and "轮到你行动" or (p.name .. " 思考中" .. string.rep(".", flr(t / 12) % 4))
+    elseif state == "reveal" then
+      stxt = "摊牌…"
+    elseif state == "runout" then
+      stxt = "全下亮牌，发完公共牌…"
+    elseif state == "collect" then
+      stxt = "下注入池…"
+    end
+    if stxt ~= "" then
+      print(stxt, 70 + flr((182 - tw(stxt)) / 2), 228, C_CREAM)
+    end
+  end
+end
+
+local function draw_mask()
+  rectfill(0, 0, 256, 256, 13)
+  local p = players[turn]
+  local s = "轮到 " .. p.name
+  print(s, flr((256 - tw(s)) / 2), 24, C_GOLD2)
+  local s2 = "按 Ⓐ 亮牌"
+  if flr(t / 20) % 2 == 0 then
+    print(s2, flr((256 - tw(s2)) / 2), 48, C_WHITE)
+  end
+  local y = 84
+  for i = 1, seats_n do
+    local q = players[i]
+    local lab = q.name .. (button == i and "（庄）" or "") ..
+      " " .. (q.out and "出局" or fmt(q.chips))
+    local col = q.out and C_DIM or (i == turn and C_GOLD2 or C_CREAM)
+    print(lab, flr((256 - tw(lab)) / 2), y, col)
+    y = y + 20
+  end
+  local s3 = "底池 " .. fmt(pot_now()) .. " ・ 盲注 " .. fmt(sb_amt) .. "/" .. fmt(bb_amt)
+  print(s3, flr((256 - tw(s3)) / 2), y + 10, C_DIM)
+end
+
+local function draw_award_fx()
+  if state ~= "award" or not award_lines then return end
+  local prog = 1 - award_t / 110
+  for k, l in ipairs(award_lines) do
+    local lay = LAYOUT[seats_n]
+    local tx, ty = lay.plq[l.seat][1] + 32, lay.plq[l.seat][2] + 17
+    local n = min(5, 1 + flr(l.amt / 200))
+    for j = 1, n do
+      local ph = mid(0, (prog - (k - 1) * 0.1 - j * 0.06) / 0.5, 1)
+      local x = 128 + (tx - 128) * ph
+      local y = 100 + (ty - 100) * ph
+      draw_chip(flr(x), flr(y), chip_color(flr(l.amt / n)))
+    end
+    local s = "+" .. fmt(l.amt)
+    print(s, tx - tw(s) - 10, ty - 8, C_GOLD2)
+  end
+end
+
+local function draw_summary_panel()
+  if state ~= "handend" and state ~= "over" then return end
+  fillp(0xa5a5)
+  rectfill(0, 0, 256, 256, 13 * 256 + C_RIM_D)
+  fillp()
+  local x, y, w, h = 30, 54, 196, 148
+  rectfill(x - 2, y - 2, w + 4, h + 4, 0)
+  rectfill(x, y, w, h, 15)
+  rect(x, y, w, h, C_GOLD)
+  local title = state == "over" and "终局" or "本手结算"
+  print(title, flr((256 - tw(title)) / 2), y + 8, C_GOLD2)
+  local yy = y + 32
+  for _, l in ipairs(summary.lines) do
+    if yy < y + h - 50 then
+      print(l[1], flr((256 - tw(l[1])) / 2), yy, l[2])
+      yy = yy + 17
+    end
+  end
+  if state == "over" then
+    local champ = players[over_data.champ]
+    local s = "冠军：" .. champ.name .. " " .. fmt(champ.chips)
+    print(s, flr((256 - tw(s)) / 2), y + h - 46, C_GOLD2)
+    local s2 = "战绩 " .. fmt(st_hands) .. "手 " .. fmt(st_wins) .. "胜 最佳" .. fmt(st_best)
+    print(s2, flr((256 - tw(s2)) / 2), y + h - 30, C_CREAM)
+    local s3 = "Ⓐ 返回标题"
+    if flr(t / 20) % 2 == 0 then
+      print(s3, flr((256 - tw(s3)) / 2), y + h - 12, C_GOLD)
+    end
+  else
+    local s = "Ⓐ 下一手"
+    if flr(t / 20) % 2 == 0 then
+      print(s, flr((256 - tw(s)) / 2), y + h - 24, C_GOLD)
+    end
+  end
+end
+
+local function draw_deal_anim()
+  if deal_fly then
+    local lay = LAYOUT[seats_n]
+    local px, py = lay.plq[deal_fly.seat][1], lay.plq[deal_fly.seat][2]
+    local x = 122 + (px - 122) * deal_fly.p
+    local y = 58 + (py - 58) * deal_fly.p
+    draw_back(flr(x) - 6, flr(y) - 8, 12, 16)
+  end
+end
+
+local function draw_collect_anim()
+  local prog = 1 - collect_t / 22
+  for i = 1, seats_n do
+    local p = players[i]
+    if p.bet > 0 then
+      local lay = LAYOUT[seats_n]
+      local bx, by = lay.bet[i][1], lay.bet[i][2]
+      local x = bx + (128 - bx) * prog
+      local y = by + (100 - by) * prog
+      draw_chip(flr(x), flr(y), chip_color(p.bet))
+    end
+  end
+end
+
+local function draw_title()
+  cls(C_RIM_D)
+  rrectfill(14, 6, 228, 244, 12, C_FELT)
+  rrect(14, 6, 228, 244, 12, C_FELT_HI)
+  fillp(0x1084)
+  rectfill(18, 10, 220, 236, C_FELT_HI * 256 + C_FELT)
+  fillp()
+  draw_card_big(30, 24, 14 * 4)      -- ♠A
+  draw_card_big(62, 16, 13 * 4 + 1)  -- ♥K
+  draw_card_big(176, 16, 12 * 4 + 2) -- ♦Q
+  draw_card_big(204, 24, 11 * 4 + 3) -- ♣J
+  local s = "德州扑克"
+  local x = flr((256 - tw(s)) / 2)
+  print(s, x + 1, 64, 26)
+  print(s, x - 1, 62, C_GOLD2)
+  local s2 = "无限注德州・热座 " .. fmt(seats_n) .. " 人桌"
+  print(s2, flr((256 - tw(s2)) / 2), 88, C_CREAM)
+  local rows = {
+    {"桌上人数", fmt(seats_n) .. " 人"},
+    {"人类玩家", fmt(humans_n) .. " 人"},
+    {"AI 难度", DIFF_NAME[diffn]},
+  }
+  local y = 116
+  for i, r in ipairs(rows) do
+    local sel = i == title_row
+    if sel then
+      rectfill(44, y - 3, 168, 22, 15)
+      rect(44, y - 3, 168, 22, C_GOLD)
+    end
+    print(r[1], 52, y, sel and C_WHITE or C_CREAM)
+    print(r[2], 148, y, sel and C_GOLD2 or C_DIM)
+    y = y + 26
+  end
+  local st = "战绩 " .. fmt(st_hands) .. "手 " .. fmt(st_wins) .. "胜 最佳池" .. fmt(st_best)
+  print(st, flr((256 - tw(st)) / 2), 196, C_DIM)
+  local hs = "⬅➡调值 ⬆⬇选行 Ⓐ开局"
+  print(hs, flr((256 - tw(hs)) / 2), 214, C_GRAY)
+  local hs2 = "Select 音乐(" .. (bgm_on and "开" or "关") .. ") ・ Ⓧ 游戏中加速"
+  print(hs2, flr((256 - tw(hs2)) / 2), 232, C_DIM)
+end
+
+function _draw()
+  if state == "title" then
+    draw_title()
+    return
+  end
+  draw_room()
+  draw_topbar()
+  for i = 1, seats_n do
+    if LAYOUT[seats_n].plq[i][2] < 100 then draw_seat(i) end
+  end
+  draw_center()
+  for i = 1, seats_n do
+    if LAYOUT[seats_n].plq[i][2] >= 100 then draw_seat(i) end
+  end
+  if state == "collect" then draw_collect_anim() end
+  draw_award_fx()
+  draw_bottom()
+  if state == "deal" then draw_deal_anim() end
+  if mask and state == "bet" then draw_mask() end
+  draw_summary_panel()
+end
+
+-- ================================================================ 生命周期
+
+function _init()
+  init_audio()
+  st_hands = dget(0)
+  st_wins = dget(1)
+  st_best = dget(2)
+  bgm_on = dget(3) ~= 0
+  seats_n = 4
+  humans_n = 1
+  diffn = 2
+  title_row = 1
+  state = "title"
+  t = 0
+  msg_t = 0
+  players = nil
+  board = {}
+end

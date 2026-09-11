@@ -1,0 +1,232 @@
+-- FC-16 演示卡带
+-- 覆盖：中文文本 / 64 色调色板 / 精灵与地图 / 2D 物理 / 芯片音频 / 存档
+-- （文案含 ←→、全角空格——均在 v0.5 字集标准内）
+--
+-- 操作：左右移动，J 跳跃，K 音效，Start 存档（文案只用固件字集内的字符）
+-- 标题画面停留约 2.5 秒后自动进入演示（街机式 attract mode）
+
+local mode = "title" -- title | game
+local t = 0
+local player, coins, score, on_ground, saved_flash, best
+
+-- ---------------------------------------------------------------- 基础工具
+
+function u8(a, v) poke(a, v % 256) end
+
+-- 生成一张 16×16 瓦片：外圈 edge 色，内部 fill 色（写入精灵表）
+function make_tile(id, fill, edge)
+  local base = id * 256
+  for y = 0, 15 do
+    for x = 0, 15 do
+      local c = 0
+      if x == 0 or x == 15 or y == 0 or y == 15 then
+        c = edge
+      elseif x >= 2 and x <= 13 and y >= 2 and y <= 13 then
+        c = fill
+      end
+      poke(base + y * 16 + x, c)
+    end
+  end
+end
+
+-- 地图格写入：10 位瓦片索引 + 6 位标志（SPEC §4.1）
+function map_set(cx, cy, tile, flags)
+  local a = 0x040000 + (cy * 256 + cx) * 2
+  u8(a, tile % 256)
+  u8(a + 1, flr(tile / 256) % 4 + (flags or 0) * 4)
+end
+
+-- 写一条 32 步 SFX（v0.31：每条 112B）
+function init_sfx(id, notes, wave, vol)
+  local base = 0x060000 + id * 112
+  u8(base, 2)        -- 速度：每步 2 帧
+  u8(base + 1, #notes) -- 有效步数
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    if i < #notes then
+      u8(a, notes[i + 1])
+      u8(a + 1, wave * 16 + vol)
+      u8(a + 2, 0)
+    else
+      u8(a, 0) -- 休止
+      u8(a + 1, 0)
+    end
+  end
+end
+
+-- MUSIC 0：低音 + 旋律，BEGIN/END 自循环
+function init_music()
+  init_sfx(4, {37, 37, 44, 44, 49, 49, 44, 42}, 11, 13) -- 低音（BASS）
+  init_sfx(5, {61, 64, 66, 68, 71, 68, 66, 64}, 3, 9)  -- 旋律（50% 脉冲）
+
+  local mb = 0x063800
+  u8(mb + 4, 5) -- C4 ← SFX 4
+  u8(mb + 5, 6) -- C5 ← SFX 5
+  u8(mb + 8, 3) -- BEGIN + END
+end
+
+-- ---------------------------------------------------------------- 初始化
+
+function _init()
+  make_tile(1, 41, 8) -- 玩家砖（蓝）
+  make_tile(2, 36, 34) -- 地砖（ENDESGA 深绿 / 亮绿）
+  make_tile(3, 30, 18) -- 平台砖（金）
+
+  init_sfx(0, {49, 56}, 5, 14) -- 跳跃（PULSE 12）
+  init_sfx(1, {76, 80}, 4, 12) -- 拾取（PULSE 25）
+  init_music()
+
+  -- 关卡：单屏、级差 32px 的阶梯（出厂跳跃高度 50px，两级台阶稳跳）。
+  -- 物理体与地图瓦片严格对齐（body 的 pos 为形状中心）
+  body(128, 240, 320, 32, "stat") -- 地面：瓦片行 14–15（x -32..288，含墙下）
+  body(-8, 128, 16, 256, "stat")  -- 左墙：x -16..0（屏幕外，挡住球）
+  body(264, 128, 16, 256, "stat") -- 右墙：x 256..272
+  body(64, 184, 64, 16, "stat")   -- P1：行 11 列 2..5（顶面 y=192，离地 32px）
+  body(144, 152, 64, 16, "stat")  -- P2：行 9 列 7..10（顶面 y=160）
+  body(216, 120, 48, 16, "stat")  -- P3：行 7 列 12..14（顶面 y=128）
+  player = cbody(24, 200, 7, "dyn")
+  player.restitution = 0
+  player:hit(function(other, normal, depth)
+    if normal.y < -0.5 then on_ground = true end
+  end)
+
+  -- 地图（瓦片背景）
+  for x = 0, 15 do
+    map_set(x, 14, 2)
+    map_set(x, 15, 2)
+  end
+  for x = 2, 5 do map_set(x, 11, 3) end   -- P1
+  for x = 7, 10 do map_set(x, 9, 3) end  -- P2
+  for x = 12, 14 do map_set(x, 7, 3) end -- P3
+
+  coins = {
+    v(56, 156), v(84, 150),   -- P1 上方
+    v(128, 122), v(156, 116), -- P2 上方
+    v(204, 90), v(228, 84),   -- P3 上方
+  }
+  score = 0
+  on_ground = false
+  saved_flash = 0
+  best = dget(0) -- 上次存档的分数
+end
+
+-- ---------------------------------------------------------------- 帧循环
+
+function _update()
+  t = t + 1
+  if mode == "title" then
+    -- Start 或 2.5 秒后自动开始（attract mode）
+    if btnp(11) or t > 150 then
+      mode = "game"
+      music(0, 500)
+    end
+    return
+  end
+
+  -- on_ground 由上一物理步的碰撞回调设置（normal 为推开方向：站在地面上时朝上）
+  local sp = 150
+  if btn(0) then player.vel = v(-sp, player.vel.y) end
+  if btn(1) then player.vel = v(sp, player.vel.y) end
+  if btnp(4) and on_ground then
+    player.vel = v(player.vel.x, -300)
+    on_ground = false -- 消费：起跳后不再算落地
+    sfx(0, 0)
+  end
+  if btnp(5) then sfx(1, 1) end
+  if btnp(11) then
+    dset(0, score)
+    fflush()
+    best = score
+    saved_flash = 40
+  end
+
+  for i = #coins, 1, -1 do
+    if v.len(coins[i] - player.pos) < 11 then
+      table.remove(coins, i)
+      score = score + 1
+      sfx(1, 2)
+    end
+  end
+
+  -- 帧尾清零：随后的物理步若仍在地面，碰撞回调会重新置真
+  on_ground = false
+end
+function _draw()
+  cls(2)
+  if mode == "title" then
+    draw_title()
+  else
+    draw_game()
+  end
+end
+
+-- ---------------------------------------------------------------- 标题画面
+
+function draw_title()
+  -- 标题（居中）
+  local s = "FC-16"
+  print(s, (256 - tw(s) * 2) / 2 - tw(s) / 2, 28, 7)
+  local s2 = "幻想主机・演示"
+  print(s2, (256 - tw(s2)) / 2, 48, 60)
+  local s3 = "中文点阵・64 色・60Hz"
+  print(s3, (256 - tw(s3)) / 2, 70, 9)
+
+  -- SPEC §2.2 的 8×8 固定视觉分组
+  local gx, gy, cell = 96, 88, 8
+  for row = 0, 7 do
+    for col = 0, 7 do
+      rectfill(gx + col * cell, gy + row * cell, cell - 1, cell - 1, row * 8 + col)
+    end
+  end
+  rect(gx - 1, gy - 1, 8 * cell + 1, 8 * cell + 1, 7)
+
+  -- 跳动的提示
+  if flr(t / 20) % 2 == 0 then
+    local s4 = "按 Start 开始"
+    print(s4, (256 - tw(s4)) / 2, 224, 58)
+  end
+  local s5 = "最佳：" .. string.format("%d", best)
+  print(s5, (256 - tw(s5)) / 2, 240, 40)
+end
+
+-- ---------------------------------------------------------------- 游戏画面
+
+function draw_game()
+  -- 背景：淡淡的网格
+  for x = 0, 15 do
+    for y = 0, 3 do
+      line(x * 16, 0, x * 16, 64, 11)
+    end
+  end
+  -- 地图
+  map(0, 0, 0, 0, 16, 16)
+
+  -- 金币（正弦浮动；sin 为圈制，60 帧一个来回 ≈ 1/4 圈）
+  for i = 1, #coins do
+    local c = coins[i]
+    local dy = sin((t / 30 + i) * 0.15915494309189535) * 3
+    circfill(c.x, c.y + dy, 4, 30)
+    circfill(c.x, c.y + dy, 2, 23)
+  end
+
+  -- 玩家（物理圆体）
+  circfill(player.pos.x, player.pos.y, player.r, 41)
+  circfill(player.pos.x - 2, player.pos.y - 2, player.r - 3, 8)
+  -- 速度向量可视化
+  line(player.pos.x, player.pos.y,
+       player.pos.x + player.vel.x * 0.05, player.pos.y + player.vel.y * 0.05, 41)
+
+  -- HUD
+  print("得分：" .. score, 8, 6, 7)
+  print("最佳：" .. string.format("%d", best), 8, 24, 40)
+  rectfill(0, 238, 256, 18, 0)
+  print("A/D 移动　J 跳跃", 8, 240, 9)
+  print("帧 " .. string.format("%d", frame()), 200, 6, 9)
+  if saved_flash > 0 then
+    saved_flash = saved_flash - 1
+    if flr(saved_flash / 8) % 2 == 0 then
+      local s = "已存档！"
+      print(s, (256 - tw(s)) / 2, 120, 30)
+    end
+  end
+end

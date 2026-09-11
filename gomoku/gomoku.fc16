@@ -1,0 +1,824 @@
+fc16
+name: 五子棋
+author: FrostMiKu
+save_id: gomoku
+version: 1
+flags: 0
+icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
+@sprites 0
+@map 0
+@sfx 0
+@patterns 0
+@sflags 0
+@free 0
+@code 24241
+-- FC-16 五子棋演示卡带
+-- ============================================================
+-- 15×15 标准五子棋：双人同屏 / 人机对战（玩家执黑先行，AI 执白）。
+--
+-- 特性：
+--   ・程序化烘焙：木纹棋盘（212×212，sspr 一次成图）与 16px/32px 棋子精灵
+--   ・启发式棋型评分 AI（连五>活四>冲四>活三>眠三>活二，攻防取大，
+--     同分靠中心，全程确定无随机）
+--   ・悔棋：双人退一手；人机退两手（AI 思考中按 Ⓑ 取消思考并退玩家那手）
+--   ・胜负演出：五连连线动画 + 连子闪环 + 横幅
+--   ・音频：黑白落子双音色、悔棋、胜利/和棋旋律、五声音阶环境 BGM
+--   ・存档：dset 战绩统计（各模式胜/负/和）与 BGM 开关，fflush 落盘
+--
+-- 操作：方向键移动光标（按住自动重复），Ⓐ 落子，Ⓑ 悔棋，
+--       Start 确认/回标题，Select 音乐开关。
+
+-- ---------------------------------------------------------------- 常量
+
+local N = 15                        -- 棋盘路数
+local CELL = 14                     -- 交点间距（像素）
+local GRID_OX, GRID_OY = 30, 36     -- 交点 (0,0) 的屏幕坐标
+local PANEL_X, PANEL_Y, PANEL_S = 22, 28, 212 -- 木板面板（网格两侧各留 8px 边距）
+local TOP_H, BOT_Y = 28, 240        -- 顶栏高 / 底栏 y
+
+-- 色号（SPEC §2.2 色表直取；不用色号算术推导明暗）
+local C_BG      = 13  -- 深靛 #1A1932
+local C_BG_D    = 14  -- 近黑靛 #0E071B
+local C_BG_L    = 12  -- 靛 #2A2F4E
+local C_WOOD    = 19  -- 木面 #BF6F4A
+local C_WOOD_HI = 20  -- 浅木纹 #E69C69
+local C_WOOD_LH = 21  -- 受光棱 #F6CA9F
+local C_WOOD_DK = 18  -- 深木纹 #8A4836
+local C_LINE    = 17  -- 网格线/落影 #5D2C28
+local C_EDGE    = 16  -- 深框 #391F21
+local C_TXT     = 8   -- 亮字 #C7CFDD
+local C_TXT_M   = 10  -- 中亮字 #657392
+local C_WHITE   = 7
+local C_YEL     = 30  -- 黄 #FFC825
+local C_YEL_L   = 31  -- 亮黄 #FFEB57
+local C_RED     = 63  -- 红 #FF0040
+local C_RED_D   = 59  -- 深红 #EA323C
+
+-- 精灵布局：瓦片 1 黑子 / 2 白子 / 4,5,20,21 大黑子 / 6,7,22,23 大白子；
+-- 木纹棋盘烘焙到精灵表像素区 (0,256) 起 212×212
+local BOARD_U, BOARD_V = 0, 256
+
+-- 输入 id（SPEC §6.1）
+local BTN_L, BTN_R, BTN_U, BTN_D = 0, 1, 2, 3
+local BTN_A, BTN_B, BTN_SEL, BTN_STA = 4, 5, 10, 11
+
+-- 音效通道：BGM 独占 ch4/5（music mask 0x70），游戏音效走 ch0-2
+local CH_STONE, CH_UI, CH_JINGLE = 0, 1, 2
+
+-- ---------------------------------------------------------------- 精灵烘焙
+
+-- 精灵表像素写入：瓦片按 256B 连续块存储（SPEC §4.1/§4.2），
+-- 表坐标 (u,v) → 瓦片 (v/16)*16+u/16，瓦片内偏移 (u%16, v%16)
+local function spset(u, v, c)
+  poke((flr(v / 16) * 16 + flr(u / 16)) * 256 + (v % 16) * 16 + u % 16, c)
+end
+
+-- 16px 棋子（瓦片 id）：径向明暗 + 左上高光 + 右下落影
+local function bake_stone(id, white)
+  local u0, v0 = (id % 16) * 16, flr(id / 16) * 16
+  for y = 0, 15 do
+    for x = 0, 15 do
+      local dx, dy = x + 0.5 - 8, y + 0.5 - 8
+      local d = sqrt(dx * dx + dy * dy)
+      local c = 0
+      if d <= 6.4 then
+        if white then
+          if d > 5.3 then
+            c = 5            -- 边缘灰圈
+          elseif dx + dy > 5.6 then
+            c = 6            -- 右下体面阴影
+          else
+            c = 7            -- 亮面
+          end
+        else
+          if d > 5.2 then
+            c = 3            -- 边缘受光圈
+          else
+            local hx, hy = x - 5.2, y - 5.0
+            local h2 = hx * hx + hy * hy
+            if h2 < 2.2 then
+              c = 6          -- 高光核
+            elseif h2 < 6 then
+              c = 4          -- 高光晕
+            else
+              c = 1          -- 石身
+            end
+          end
+        end
+      elseif d <= 7.3 and dx + dy > 1.5 then
+        c = C_LINE           -- 右下半圈落影（画在木面上）
+      end
+      spset(u0 + x, v0 + y, c)
+    end
+  end
+end
+
+-- 32px 大棋子（表区左上角 (u0,v0)，占 2×2 瓦片）：标题装饰
+local function bake_big_stone(u0, v0, white)
+  for y = 0, 31 do
+    for x = 0, 31 do
+      local dx, dy = x + 0.5 - 16, y + 0.5 - 16
+      local d = sqrt(dx * dx + dy * dy)
+      local c = 0
+      if d <= 13 then
+        if white then
+          if d > 11 then
+            c = 5
+          elseif dx + dy > 11 then
+            c = 6
+          else
+            c = 7
+          end
+        else
+          if d > 10.8 then
+            c = 3
+          else
+            local hx, hy = x - 10.5, y - 10
+            local h2 = hx * hx + hy * hy
+            if h2 < 7 then
+              c = 6
+            elseif h2 < 20 then
+              c = 4
+            else
+              c = 1
+            end
+          end
+        end
+      end
+      spset(u0 + x, v0 + y, c)
+    end
+  end
+end
+
+-- 木纹棋盘烘焙：水平正弦纹带 + 细纹点缀 + 浮雕边 + 网格 + 星位
+local function bake_board()
+  local s = PANEL_S
+  for y = 0, s - 1 do
+    for x = 0, s - 1 do
+      local c
+      if x == 0 or y == 0 or x == s - 1 or y == s - 1 then
+        c = C_EDGE          -- 外框
+      elseif x == 1 or y == 1 then
+        c = C_WOOD_LH       -- 上左受光棱
+      elseif x == s - 2 or y == s - 2 then
+        c = C_LINE          -- 下右背光棱
+      else
+        -- 木纹：随 x 缓变的正弦扰动的纹带（确定性，无随机）
+        local w = sin(x * 0.021 + 0.31) * 4 + sin(x * 0.0083 + 0.7) * 8
+        local g = (y + w) % 13
+        if g < 1.1 then
+          c = C_WOOD_DK     -- 深纹线
+        elseif g > 11.4 then
+          c = C_WOOD_HI     -- 浅纹带
+        elseif (x * 53 + y * 97) % 89 < 2 then
+          c = C_WOOD_DK     -- 稀疏细纹点缀
+        else
+          c = C_WOOD
+        end
+      end
+      spset(BOARD_U + x, BOARD_V + y, c)
+    end
+  end
+  -- 网格线（板内边距 8，格距 14，15 路）
+  local o, span = 8, (N - 1) * CELL
+  for i = 0, N - 1 do
+    local p = o + i * CELL
+    for k = 0, span do
+      spset(BOARD_U + p, BOARD_V + o + k, C_LINE)
+      spset(BOARD_U + o + k, BOARD_V + p, C_LINE)
+    end
+  end
+  -- 星位（四四 + 天元）
+  for _, pt in ipairs({ { 3, 3 }, { 11, 3 }, { 7, 7 }, { 3, 11 }, { 11, 11 } }) do
+    local px, py = o + pt[1] * CELL, o + pt[2] * CELL
+    for dy = -2, 2 do
+      for dx = -2, 2 do
+        if dx * dx + dy * dy <= 5 then
+          spset(BOARD_U + px + dx, BOARD_V + py + dy, C_LINE)
+        end
+      end
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 音频（SPEC §5.2 布局）
+
+local function u8(a, val) poke(a, val % 256) end
+
+-- init_sfx(id, notes, wave, vol, speed)：按连续步写音符
+local function init_sfx(id, notes, wave, vol, speed)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, #notes)
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    if i < #notes then
+      u8(a, notes[i + 1])
+      u8(a + 1, wave * 16 + vol)
+      u8(a + 2, 0)
+    else
+      u8(a, 0)
+      u8(a + 1, 0)
+    end
+  end
+end
+
+local function init_all_sfx()
+  init_sfx(0, { 40, 35 }, 8, 12, 1)        -- 黑落子：圆润低叩
+  init_sfx(1, { 55, 49 }, 10, 10, 1)       -- 白落子：清脆高叩
+  init_sfx(2, { 56, 49 }, 6, 9, 2)         -- 悔棋：下行双音
+  init_sfx(3, { 49, 53, 56, 58, 61, 0, 58, 61 }, 3, 11, 2) -- 胜利小旋律
+  init_sfx(4, { 52, 0, 52, 0, 49 }, 6, 9, 3)               -- 和棋
+  init_sfx(5, { 76 }, 3, 4, 1)             -- 光标移动：轻滴答
+  init_sfx(6, { 68 }, 3, 6, 1)             -- 菜单切换
+  init_sfx(7, { 61, 68 }, 3, 8, 2)         -- 确认/开始
+  init_sfx(8, { 24, 24 }, 14, 7, 1)        -- 非法落子：噪声 buzz
+
+  -- BGM：C 大调五声音阶小品，四小节回环（每小节一条 32 步 Pattern）。
+  -- 旋律 ch4（ROUND，SFX 20-23），贝斯 ch5（BASS，SFX 30-33）；
+  -- speed 6：每小节 192 帧，全曲 12.8 秒。
+  local melody = {
+    { 53, 0, 56, 58, 61, 0, 58, 56 }, -- E G A C5 A G
+    { 53, 0, 49, 0, 46, 49, 51, 0 },  -- E C A C D
+    { 53, 56, 58, 0, 61, 0, 58, 56 }, -- E G A C5 A G
+    { 49, 0, 0, 0, 44, 0, 41, 0 },    -- C G E（收束回环）
+  }
+  local bass = { 37, 34, 42, 44 }     -- C3 A2 F3 G3 整小节长音
+  local function expand(notes, k)
+    local out = {}
+    for _, v in ipairs(notes) do
+      for _ = 1, k do out[#out + 1] = v end
+    end
+    return out
+  end
+  for bar = 1, 4 do
+    init_sfx(19 + bar, expand(melody[bar], 4), 8, 9, 6)
+    init_sfx(29 + bar, expand({ bass[bar] }, 32), 11, 8, 6)
+  end
+end
+
+-- Pattern 0-3：ch4 旋律 / ch5 贝斯；首段 BEGIN、末段 END 回环
+local function init_music()
+  for bar = 1, 4 do
+    local mb = 0x063800 + (bar - 1) * 16
+    u8(mb + 4, 20 + bar)   -- 旋律 SFX id+1
+    u8(mb + 5, 30 + bar)   -- 贝斯 SFX id+1
+    u8(mb + 8, bar == 1 and 1 or (bar == 4 and 2 or 0))
+  end
+end
+
+-- ---------------------------------------------------------------- 状态
+
+local t = 0                 -- 全局帧计数（本地自增）
+local state = "title"       -- title / play
+local menu_i = 1            -- 标题菜单：1 双人 / 2 人机
+local mode = 1              -- 对局模式：1 双人 / 2 人机
+local board                 -- board[y+1][x+1]：0 空 / 1 黑 / 2 白
+local hist = {}             -- 落子历史 {{x=,y=,c=},...}
+local turn = 1              -- 当前方：1 黑 / 2 白（黑先）
+local winner = nil          -- nil 进行中 / 0 和 / 1 黑 / 2 白
+local win_pts = nil         -- 五连两端与方向 {x1,y1,x2,y2,dx,dy,数量}
+local over_t = 0            -- 终局演出帧龄
+local cx, cy = 7, 7         -- 光标（格坐标）
+local rep = { 0, 0, 0, 0 }  -- 方向键按住计时（自实现重复）
+local ai_think = false      -- AI 思考中
+local ai_t = 0              -- 思考剩余帧
+local ai_x, ai_y = 7, 7     -- 预选落点
+local stats = { 0, 0, 0, 0, 0, 0 } -- 双人黑白和 / 人机胜负和
+local music_on = true
+
+-- 标题背景装饰局（黑白交错的中盘形势）
+local TITLE_POS = {
+  { 7, 7, 1 }, { 8, 8, 2 }, { 6, 7, 1 }, { 9, 9, 2 },
+  { 6, 9, 1 }, { 8, 10, 2 }, { 7, 10, 1 }, { 10, 8, 2 },
+  { 5, 8, 1 }, { 9, 6, 2 }, { 8, 5, 1 }, { 10, 10, 2 },
+  { 11, 7, 1 }, { 4, 10, 2 }, { 5, 11, 1 },
+}
+
+local function gx(i) return GRID_OX + i * CELL end
+local function gy(j) return GRID_OY + j * CELL end
+
+local function ctext(s, y, c)
+  print(s, flr((256 - tw(s)) / 2), y, c)
+end
+
+local function new_game(m)
+  mode = m
+  board = {}
+  for y = 1, N do
+    board[y] = {}
+    for x = 1, N do board[y][x] = 0 end
+  end
+  hist = {}
+  turn = 1
+  winner = nil
+  win_pts = nil
+  over_t = 0
+  ai_think = false
+  cx, cy = 7, 7
+end
+
+local function toggle_music()
+  music_on = not music_on
+  dset(6, music_on and 0 or 1)
+  fflush()
+  if music_on then
+    music(0, 200, 0x70)
+  else
+    music(-1, 200)
+  end
+end
+
+-- ---------------------------------------------------------------- 规则
+
+local DIRS = { { 1, 0 }, { 0, 1 }, { 1, 1 }, { 1, -1 } }
+
+local function cell(x, y)
+  if x < 0 or x >= N or y < 0 or y >= N then return -1 end
+  return board[y + 1][x + 1]
+end
+
+-- 落子 (x,y) 后四方向任一连成 ≥5 则返回五连信息（长连也算胜）
+local function win_check(x, y)
+  local c = board[y + 1][x + 1]
+  for k = 1, 4 do
+    local dx, dy = DIRS[k][1], DIRS[k][2]
+    local f = 0
+    while cell(x + dx * (f + 1), y + dy * (f + 1)) == c do f = f + 1 end
+    local b = 0
+    while cell(x - dx * (b + 1), y - dy * (b + 1)) == c do b = b + 1 end
+    if f + b + 1 >= 5 then
+      return { x + dx * f, y + dy * f, x - dx * b, y - dy * b, dx, dy, f + b + 1 }
+    end
+  end
+  return nil
+end
+
+-- 战绩入档并播放终局音
+local function record()
+  local i
+  if mode == 1 then
+    i = winner == 1 and 1 or (winner == 2 and 2 or 3)
+  else
+    i = winner == 1 and 4 or (winner == 2 and 5 or 6)
+  end
+  stats[i] = stats[i] + 1
+  dset(i - 1, stats[i])
+  fflush()
+  if winner == 0 then
+    sfx(4, CH_JINGLE)
+  else
+    sfx(3, CH_JINGLE)
+  end
+end
+
+local function place(x, y)
+  local c = turn
+  board[y + 1][x + 1] = c
+  hist[#hist + 1] = { x = x, y = y, c = c }
+  sfx(c == 1 and 0 or 1, CH_STONE)
+  local w = win_check(x, y)
+  if w then
+    winner = c
+    win_pts = w
+    over_t = 0
+    record()
+  elseif #hist >= N * N then
+    winner = 0
+    win_pts = nil
+    over_t = 0
+    record()
+  else
+    turn = (c == 1) and 2 or 1
+  end
+end
+
+-- 悔棋：双人退一手；人机退两手（AI 思考中取消思考只退玩家那手）
+local function undo()
+  if #hist == 0 then
+    sfx(8, CH_UI)
+    return
+  end
+  local n = (mode == 2 and not ai_think) and 2 or 1
+  for _ = 1, n do
+    if #hist == 0 then break end
+    local m = hist[#hist]
+    board[m.y + 1][m.x + 1] = 0
+    hist[#hist] = nil
+  end
+  ai_think = false
+  turn = (#hist % 2 == 0) and 1 or 2
+  sfx(2, CH_UI)
+end
+
+-- ---------------------------------------------------------------- AI（启发式棋型评分）
+
+-- 沿方向数连子数（含假设落点）与两端空点数
+local function line_count(x, y, dx, dy, c)
+  local n, i = 1, 1
+  while cell(x + dx * i, y + dy * i) == c do
+    n = n + 1
+    i = i + 1
+  end
+  local open = 0
+  if cell(x + dx * i, y + dy * i) == 0 then open = 1 end
+  i = 1
+  while cell(x - dx * i, y - dy * i) == c do
+    n = n + 1
+    i = i + 1
+  end
+  if cell(x - dx * i, y - dy * i) == 0 then open = open + 1 end
+  return n, open
+end
+
+-- 棋型分：连五 > 活四 > 冲四 > 活三 > 眠三 > 活二 > 眠二
+local function shape_score(n, open)
+  if n >= 5 then return 1000000 end
+  if open == 0 then return 0 end
+  if n == 4 then
+    if open == 2 then return 100000 end
+    return 12000
+  end
+  if n == 3 then
+    if open == 2 then return 6000 end
+    return 800
+  end
+  if n == 2 then
+    if open == 2 then return 380 end
+    return 60
+  end
+  if open == 2 then return 20 end
+  return 3
+end
+
+-- 在 (x,y) 为 c 方虚拟落子的四方向棋型总分
+local function point_score(x, y, c)
+  local s = 0
+  for k = 1, 4 do
+    local n, o = line_count(x, y, DIRS[k][1], DIRS[k][2], c)
+    s = s + shape_score(n, o)
+  end
+  return s
+end
+
+-- 候选判定：已有棋子切比雪夫距离 2 内
+local function near_stone(x, y)
+  for dy = -2, 2 do
+    local yy = y + dy
+    if yy >= 0 and yy < N then
+      local row = board[yy + 1]
+      for dx = -2, 2 do
+        local xx = x + dx
+        if xx >= 0 and xx < N and row[xx + 1] ~= 0 then return true end
+      end
+    end
+  end
+  return false
+end
+
+-- AI 执白（2）选点：候选内取 max(进攻分, 防守分×0.85) 最高；
+-- 同分取更靠天元者，再同分按行主序扫描先到者。确定性无随机。
+local function ai_pick()
+  local best, bx, by, bd = -1, 7, 7, 99
+  for y = 0, N - 1 do
+    for x = 0, N - 1 do
+      if board[y + 1][x + 1] == 0 and near_stone(x, y) then
+        local atk = point_score(x, y, 2)
+        local def = point_score(x, y, 1) * 0.85
+        local sc = (atk > def) and atk or def
+        local cd = abs(x - 7) + abs(y - 7)
+        if sc > best or (sc == best and cd < bd) then
+          best, bx, by, bd = sc, x, y, cd
+        end
+      end
+    end
+  end
+  if best < 0 then
+    -- 空盘兜底（正常流程玩家先行，不会走到）：第一个空点
+    for y = 0, N - 1 do
+      for x = 0, N - 1 do
+        if board[y + 1][x + 1] == 0 then return x, y end
+      end
+    end
+  end
+  return bx, by
+end
+
+-- ---------------------------------------------------------------- 更新
+
+-- 方向键按住重复：首帧动一格，停 14 帧后每 4 帧动一格（btnp 无自动重复）
+local function cursor_input()
+  for d = 0, 3 do
+    if btn(d) then
+      rep[d + 1] = rep[d + 1] + 1
+      if rep[d + 1] == 1 or (rep[d + 1] > 14 and (rep[d + 1] - 15) % 4 == 0) then
+        if d == BTN_L then
+          cx = max(0, cx - 1)
+        elseif d == BTN_R then
+          cx = min(N - 1, cx + 1)
+        elseif d == BTN_U then
+          cy = max(0, cy - 1)
+        else
+          cy = min(N - 1, cy + 1)
+        end
+        sfx(5, CH_UI)
+      end
+    else
+      rep[d + 1] = 0
+    end
+  end
+end
+
+local function update_title()
+  if btnp(BTN_U) or btnp(BTN_D) then
+    menu_i = 3 - menu_i
+    sfx(6, CH_UI)
+  end
+  if btnp(BTN_A) or btnp(BTN_STA) then
+    new_game(menu_i)
+    state = "play"
+    sfx(7, CH_UI)
+  elseif btnp(BTN_SEL) then
+    toggle_music()
+  end
+end
+
+local function update_play()
+  if btnp(BTN_SEL) then toggle_music() end
+
+  if winner ~= nil then
+    -- 终局：Ⓐ 再来一局，Start 回标题
+    over_t = over_t + 1
+    if btnp(BTN_A) then
+      sfx(7, CH_UI)
+      new_game(mode)
+    elseif btnp(BTN_STA) then
+      state = "title"
+      menu_i = mode
+      sfx(7, CH_UI)
+    end
+    return
+  end
+
+  if ai_think then
+    -- AI 思考演出：Ⓑ 取消思考并退玩家那手；延时结束后落子
+    if btnp(BTN_B) then
+      undo()
+      return
+    end
+    ai_t = ai_t - 1
+    if ai_t <= 0 then
+      ai_think = false
+      place(ai_x, ai_y)
+    end
+    return
+  end
+
+  cursor_input()
+  if btnp(BTN_A) then
+    if board[cy + 1][cx + 1] == 0 then
+      place(cx, cy)
+      if winner == nil and mode == 2 then
+        ai_think = true
+        ai_t = 26
+        ai_x, ai_y = ai_pick()
+      end
+    else
+      sfx(8, CH_UI)  -- 已占点
+    end
+  elseif btnp(BTN_B) then
+    undo()
+  elseif btnp(BTN_STA) then
+    state = "title"
+    menu_i = mode
+  end
+end
+
+function _update()
+  t = t + 1
+  if state == "title" then
+    update_title()
+  else
+    update_play()
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制
+
+-- 顶栏：模式 / 手数（或思考中）/ 当前方
+local function draw_top()
+  rectfill(0, 0, 256, TOP_H, C_BG)
+  line(0, TOP_H, 255, TOP_H, C_BG_D)
+  print(mode == 1 and "双人对弈" or "人机对战", 8, 6, C_TXT_M)
+  local mid, mc
+  if winner ~= nil then
+    mid, mc = "对局结束", C_TXT
+  elseif ai_think then
+    mid = "白方思考中" .. string.rep(".", flr(t / 16) % 4)
+    mc = C_YEL
+  else
+    mid = "第 " .. (#hist + 1) .. " 手"
+    mc = C_TXT
+  end
+  ctext(mid, 6, mc)
+  circfill(200, 14, 5, turn == 1 and 1 or 7)
+  circ(200, 14, 5, turn == 1 and 3 or 5)
+  print(turn == 1 and "黑方" or "白方", 212, 6, C_WHITE)
+  if ai_think then
+    -- 思考转点：绕棋子图标公转的四颗黄点
+    for i = 0, 3 do
+      local a = t * 0.06 + i * 0.25
+      pset(200 + flr(cos(a) * 9 + 0.5), 14 + flr(sin(a) * 9 + 0.5), C_YEL)
+    end
+  end
+end
+
+-- 底栏：轮换按键提示
+local function draw_bottom(hints)
+  rectfill(0, BOT_Y, 256, 16, C_BG)
+  line(0, BOT_Y, 255, BOT_Y, C_BG_D)
+  local s = hints[flr(t / 150) % #hints + 1]
+  print(s, flr((256 - tw(s)) / 2), BOT_Y, 10)
+end
+
+-- 光标：四角括号，空点黄色/已占点红色闪烁
+local function draw_cursor()
+  local x, y = gx(cx), gy(cy)
+  local blink = flr(t / 8) % 2 == 0
+  local c
+  if board[cy + 1][cx + 1] ~= 0 then
+    c = blink and C_RED or C_RED_D
+  else
+    c = blink and C_YEL or C_YEL_L
+  end
+  local o, l = 10, 5
+  line(x - o, y - o + l, x - o, y - o, c)
+  line(x - o, y - o, x - o + l, y - o, c)
+  line(x + o - l, y - o, x + o, y - o, c)
+  line(x + o, y - o, x + o, y - o + l, c)
+  line(x + o, y + o - l, x + o, y + o, c)
+  line(x + o, y + o, x + o - l, y + o, c)
+  line(x - o + l, y + o, x - o, y + o, c)
+  line(x - o, y + o, x - o, y + o - l, c)
+end
+
+-- 终局演出：连线动画 + 连子闪环 + 横幅
+local function draw_win()
+  if win_pts then
+    local x1, y1, x2, y2 = win_pts[1], win_pts[2], win_pts[3], win_pts[4]
+    local ax, ay = gx(x1), gy(y1)
+    local bx, by = gx(x2), gy(y2)
+    local p = min(1, over_t / 20)
+    local ex, ey = ax + (bx - ax) * p, ay + (by - ay) * p
+    line(ax, ay, ex, ey, flr(t / 3) % 2 == 0 and C_RED or C_RED_D)
+    local ring = flr(t / 4) % 2 == 0 and C_YEL_L or C_RED
+    for i = 0, win_pts[7] - 1 do
+      local px = gx(x1 - win_pts[5] * i)
+      local py = gy(y1 - win_pts[6] * i)
+      circ(px, py, 8, ring)
+    end
+  end
+  if over_t > 30 then
+    local msg, mc
+    if winner == 0 then
+      msg, mc = "和棋", C_TXT
+    elseif mode == 2 then
+      if winner == 1 then
+        msg, mc = "你赢了", C_YEL_L
+      else
+        msg, mc = "电脑获胜", C_WHITE
+      end
+    else
+      if winner == 1 then
+        msg, mc = "黑方获胜", C_YEL_L
+      else
+        msg, mc = "白方获胜", C_WHITE
+      end
+    end
+    local u = min(1, (over_t - 30) / 8)
+    -- 横幅尽量放五连行的下方（不遮连线与连子），夹在棋盘范围内
+    local row_y = win_pts and gy(flr((win_pts[2] + win_pts[4]) / 2)) or 120
+    local by = flr(mid(38, row_y + 26, 238 - 60))
+    local bw, bh = flr(224 * u), flr(60 * u)
+    local x0 = flr(128 - bw / 2)
+    rrectfill(x0, by, bw, bh, 6, C_BG_D)
+    rrect(x0, by, bw, bh, 6, flr(t / 4) % 2 == 0 and C_RED or C_YEL)
+    if u >= 1 then
+      ctext(msg, by + 10, mc)
+      ctext("Ⓐ 再来一局　Start 回标题", by + 36, C_TXT)
+    end
+  end
+end
+
+local function draw_play()
+  draw_top()
+  -- 棋盘投影 + 木板
+  rectfill(PANEL_X + 3, PANEL_Y + 4, PANEL_S, PANEL_S, C_BG_D)
+  sspr(BOARD_U, BOARD_V, PANEL_S, PANEL_S, PANEL_X, PANEL_Y)
+  -- 棋子
+  for i = 1, #hist do
+    local m = hist[i]
+    spr(m.c, gx(m.x) - 8, gy(m.y) - 8)
+  end
+  -- 最后一手红点标记
+  if #hist > 0 and winner == nil then
+    local m = hist[#hist]
+    circfill(gx(m.x), gy(m.y), 2, C_RED)
+  end
+  if winner ~= nil then
+    draw_win()
+  elseif not ai_think then
+    draw_cursor()
+  end
+  draw_bottom({ "Ⓐ 落子　Ⓑ 悔棋　Start 标题",
+                "Select 音乐 " .. (music_on and "开" or "关") })
+end
+
+local function draw_title()
+  -- 深底 + 稀疏点纹
+  cls(C_BG)
+  fillp(0x0055)
+  rectfill(0, 0, 256, 256, C_BG_L * 256 + C_BG)
+  fillp()
+  -- 木棋盘压暗一档作背景（显示期调色映射，帧缓冲不变，SPEC §2.3）；
+  -- 映射在帧呈现时取值，须保持到本帧结束（_draw 开头统一复位）
+  pal(C_WOOD, C_WOOD_DK, 1)
+  pal(C_WOOD_HI, C_WOOD_DK, 1)
+  pal(C_WOOD_LH, C_WOOD, 1)
+  pal(C_LINE, C_EDGE, 1)
+  rectfill(PANEL_X + 3, PANEL_Y + 4, PANEL_S, PANEL_S, C_BG_D)
+  sspr(BOARD_U, BOARD_V, PANEL_S, PANEL_S, PANEL_X, PANEL_Y)
+  -- 背景装饰局 + 最后一手标记
+  for _, m in ipairs(TITLE_POS) do
+    spr(m[3], gx(m[1]) - 8, gy(m[2]) - 8)
+  end
+  local lm = TITLE_POS[#TITLE_POS]
+  circfill(gx(lm[1]), gy(lm[2]), 2, C_RED)
+  -- 标题：大棋子 + 厚描边大字
+  spr(4, 44, 36, 2, 2)
+  spr(6, 180, 36, 2, 2)
+  local s = "五子棋"
+  local tx, ty = flr((256 - tw(s)) / 2), 40
+  print(s, tx + 2, ty + 2, C_BG_D)
+  for k = 0, 7 do
+    local a = k * 0.125
+    print(s, tx + flr(cos(a) + 0.5), ty + flr(sin(a) + 0.5), C_EDGE)
+  end
+  print(s, tx, ty, C_YEL_L)
+  ctext("连珠对弈", 62, C_TXT)
+  -- 菜单面板
+  rrectfill(58, 112, 140, 64, 6, C_BG_D)
+  rrect(58, 112, 140, 64, 6, C_BG_L)
+  for i = 1, 2 do
+    local y = i == 1 and 120 or 146
+    local sel = (menu_i == i)
+    if sel then
+      if flr(t / 10) % 2 == 0 then
+        print("▶", 74, y, C_YEL_L)
+      end
+      rrect(92, y - 2, 72, 20, 4, C_YEL)
+    end
+    print(i == 1 and "双人对弈" or "人机对战", 96, y, sel and C_WHITE or 10)
+  end
+  -- 战绩面板
+  rrectfill(28, 184, 200, 50, 5, C_BG_D)
+  rrect(28, 184, 200, 50, 5, C_BG_L)
+  local l1 = string.format("双人　黑 %d　白 %d　和 %d", stats[1], stats[2], stats[3])
+  local l2 = string.format("人机　胜 %d　负 %d　和 %d", stats[4], stats[5], stats[6])
+  ctext(l1, 190, C_TXT)
+  ctext(l2, 210, 10)
+  draw_bottom({ "⬆⬇选择　Ⓐ开始　Select音乐" })
+end
+
+function _draw()
+  pal()  -- 复位两级映射（标题压暗只在本帧标题分支内重新设置）
+  if state == "title" then
+    draw_title()
+  else
+    cls(C_BG)
+    draw_play()
+  end
+end
+
+-- ---------------------------------------------------------------- 初始化
+
+function _init()
+  bake_stone(1, false)
+  bake_stone(2, true)
+  bake_big_stone(64, 0, false)  -- 瓦片 4,5,20,21
+  bake_big_stone(96, 0, true)   -- 瓦片 6,7,22,23
+  bake_board()
+  init_all_sfx()
+  init_music()
+  for i = 1, 6 do
+    stats[i] = flr(dget(i - 1))  -- dget 返回定点数，转整数计数
+  end
+  music_on = dget(6) == 0
+  if music_on then
+    music(0, 400, 0x70)  -- ch4-6 交给音乐
+  end
+  t = 0
+  state = "title"
+  menu_i = 1
+  new_game(1)
+end

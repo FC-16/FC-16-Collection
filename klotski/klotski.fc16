@@ -1,0 +1,915 @@
+fc16
+name: 华容道
+author: FrostMiKu
+save_id: klotski
+version: 1
+flags: 0
+icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
+@sprites 0
+@map 0
+@sfx 0
+@patterns 0
+@sflags 0
+@free 0
+@code 30358
+-- =====================================================================
+-- FC-16 华容道演示卡带（demo/klotski）
+--
+-- 规则：4×5 木盘，曹操（2×2）须滑到下方中央出口（底边中 2 格）。
+--   滑块只可滑入相邻空位，不可斜移 / 跳跃 / 穿块；
+--   每格滑动计一步（经典纪录的"81 步"为一指连滑口径，见 README）。
+--
+-- 关卡：一横四竖经典开局 ×10，表驱动字符画编码（一行一关）；
+--   引擎最少步由 BFS 独立复算，公开指移纪录逐关核验一致
+--   （横刀立马 81 步即 Gardner / 维基记载的最少纪录）。
+--
+-- 操作：⬅➡⬆⬇ 直接推动当前高亮块（推不动则改选该向最近的块，
+--   按住自动重复）・Ⓐ/Ⓑ 悔棋（无限栈）・Ⓧ 重开・Ⓨ 可动提示开关
+--   ・Ⓛ/Ⓡ 前后关卡・Select 音乐开关・Start 选关
+--
+-- 资产全部程序化：木纹滑块精灵 _init poke 烘焙（16×16 瓦片 3× 绘制），
+--   SFX / BGM 按 SPEC §5.2 位写入；每关最佳步数存 dset 槽 0-9。
+-- =====================================================================
+
+-- ---------------------------------------------------------------- 常量
+
+-- 色号（SPEC §2.2 ENDESGA-64 固定顺序；逐处按视觉挑色，禁止算术推导）
+local C_BG     = 0   -- #131313 屏底
+local C_BAR    = 12  -- #2A2F4E 顶栏深蓝灰
+local C_BAR_LN = 11  -- #424C6E 顶栏分隔线
+local C_GRAY   = 9   -- #92A1B9 次要文字
+local C_WHITE  = 7   -- #FFFFFF 高亮文字
+local C_IVORY  = 22  -- #F9E6CF 棋子刻字
+local C_GOLD   = 30  -- #FFC825 金（曹操 / 纪录）
+local C_GOLD_L = 31  -- #FFEB57 亮金闪烁
+local C_RED_D  = 61  -- #891E2B 深红匾额
+local C_WOOD_D = 16  -- #391F21 盘底深棕
+local C_WOOD_L = 17  -- #5D2C28 网格线
+local C_EDGE   = 18  -- #8A4836 木框
+local C_EDGE_L = 20  -- #E69C69 木框亮沿
+local C_EXIT   = 26  -- #8E251D 出口底色
+
+-- 棋盘几何：4×5 格，每格 48px → 192×240，水平居中（两侧各 32px 侧栏）
+local CS = 48
+local BX, BY = 32, 16
+local BW, BH = 4, 5
+
+-- 各棋子色系：frame 描框 / base 底 / light 纹理亮 / dark 纹理暗 / ink 刻字
+--（标识符只能 ASCII，中文键一律 ["…"] 字符串形式）
+local TINT = {
+  ["曹"] = { frame = 30, base = 1,  light = 23, dark = 16, ink = 30 }, -- 帝王黑漆描金
+  ["关"] = { frame = 34, base = 35, light = 34, dark = 36, ink = 22 }, -- 关羽绿袍
+  ["张"] = { frame = 5,  base = 3,  light = 5,  dark = 2,  ink = 7  }, -- 张飞玄铁
+  ["赵"] = { frame = 42, base = 41, light = 42, dark = 40, ink = 7  }, -- 赵云银蓝
+  ["马"] = { frame = 48, base = 49, light = 48, dark = 50, ink = 7  }, -- 马超锦紫
+  ["黄"] = { frame = 29, base = 28, light = 29, dark = 25, ink = 22 }, -- 黄忠琥珀
+  ["卒"] = { frame = 18, base = 19, light = 20, dark = 18, ink = 17 }, -- 小卒原木
+}
+
+-- 棋子规格：宽高（格）与刻字（竖将上下各一字）
+local SPEC = {
+  ["曹"] = { w = 2, h = 2, n = "曹操" },
+  ["关"] = { w = 2, h = 1, n = "关羽" },
+  ["张"] = { w = 1, h = 2, n = "张飞" },
+  ["赵"] = { w = 1, h = 2, n = "赵云" },
+  ["马"] = { w = 1, h = 2, n = "马超" },
+  ["黄"] = { w = 1, h = 2, n = "黄忠" },
+  ["卒"] = { w = 1, h = 1, n = "卒" },
+}
+
+-- ---------------------------------------------------------------- 关卡表
+-- 一行一关：{ 名称, 引擎最少步（每格计）, 公开指移纪录, 20 格字符画 }
+-- 字符画按行优先 4×5：曹=2×2 关=2×1 横 张赵马黄=1×2 竖 卒=1×1 .=空
+-- 最少步由 BFS 按本卡带规则复算；名称 / 几何与公开经典开局数据一致
+-- （核验明细见 README 自查表）。
+local LEVELS = {
+  { "捷足先登",  47,  32, "卒曹曹卒卒曹曹卒.关关.张赵马黄张赵马黄" },
+  { "兵临曹营",  49,  34, "卒曹曹卒卒曹曹卒张关关赵张马黄赵.马黄." },
+  { "一路顺风",  49,  39, "张曹曹卒张曹曹卒赵关关马赵卒黄马.卒黄." },
+  { "雨声淅沥",  60,  47, "张曹曹卒张曹曹卒赵关关马赵黄.马卒黄.卒" },
+  { "围而不歼",  80,  62, "张曹曹卒张曹曹卒赵关关卒赵马黄卒.马黄." },
+  { "一路进军",  81,  58, "张曹曹卒张曹曹卒赵马黄卒赵马黄卒.关关." },
+  { "齐头并进",  85,  60, "张曹曹赵张曹曹赵卒卒卒卒马关关黄马..黄" },
+  { "将拥曹营", 101,  72, ".曹曹.张曹曹赵张马黄赵卒马黄卒关关卒卒" },
+  { "屯兵东路", 102,  71, "曹曹张赵曹曹张赵关关卒卒马黄卒卒马黄.." },
+  { "横刀立马", 116,  81, "张曹曹赵张曹曹赵马关关黄马卒卒黄卒..卒" },
+}
+local NLV = #LEVELS
+
+-- 存档槽：0-9 每关最佳步数 / 10 音乐开关 / 11 提示开关 / 12 上次关卡
+local SLOT_BEST_BASE = 0
+local SLOT_MUSIC, SLOT_HINT, SLOT_LAST = 10, 11, 12
+
+-- 音效编号
+local S_CUR, S_PUSH, S_BAD, S_UNDO = 0, 1, 2, 3
+local S_MENU, S_GO, S_WIN, S_RECORD, S_EXIT, S_TOGGLE = 4, 5, 6, 7, 8, 9
+
+-- ---------------------------------------------------------------- 小工具
+
+local function cprint(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+
+-- 迭代 UTF-8 字符串的单个字符（关卡字符画解析用）
+local function utf8_chars(s)
+  local i, n = 1, #s
+  return function()
+    if i > n then return nil end
+    local b = string.byte(s, i)
+    local len = b < 0x80 and 1 or (b < 0xE0 and 2 or (b < 0xF0 and 3 or 4))
+    local c = string.sub(s, i, i + len - 1)
+    i = i + len
+    return c
+  end
+end
+
+-- ---------------------------------------------------------------- 音频
+
+local function u8(a, v) poke(a, v % 256) end
+
+-- 按 SPEC §5.2 布局写一条 SFX（notes 音高表，0 = 休止）
+local function init_sfx(id, notes, wave, vol, speed)
+  local base = 0x060000 + id * 112
+  u8(base, speed)
+  u8(base + 1, #notes)
+  for i = 0, 31 do
+    local a = base + 16 + i * 3
+    if i < #notes then
+      u8(a, notes[i + 1])
+      u8(a + 1, wave * 16 + vol)
+      u8(a + 2, 0)
+    else
+      u8(a, 0)
+      u8(a + 1, 0)
+    end
+  end
+end
+
+local function init_audio()
+  init_sfx(S_CUR, { 79 }, 0, 4, 1)                    -- 改选轻响
+  init_sfx(S_PUSH, { 44, 39 }, 3, 10, 1)              -- 木块滑动
+  init_sfx(S_BAD, { 28 }, 3, 6, 2)                    -- 推不动闷响
+  init_sfx(S_UNDO, { 39, 44 }, 0, 8, 1)               -- 悔棋回滑
+  init_sfx(S_MENU, { 56, 61 }, 3, 8, 2)               -- 菜单确认
+  init_sfx(S_GO, { 49, 56, 61 }, 3, 9, 2)             -- 开局
+  init_sfx(S_WIN, { 49, 53, 56, 61, 63, 68 }, 3, 11, 3)          -- 过关旋律
+  init_sfx(S_RECORD, { 49, 53, 56, 61, 56, 61, 63, 68, 73, 80 }, 3, 12, 2) -- 纪念演出
+  init_sfx(S_EXIT, { 60, 52, 46, 40 }, 2, 8, 2)       -- 曹操出关
+  init_sfx(S_TOGGLE, { 64 }, 3, 6, 1)                 -- 开关
+
+  -- BGM：C 宫五声小曲 4 小节循环（旋律 / 和声 / 贝斯 = ch5-7，mask 0xE0）
+  -- 音高 1-96 对应 C0-B7（MIDI = 音高 + 11）；每小节 32 步 speed 5
+  local melody = {
+    { 56, 0, 53, 0, 49, 0, 53, 0 },
+    { 51, 0, 53, 0, 56, 0, 58, 0 },
+    { 56, 0, 53, 0, 51, 0, 53, 0 },
+    { 49, 0, 44, 0, 49, 0, 0, 0 },
+  }
+  local harmony = { { 44, 49 }, { 44, 47 }, { 41, 44 }, { 37, 44 } }
+  local bass = { { 37 }, { 32 }, { 34 }, { 37 } }
+  local function expand(notes, k)
+    local out = {}
+    for _, v in ipairs(notes) do
+      for _ = 1, k do out[#out + 1] = v end
+    end
+    return out
+  end
+  for bar = 1, 4 do
+    init_sfx(19 + bar, expand(melody[bar], 4), 6, 9, 5)  -- ORGAN 旋律
+    init_sfx(23 + bar, expand(harmony[bar], 16), 0, 6, 5) -- TRIANGLE 和声
+    init_sfx(27 + bar, expand(bass[bar], 32), 11, 10, 5)  -- BASS 低音
+    local pb = 0x063800 + (bar - 1) * 16
+    u8(pb + 5, 20 + bar) -- ch5 旋律
+    u8(pb + 6, 24 + bar) -- ch6 和声
+    u8(pb + 7, 28 + bar) -- ch7 贝斯
+    u8(pb + 8, (bar == 1 and 1 or 0) + (bar == 4 and 2 or 0)) -- BEGIN/END
+  end
+end
+
+-- ---------------------------------------------------------------- 精灵烘焙
+
+-- 瓦片布局（16×16，绘制时 sspr 3× 放大为 48px 格）：
+--   曹操 1-4（左上/右上/左下/右下）・关羽 5-6（左/右）
+--   张 7-8・赵 9-10・马 11-12・黄 13-14（上/下格）・卒 15
+local TILE = { ["曹"] = { 1, 2, 3, 4 }, ["关"] = { 5, 6 }, ["张"] = { 7, 8 },
+  ["赵"] = { 9, 10 }, ["马"] = { 11, 12 }, ["黄"] = { 13, 14 }, ["卒"] = { 15 } }
+
+local function tile_of(ch, px, py)
+  local ts = TILE[ch]
+  if ch == "曹" then return ts[py * 2 + px + 1] end
+  if ch == "关" then return ts[px + 1] end
+  if SPEC[ch].h == 2 then return ts[py + 1] end
+  return ts[1]
+end
+
+-- 逐像素写 16×16 瓦片（SPEC §4.2：瓦片像素地址 = t*256 + y*16 + x）
+local function bake(id, fn)
+  local base = id * 256
+  for y = 0, 15 do
+    for x = 0, 15 do
+      poke(base + y * 16 + x, fn(x + 0.5, y + 0.5) or 0)
+    end
+  end
+end
+
+-- 木纹滑块单元：外缘 1px 深色描边 + 1px 色系框 + 竖向木纹 + 角部钉饰；
+-- ol/or/ot/ob 声明该侧为整块外缘（拼合缝一侧不描边，多格块无缝续画）
+local function bake_block(id, ch, ol, orr, ot, ob)
+  local t = TINT[ch]
+  bake(id, function(x, y)
+    -- 木纹：竖向条带 + 轻微斜移（确定性 sin，圈制；约两条纹/瓦片）
+    local g = sin(x * 0.11 + y * 0.02)
+    local c
+    if g > 0.5 then
+      c = t.light
+    elseif g < -0.5 then
+      c = t.dark
+    else
+      c = t.base
+    end
+    if (ol and x <= 1) or (orr and x >= 15) or (ot and y <= 1) or (ob and y >= 15) then
+      c = t.dark
+    end
+    if (ol and x == 2) or (orr and x == 14) or (ot and y == 2) or (ob and y == 14) then
+      c = t.frame
+    end
+    -- 外角 2×2 钉饰
+    if (ol or ot) and x <= 3 and y <= 3 and (x + y) <= 4 then c = t.frame end
+    if (orr or ot) and x >= 13 and y <= 3 and (x - y) >= 10 then c = t.frame end
+    if (ol or ob) and x <= 3 and y >= 13 and (y - x) >= 10 then c = t.frame end
+    if (orr or ob) and x >= 13 and y >= 13 and (x + y) >= 24 then c = t.frame end
+    return c
+  end)
+end
+
+local function bake_blocks()
+  for _, ch in ipairs({ "曹", "关", "张", "赵", "马", "黄", "卒" }) do
+    local sp = SPEC[ch]
+    for py = 0, sp.h - 1 do
+      for px = 0, sp.w - 1 do
+        bake_block(tile_of(ch, px, py), ch, px == 0, px == sp.w - 1,
+          py == 0, py == sp.h - 1)
+      end
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- 棋局状态
+
+local pieces = {}      -- { ch, x, y, w, h }（索引 1 恒为曹操）
+local occ = {}         -- occ[y*4+x+1] = 棋子索引或 0（1..20）
+local history = {}     -- { i, dx, dy } 每格滑动一步（无限悔棋栈）
+local steps = 0
+local lv = 1           -- 当前关卡
+local best = {}        -- 每关最佳步数
+local music_on = true
+local hint_on = true
+
+local function occ_at(x, y) return occ[y * BW + x + 1] end
+local function occ_set(x, y, v) occ[y * BW + x + 1] = v end
+
+local function rebuild_occ()
+  for i = 1, BW * BH do occ[i] = 0 end
+  for i, p in ipairs(pieces) do
+    for yy = p.y, p.y + p.h - 1 do
+      for xx = p.x, p.x + p.w - 1 do
+        assert(occ_at(xx, yy) == 0, "棋子重叠")
+        occ_set(xx, yy, i)
+      end
+    end
+  end
+end
+
+-- 解析字符画 → 棋子表 + 占格表；校验棋子清单（README 自查表的运行时面）
+local function load_level(n)
+  lv = n
+  pieces, history, steps = {}, {}, 0
+  local code = LEVELS[n][4]
+  local seen, idx = {}, 1
+  for c in utf8_chars(code) do
+    local x, y = (idx - 1) % BW, flr((idx - 1) / BW)
+    if c ~= "." then
+      local left = x > 0 and occ_at(x - 1, y) or 0
+      local up = y > 0 and occ_at(x, y - 1) or 0
+      local lp, upp = left > 0 and pieces[left] or nil, up > 0 and pieces[up] or nil
+      local i
+      -- 同字符且本格确落在该多格块矩形内才并块（相邻小卒各为独立块）
+      if lp and lp.ch == c and lp.w > 1 and y >= lp.y and y < lp.y + lp.h
+        and x < lp.x + lp.w then
+        i = left
+      elseif upp and upp.ch == c and upp.h > 1 and x >= upp.x and x < upp.x + upp.w
+        and y < upp.y + upp.h then
+        i = up
+      else
+        local sp = SPEC[c] or SPEC["卒"]
+        pieces[#pieces + 1] = { ch = c, x = x, y = y, w = sp.w, h = sp.h }
+        i = #pieces
+      end
+      occ_set(x, y, i)
+      seen[c] = (seen[c] or 0) + 1
+    else
+      occ_set(x, y, 0)
+    end
+    idx = idx + 1
+  end
+  -- 清单校验：曹1 关1 竖4 卒4，占 18 格留 2 空（不符即数据错误，直接报）
+  assert(seen["曹"] == 4 and seen["关"] == 2 and seen["卒"] == 4
+    and seen["张"] == 2 and seen["赵"] == 2 and seen["马"] == 2 and seen["黄"] == 2,
+    "关卡棋子清单非法: " .. LEVELS[n][1])
+  assert(#pieces == 10, "关卡解析异常: " .. LEVELS[n][1])
+  -- 曹操换到 1 号（终局判定读 pieces[1]）
+  for i = 2, #pieces do
+    if pieces[i].ch == "曹" then
+      pieces[1], pieces[i] = pieces[i], pieces[1]
+      break
+    end
+  end
+  rebuild_occ()
+end
+
+-- 棋子 i 朝 (dx,dy) 滑一格是否合法（不许穿块 / 出界 / 斜移由单轴调用保证）
+local function can_slide(i, dx, dy)
+  local p = pieces[i]
+  local nx, ny = p.x + dx, p.y + dy
+  for yy = ny, ny + p.h - 1 do
+    for xx = nx, nx + p.w - 1 do
+      if xx < 0 or xx >= BW or yy < 0 or yy >= BH then return false end
+      local o = occ_at(xx, yy)
+      if o ~= 0 and o ~= i then return false end
+    end
+  end
+  return true
+end
+
+local function do_slide(i, dx, dy, record)
+  local p = pieces[i]
+  for yy = p.y, p.y + p.h - 1 do
+    for xx = p.x, p.x + p.w - 1 do occ_set(xx, yy, 0) end
+  end
+  p.x, p.y = p.x + dx, p.y + dy
+  for yy = p.y, p.y + p.h - 1 do
+    for xx = p.x, p.x + p.w - 1 do occ_set(xx, yy, i) end
+  end
+  if record then
+    history[#history + 1] = { i = i, dx = dx, dy = dy }
+    steps = steps + 1
+  else
+    steps = steps - 1
+  end
+end
+
+-- 曹操到达出口位（左上格 = (1,3)，底边与出口对齐）
+local function is_solved()
+  return pieces[1].x == 1 and pieces[1].y == 3
+end
+
+-- 悔棋一步（步数回退）
+local function undo_one()
+  local h = history[#history]
+  if not h then return nil end
+  do_slide(h.i, -h.dx, -h.dy, false)
+  history[#history] = nil
+  return h
+end
+
+-- ---------------------------------------------------------------- 场景与演出
+
+local mode = "title"   -- title / select / help / play
+local t = 0             -- 全局帧计数
+local title_sel = 1
+local sel_lv = 1        -- 选关光标
+local cx, cy = 1, 0     -- 盘上光标（格坐标，始终位于某棋子上）
+local anim = nil        -- { i, dx, dy, t0, dur, undo, exit }
+local bump = nil        -- { i, dx, dy, t }
+local winf = nil        -- 过关演出 { phase, t, record, min_hit }
+local conf = {}         -- 彩带粒子
+
+local ANIM_DUR = 6      -- 每格滑动帧数
+local HOLD_DELAY, HOLD_EVERY = 10, 7
+
+local function cur_piece() return occ_at(cx, cy) end
+
+local function start_level(n)
+  load_level(n)
+  cx, cy = 1, 0
+  anim, bump, winf, conf = nil, nil, nil, {}
+  mode = "play"
+  dset(SLOT_LAST, n)
+  fflush()
+  if music_on then music(0, 300, 0xE0) end
+  sfx(S_GO)
+end
+
+local function goto_select()
+  mode = "select"
+  music(-1, 200)
+end
+
+local function goto_title()
+  mode = "title"
+  music(-1, 200)
+end
+
+local function toggle_music()
+  music_on = not music_on
+  dset(SLOT_MUSIC, music_on and 0 or 1)
+  fflush()
+  sfx(S_TOGGLE)
+  if mode == "play" then
+    if music_on then music(0, 300, 0xE0) else music(-1, 300) end
+  end
+end
+
+local function toggle_hint()
+  hint_on = not hint_on
+  dset(SLOT_HINT, hint_on and 0 or 1)
+  fflush()
+  sfx(S_TOGGLE)
+end
+
+-- 某棋子是否有任何可滑方向（可动提示）
+local function piece_movable(i)
+  return can_slide(i, -1, 0) or can_slide(i, 1, 0)
+    or can_slide(i, 0, -1) or can_slide(i, 0, 1)
+end
+
+-- 方向输入：能推则推（一格一步），推不动则改选该向最近的块
+local function dir_input(dx, dy)
+  local i = cur_piece()
+  if i == 0 then return end
+  if can_slide(i, dx, dy) then
+    do_slide(i, dx, dy, true)
+    anim = { i = i, dx = dx, dy = dy, t0 = 0, dur = ANIM_DUR, undo = false }
+    cx, cy = cx + dx, cy + dy
+    sfx(S_PUSH)
+    if is_solved() then
+      winf = { phase = "wait", t = 0, record = false,
+        min_hit = steps <= LEVELS[lv][2] }
+    end
+    return
+  end
+  local x, y = cx + dx, cy + dy
+  while x >= 0 and x < BW and y >= 0 and y < BH do
+    if occ_at(x, y) ~= 0 then
+      cx, cy = x, y
+      sfx(S_CUR)
+      return
+    end
+    x, y = x + dx, y + dy
+  end
+  bump = { i = i, dx = dx, dy = dy, t = 0 } -- 该向已无块：顶格抖动
+  sfx(S_BAD)
+end
+
+-- 悔棋（带回滑动画）
+local function do_undo()
+  if anim or winf then
+    sfx(S_BAD)
+    return
+  end
+  local h = undo_one()
+  if not h then
+    sfx(S_BAD)
+    return
+  end
+  local p = pieces[h.i]
+  anim = { i = h.i, dx = -h.dx, dy = -h.dy, t0 = 0, dur = ANIM_DUR, undo = true }
+  cx, cy = p.x, p.y
+  sfx(S_UNDO)
+end
+
+-- 方向键按住重复（btnp 无自动重复，自实现节拍）
+local hold_dx, hold_dy, rep_t = 0, 0, 0
+local function dir_repeat()
+  local dx = (btn(1) and 1 or 0) - (btn(0) and 1 or 0)
+  local dy = (btn(3) and 1 or 0) - (btn(2) and 1 or 0)
+  if dx ~= 0 then dy = 0 end -- 斜按时取横向单轴
+  if dx == 0 and dy == 0 then
+    hold_dx, hold_dy, rep_t = 0, 0, 0
+    return
+  end
+  if dx ~= hold_dx or dy ~= hold_dy then
+    hold_dx, hold_dy = dx, dy
+    rep_t = 0
+    dir_input(dx, dy)
+  else
+    rep_t = rep_t + 1
+    if rep_t >= HOLD_DELAY and (rep_t - HOLD_DELAY) % HOLD_EVERY == 0 then
+      dir_input(dx, dy)
+    end
+  end
+end
+
+-- 彩带粒子
+local CONF_COLS = { 30, 31, 27, 59, 34, 42, 55 }
+local function spawn_conf(n)
+  for _ = 1, n do
+    conf[#conf + 1] = {
+      x = rnd(256), y = -4 - rnd(120),
+      vy = 0.9 + rnd(1.6), ph = rnd(1),
+      c = CONF_COLS[flr(rnd(#CONF_COLS)) + 1],
+      w = 2 + flr(rnd(2)),
+    }
+  end
+end
+
+local function update_conf()
+  for i = #conf, 1, -1 do
+    local e = conf[i]
+    e.y = e.y + e.vy
+    e.x = e.x + sin(e.ph + t / 40) * 0.7
+    if e.y > 258 then conf[i] = conf[#conf]; conf[#conf] = nil end
+  end
+end
+
+-- ---------------------------------------------------------------- 更新
+
+local function update_play()
+  if winf then
+    local w = winf
+    w.t = w.t + 1
+    if w.phase == "wait" then
+      if not anim then -- 最后一滑落定：曹操出关
+        w.phase = "exit"
+        w.t = 0
+        anim = { i = 1, dx = 0, dy = 2, t0 = 0, dur = 42, exit = true }
+        sfx(S_EXIT)
+      end
+    elseif w.phase == "exit" then
+      if not anim then -- 出关完成：结算存档
+        w.phase = "won"
+        w.t = 0
+        local old = best[lv]
+        w.record = old > 0 and steps < old
+        if old == 0 or steps < old then
+          best[lv] = steps
+          dset(SLOT_BEST_BASE + lv - 1, steps)
+          fflush()
+        end
+        if w.min_hit then
+          sfx(S_RECORD)
+          spawn_conf(46)
+        else
+          sfx(S_WIN)
+          spawn_conf(30)
+        end
+        music(-1, 800)
+      end
+    else -- won：结算界面
+      if btnp(4) then
+        if lv < NLV then start_level(lv + 1) else goto_select() end
+      elseif btnp(5) then
+        start_level(lv)
+      elseif btnp(11) then
+        goto_select()
+      end
+    end
+    update_conf()
+    return
+  end
+  if anim then return end
+  -- 全局热键
+  if btnp(10) then toggle_music() return end
+  if btnp(11) then goto_select() return end
+  if btnp(6) then start_level(lv) return end
+  if btnp(7) then toggle_hint() return end
+  if btnp(8) and lv > 1 then start_level(lv - 1) return end
+  if btnp(9) and lv < NLV then start_level(lv + 1) return end
+  if btnp(4) or btnp(5) then do_undo() return end
+  dir_repeat()
+end
+
+local function update_select()
+  if btnp(2) and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
+  if btnp(3) and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
+  if btnp(0) and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
+  if btnp(1) and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
+  if btnp(8) and sel_lv > 1 then sel_lv = sel_lv - 3 sfx(S_CUR) end
+  if btnp(9) and sel_lv < NLV then sel_lv = min(sel_lv + 3, NLV) sfx(S_CUR) end
+  if btnp(10) then toggle_music() return end
+  if btnp(5) or btnp(6) then goto_title() return end
+  if btnp(4) or btnp(11) then start_level(sel_lv) end
+end
+
+local function update_title()
+  if btnp(2) or btnp(3) then
+    title_sel = title_sel == 1 and 2 or 1
+    sfx(S_CUR)
+  end
+  if btnp(10) then toggle_music() return end
+  if btnp(4) or btnp(11) then
+    mode = title_sel == 1 and "select" or "help"
+    sfx(S_MENU)
+  end
+end
+
+local function update_help()
+  if btnp(4) or btnp(5) or btnp(6) or btnp(11) then goto_title() end
+end
+
+function _update()
+  t = t + 1
+  if bump then
+    bump.t = bump.t + 1
+    if bump.t > 5 then bump = nil end
+  end
+  if anim then
+    anim.t0 = anim.t0 + 1
+    if anim.t0 >= anim.dur then anim = nil end
+  end
+  if mode == "title" then
+    update_title()
+  elseif mode == "select" then
+    update_select()
+  elseif mode == "help" then
+    update_help()
+  else
+    update_play()
+  end
+end
+
+-- ---------------------------------------------------------------- 绘制
+
+local function cell_x(x) return BX + x * CS end
+local function cell_y(y) return BY + y * CS end
+
+local function draw_board()
+  -- 木托外框（底边中 2 格开口 = 出口）
+  rectfill(BX - 4, BY - 4, BW * CS + 8, BH * CS + 4, C_EDGE)
+  rectfill(BX - 2, BY - 2, BW * CS + 4, BH * CS, C_EDGE_L)
+  rect(BX - 4, BY - 4, BW * CS + 8, BH * CS + 4, C_WOOD_D)
+  local ex0, ew = cell_x(1) - 2, CS * 2 + 4
+  local by = BY + BH * CS - 2
+  rectfill(BX - 2, by, ex0 - BX + 2, 3, C_EDGE_L)                       -- 底左
+  rectfill(ex0 + ew, by, BX + BW * CS - ex0 - ew + 2, 3, C_EDGE_L)      -- 底右
+  -- 盘底与格线
+  rectfill(BX, BY, BW * CS, BH * CS - 2, C_WOOD_D)
+  for x = 1, BW - 1 do line(cell_x(x), BY, cell_x(x), by, C_WOOD_L) end
+  for y = 1, BH - 1 do line(BX, cell_y(y), BX + BW * CS - 1, cell_y(y), C_WOOD_L) end
+  -- 出口两格：暗底 + 金色下行箭头纹
+  rectfill(cell_x(1) + 1, cell_y(4) + 1, CS * 2 - 2, CS - 2, C_EXIT)
+  for k = 0, 1 do
+    local ax = cell_x(1) + CS / 2 + k * CS
+    local ay = cell_y(4) + CS - 16
+    for r = 0, 2 do
+      line(ax - 5 + r, ay + r * 5, ax + 5 - r, ay + r * 5,
+        (r + flr(t / 8)) % 2 == 0 and C_GOLD or C_WOOD_L)
+    end
+  end
+end
+
+-- 画一枚棋子（ox/oy 像素偏移由动画计算）
+local function draw_piece(i, ox, oy)
+  local p = pieces[i]
+  local sp, tint = SPEC[p.ch], TINT[p.ch]
+  for py = 0, p.h - 1 do
+    for px = 0, p.w - 1 do
+      local id = tile_of(p.ch, px, py)
+      sspr((id % 16) * 16, flr(id / 16) * 16, 16, 16,
+        cell_x(p.x + px) + ox, cell_y(p.y + py) + oy, CS, CS)
+    end
+  end
+  local px0, py0 = cell_x(p.x) + ox, cell_y(p.y) + oy
+  if p.ch == "曹" then -- 帝王金印
+    rrectfill(px0 + 30, py0 + 34, 36, 28, 4, tint.dark)
+    rrect(px0 + 30, py0 + 34, 36, 28, 4, C_GOLD)
+    print(sp.n, px0 + 32, py0 + 40, tint.ink)
+  elseif p.ch == "关" then
+    rrectfill(px0 + 30, py0 + 11, 36, 26, 4, tint.dark)
+    rrect(px0 + 30, py0 + 11, 36, 26, 4, tint.frame)
+    print(sp.n, px0 + 32, py0 + 16, tint.ink)
+  elseif p.h == 2 then -- 竖将：上格姓、下格名
+    for k = 1, 2 do
+      local s = string.sub(sp.n, k, k)
+      local sy = py0 + 11 + (k - 1) * CS
+      rrectfill(px0 + 12, sy, 24, 26, 4, tint.dark)
+      rrect(px0 + 12, sy, 24, 26, 4, tint.frame)
+      print(s, px0 + 16, sy + 5, tint.ink)
+    end
+  else -- 小卒
+    rrectfill(px0 + 12, py0 + 11, 24, 26, 4, tint.dark)
+    rrect(px0 + 12, py0 + 11, 24, 26, 4, tint.frame)
+    print(sp.n, px0 + 16, py0 + 16, tint.ink)
+  end
+end
+
+local function ease_out(u) return 1 - (1 - u) * (1 - u) end
+local function ease_in(u) return u * u end
+
+local function draw_pieces()
+  for i = 1, #pieces do
+    local ox, oy = 0, 0
+    local a = anim
+    if a and a.i == i then
+      local u = a.t0 / a.dur
+      if a.exit then
+        oy = a.dy * CS * ease_in(u) -- 出关：从出口位加速滑出下边
+      else
+        ox, oy = -a.dx * CS * (1 - ease_out(u)), -a.dy * CS * (1 - ease_out(u))
+      end
+    end
+    if bump and bump.i == i then
+      local k = 2 - bump.t * 0.7
+      ox, oy = ox + bump.dx * k, oy + bump.dy * k
+    end
+    if anim and anim.exit and i == 1 then
+      clip(BX - 2, 0, BW * CS + 4, BY + BH * CS) -- 出关裁剪到棋盘内
+      draw_piece(i, flr(ox), flr(oy))
+      clip()
+    else
+      draw_piece(i, flr(ox), flr(oy))
+    end
+  end
+end
+
+-- 四角括号选框
+local function corners(x, y, w, h, r, c)
+  local x1, y1 = x + w - 1, y + h - 1
+  for qx = -1, 1, 2 do
+    for qy = -1, 1, 2 do
+      local ax = qx < 0 and x or x1
+      local ay = qy < 0 and y or y1
+      line(ax, ay, ax - qx * r, ay, c)
+      line(ax, ay, ax, ay - qy * r, c)
+    end
+  end
+end
+
+local function draw_cursor()
+  if mode ~= "play" or winf then return end
+  local i = cur_piece()
+  if i == 0 then return end
+  local p = pieces[i]
+  corners(cell_x(p.x) - 2, cell_y(p.y) - 2, p.w * CS + 4, p.h * CS + 4, 7,
+    flr(t / 5) % 2 == 0 and C_GOLD_L or C_GOLD)
+end
+
+-- 可动块微高亮：块右上角小金点
+local function draw_hints()
+  if not hint_on or winf then return end
+  for i = 1, #pieces do
+    if piece_movable(i) then
+      local p = pieces[i]
+      rectfill(cell_x(p.x + p.w) - 8, cell_y(p.y) + 4, 3, 3, C_GOLD)
+    end
+  end
+end
+
+local function draw_topbar()
+  rectfill(0, 0, 256, 16, C_BAR)
+  line(0, 16, 255, 16, C_BAR_LN)
+  print(LEVELS[lv][1], 4, 0, C_GOLD)
+  local s = "步 " .. steps
+  print(s, 252 - tw(s) - 66, 0, C_WHITE)
+  local b = "最佳 " .. (best[lv] > 0 and best[lv] or "-")
+  print(b, 252 - tw(b), 0, C_GRAY)
+end
+
+local function draw_sides()
+  -- 左侧栏：竖排“华容道”
+  for k = 1, 3 do
+    print(string.sub("华容道", k, k), 8, 108 + k * 18, C_GRAY)
+  end
+  -- 右侧栏：关卡号 + 竖排“出口”与下行箭头
+  print("关", 240, 22, C_GRAY)
+  print(lv, 244, 40, C_GRAY)
+  local ey = cell_y(4) - 26
+  print("出", 240, ey, C_GOLD)
+  print("口", 240, ey + 17, C_GOLD)
+  local ay = ey + 36 + (flr(t / 10) % 2) * 3
+  line(235, ay, 240, ay + 5, C_GOLD)
+  line(240, ay + 5, 245, ay, C_GOLD)
+  line(235, ay + 8, 240, ay + 13, C_GOLD)
+  line(240, ay + 13, 245, ay + 8, C_GOLD)
+end
+
+local function draw_conf()
+  for i = 1, #conf do
+    local e = conf[i]
+    rectfill(e.x, e.y, e.w, e.w - 1, e.c)
+  end
+end
+
+local function draw_win()
+  local w = winf
+  if not w or w.phase ~= "won" then return end
+  fillp(0xAAAA)
+  rectfill(0, 0, 256, 256, C_BAR * 256 + C_BG)
+  fillp()
+  rrectfill(28, 66, 200, 124, 7, C_RED_D)
+  rrect(28, 66, 200, 124, 7, C_GOLD)
+  if w.min_hit and flr(t / 4) % 2 == 0 then
+    rrect(26, 64, 204, 128, 8, C_GOLD_L)
+  end
+  cprint("曹操脱险", 78, C_GOLD)
+  cprint("用 " .. steps .. " 步 ・ 最少 " .. LEVELS[lv][2] .. " 步", 100, C_IVORY)
+  if w.min_hit then
+    cprint("最少步达成！", 118, flr(t / 3) % 2 == 0 and C_GOLD_L or C_GOLD)
+  elseif w.record then
+    cprint("新纪录！", 118, C_GOLD_L)
+  else
+    cprint("最佳 " .. best[lv] .. " 步", 118, C_GRAY)
+  end
+  cprint("Ⓐ下一关 Ⓑ重来 Start选关", 166, C_GRAY)
+end
+
+local HELP_PARAS = {
+  "帮助曹操（2×2 大块）滑到棋盘下方中央的出口。滑块只能滑入相邻空位，不可斜移、跳跃或穿过其他块；每滑动一格计一步。",
+  "操作：⬅➡⬆⬇ 推动高亮块，推不动时改选该向最近的块，按住方向连续推动。Ⓐ/Ⓑ 悔棋（无限），Ⓧ 重开本关，Ⓨ 可动提示开关，Ⓛ/Ⓡ 前后关卡，Select 音乐开关，Start 选关。",
+  "达成引擎最少步数有特别演出，各关最佳成绩自动存档。",
+}
+
+local function draw_help()
+  cprint("玩法说明", 8, C_GOLD)
+  line(64, 26, 192, 26, C_BAR_LN)
+  local y = 34
+  for _, p in ipairs(HELP_PARAS) do
+    y = printw(p, 12, y, C_IVORY, 232) + 8
+  end
+  cprint("Ⓐ 返回", 238, C_GRAY)
+end
+
+local function draw_select()
+  rectfill(0, 0, 256, 18, C_BAR)
+  print("选择关卡", 4, 1, C_GOLD)
+  -- 表头：少 = 引擎最少步（每格计）・录 = 公开指移纪录 ・佳 = 本机最佳
+  print("少", 128, 1, C_GRAY)
+  print("录", 174, 1, C_GRAY)
+  print("佳", 216, 1, C_GRAY)
+  line(0, 18, 255, 18, C_BAR_LN)
+  for n = 1, NLV do
+    local y = 26 + (n - 1) * 20
+    local on = sel_lv == n
+    if on then
+      rectfill(2, y - 2, 252, 19, C_RED_D)
+      if flr(t / 6) % 2 == 0 then print("▶", 6, y, C_GOLD) end
+    end
+    print(LEVELS[n][1], 24, y, on and C_WHITE or C_IVORY)
+    print(LEVELS[n][2], 128, y, on and C_GOLD or 21)
+    print(LEVELS[n][3], 174, y, on and C_GRAY or C_WOOD_L)
+    local b = best[n]
+    local s = b > 0 and b or "-"
+    if b > 0 and b <= LEVELS[n][2] then
+      print(s, 216, y, C_GOLD_L)
+    else
+      print(s, 216, y, on and C_WHITE or C_GRAY)
+    end
+  end
+  cprint("⬅➡⬆⬇选择 Ⓐ开始 Ⓑ返回", 240, C_GRAY)
+end
+
+local function draw_title()
+  -- 背景：横刀立马初始盘面 + 轻压暗（保留棋子可辨）
+  draw_board()
+  draw_pieces()
+  fillp(0x4444)
+  rectfill(0, 0, 256, 256, C_BG * 256 + C_BAR)
+  fillp()
+  rrectfill(44, 30, 168, 52, 8, C_RED_D)
+  rrect(44, 30, 168, 52, 8, C_GOLD)
+  cprint("华容道", 36, C_GOLD)
+  cprint("三国滑块・一横四竖经典十关", 92, C_GRAY)
+  local opts = { "开始游戏", "玩法说明" }
+  for i = 1, 2 do
+    local y = 122 + (i - 1) * 26
+    local on = title_sel == i
+    if on and flr(t / 8) % 2 == 0 then print("▶", 92, y, C_GOLD) end
+    print(opts[i], 116, y, on and C_WHITE or C_GRAY)
+  end
+  cprint("推动滑块・送曹操出下方出口", 182, 21)
+  cprint("横刀立马公开纪录 81 步", 200, 23)
+  cprint("Ⓐ确认 Select音乐" .. (music_on and "开" or "关"), 232, C_GRAY)
+end
+
+function _draw()
+  cls(C_BG)
+  if mode == "title" then
+    draw_title()
+  elseif mode == "select" then
+    draw_select()
+  elseif mode == "help" then
+    draw_help()
+  else
+    draw_board()
+    draw_pieces()
+    draw_hints()
+    draw_cursor()
+    draw_topbar()
+    draw_sides()
+    draw_conf()
+    draw_win()
+  end
+end
+
+-- ---------------------------------------------------------------- 初始化
+
+function _init()
+  bake_blocks()
+  init_audio()
+  for n = 1, NLV do best[n] = dget(SLOT_BEST_BASE + n - 1) end
+  music_on = dget(SLOT_MUSIC) == 0
+  hint_on = dget(SLOT_HINT) == 0
+  local last = dget(SLOT_LAST)
+  sel_lv = (last >= 1 and last <= NLV) and last or 1
+  load_level(NLV) -- 标题背景用横刀立马初始盘面
+  mode = "title"
+  t = 0
+end
