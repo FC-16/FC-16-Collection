@@ -836,11 +836,11 @@ end
 -- ---------------------------------------------------------------- 挡板 / 激光 / 胶囊
 
 local function update_paddle()
-  local dir = 0
-  if dir(0) then dir = dir - 1 end
-  if dir(1) then dir = dir + 1 end
-  if dir ~= 0 then
-    paddle_vx = mid(-4.4, paddle_vx + dir * 0.6, 4.4)
+  local move = 0
+  if dir(0) then move = move - 1 end
+  if dir(1) then move = move + 1 end
+  if move ~= 0 then
+    paddle_vx = mid(-4.4, paddle_vx + move * 0.6, 4.4)
   else
     paddle_vx = paddle_vx * 0.75
     if abs(paddle_vx) < 0.05 then paddle_vx = 0 end

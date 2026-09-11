@@ -845,19 +845,19 @@ local function player_input()
   local n = #hands[1]
   -- 光标左右（自实现按住重复）
   if n > 0 then
-    local dir = 0
-    if dir(0) then dir = dir - 1 end
-    if dir(1) then dir = dir + 1 end
-    if dir ~= 0 then
-      if dir ~= rep_dir then
-        rep_dir = dir
+    local move = 0
+    if dir(0) then move = move - 1 end
+    if dir(1) then move = move + 1 end
+    if move ~= 0 then
+      if move ~= rep_dir then
+        rep_dir = move
         rep_t = 0
-        cur = mid(1, cur + dir, n)
+        cur = mid(1, cur + move, n)
         sfx(12)
       else
         rep_t = rep_t + 1
         if rep_t > 10 and rep_t % 4 == 0 then
-          cur = mid(1, cur + dir, n)
+          cur = mid(1, cur + move, n)
         end
       end
     else

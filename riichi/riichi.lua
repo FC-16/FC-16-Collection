@@ -2975,17 +2975,17 @@ local rep_d, rep_t = 0, 0
 local MODE = "title"
 
 local function cursor_move(p, n)
-  local dir = 0
-  if dir(0) then dir = -1 elseif dir(1) then dir = 1 end
-  if dir ~= 0 then
-    if dir ~= rep_d then
-      rep_d = dir rep_t = 0
-      p.cursor = mid(1, p.cursor + dir, n)
+  local move = 0
+  if dir(0) then move = -1 elseif dir(1) then move = 1 end
+  if move ~= 0 then
+    if move ~= rep_d then
+      rep_d = move rep_t = 0
+      p.cursor = mid(1, p.cursor + move, n)
       sfx(8)
     else
       rep_t = rep_t + 1
       if rep_t > 12 and rep_t % 4 == 0 then
-        p.cursor = mid(1, p.cursor + dir, n)
+        p.cursor = mid(1, p.cursor + move, n)
         sfx(8)
       end
     end
