@@ -2,15 +2,15 @@
 -- 经典规则：两张相同图标能用最多 2 个拐点（3 段正交线段、只经空格与外圈）的路径
 --           连通即可消除；按拐点数 0/1/2 分层判连，路径确定性好搜
 -- 难度：入门 8×4 ・16 对 / 标准 14×4 ・28 对 / 挑战 14×8 ・56 对，逐关时限递减
--- 棋盘外围一圈虚拟空格供路径绕行；死局自动洗牌（Select 手动洗牌每关 2 次，
+-- 棋盘外围一圈虚拟空格供路径绕行；死局自动洗牌（View 手动洗牌每关 2 次，
 -- Ⓡ 提示每关 3 次）；连击窗口内连续消除分数递增、消除音高上升 8 级
--- 每对消除：两牌缩小碎裂 + 粒子飞溅 + 沿实际路径高亮连线 18 帧
--- 音频：原创 C 大调五声 8 小节循环 BGM（Select 在标题/暂停开关，占 ch4-7）+
+-- 每对消除：两牌缩小碎裂 + 粒子飞溅 + 沿实际路径高亮连线 18 幀
+-- 音频：原创 C 大调五声 8 小节循环 BGM（View 在标题/暂停开关，占 ch4-7）+
 --       选中/消除/拒绝/洗牌/提示/过关/新纪录全套 SFX
 -- 28 种 16×16 图标（14 种形状 × 2 配色）与全部 SFX/PATTERN 由 _init 程序化写入
 -- （SPEC §4.2/§5.2），颜色直取 §2.2 色表；最高分 dset(0)、音乐开关 dset(1)
--- 操作：⬅⬆⬇➡ 移动光标　Ⓐ 选中/消除　Ⓑ 取消　Ⓡ 提示　Select 洗牌（局内）
---       Start 暂停；标题 Ⓐ 开始
+-- 操作：←↑↓→ 移动光标　Ⓐ 选中/消除　Ⓑ 取消　Ⓡ 提示　View 洗牌（局内）
+--       Menu 暂停；标题 Ⓐ 开始
 
 -- ---------------------------------------------------------------- 常量
 
@@ -22,12 +22,12 @@ local DIFFS = {
   {name = "标准", c = 14, r = 4, pairs = 28, base = 120},
   {name = "挑战", c = 14, r = 8, pairs = 56, base = 150},
 }
-local COMBO_WIN = 240                 -- 连击窗口（帧）
+local COMBO_WIN = 240                 -- 连击窗口（幀）
 local HINT_MAX = 3                    -- 每关提示次数
 local SHUF_MAX = 2                    -- 每关手动洗牌次数
-local MATCH_BONUS = 120               -- 每次消除的时间奖励（帧 = 2 秒）
-local LINK_SHOW = 18                  -- 连线停留帧数
-local SCAN_STEP = 24                  -- 每帧死局扫描的候选对预算
+local MATCH_BONUS = 120               -- 每次消除的时间奖励（幀 = 2 秒）
+local LINK_SHOW = 18                  -- 连线停留幀数
+local SCAN_STEP = 24                  -- 每幀死局扫描的候选对预算
 local DEBUG = false                   -- 调试开关：发牌时向宿主打印棋盘布局
 local fmt = function(n) return string.format("%d", n) end
 
@@ -365,7 +365,7 @@ local function can_link(ax, ay, bx, by)
   return nil
 end
 
--- 增量扫描：按图标分组枚举同图标对，每帧限预算；找到即可作提示，扫完无对即死局
+-- 增量扫描：按图标分组枚举同图标对，每幀限预算；找到即可作提示，扫完无对即死局
 local function scan_reset()
   scan = {icon = 1, i = 1, j = 2, found = nil, done = false, pos = {}}
   for ic = 1, NICONS do scan.pos[ic] = {} end
@@ -612,7 +612,7 @@ local function update_play()
     if deal.t >= 16 then deal = nil end
     return
   end
-  if btnp(10) then -- Select：手动洗牌（局内）
+  if btnp(10) then -- View：手动洗牌（局内）
     if shuffles > 0 then
       shuffles = shuffles - 1
       start_shuffle()
@@ -625,11 +625,11 @@ local function update_play()
     use_hint()
     return
   end
-  for k = 0, 3 do -- 方向：首按即移 + 长按连发（首延 12 帧、之后每 3 帧）
-    if btnp(k) then
+  for k = 0, 3 do -- 方向：首按即移 + 长按连发（首延 12 幀、之后每 3 幀）
+    if dirp(k) then
       rep_t[k + 1] = 0
       move_cursor(k)
-    elseif btn(k) then
+    elseif dir(k) then
       rep_t[k + 1] = rep_t[k + 1] + 1
       if rep_t[k + 1] >= 12 and rep_t[k + 1] % 3 == 0 then move_cursor(k) end
     else
@@ -689,10 +689,10 @@ local function update_over()
   end
 end
 local function update_title()
-  if btnp(2) then -- ↑：上行（循环）
+  if dirp(2) then -- ↑：上行（循环）
     sel_row = (sel_row + 1) % 3 + 1
     sfx(0, 0)
-  elseif btnp(3) then -- ↓：下行（循环）
+  elseif dirp(3) then -- ↓：下行（循环）
     sel_row = sel_row % 3 + 1
     sfx(0, 0)
   end
@@ -902,7 +902,7 @@ local function draw_bottom()
   line(0, 239, 255, 239, 10)
   local hints_txt = {
     "Ⓐ 选中 ・ Ⓑ 取消 ・ 最多 2 拐点",
-    "Ⓡ 提示 ・ Select 洗牌 ・ Start 暂停",
+    "Ⓡ 提示 ・ View 洗牌 ・ Menu 暂停",
     "连续消除有连击加成 ・ 每对 +2 秒",
     "死局自动洗牌 ・ 清盘进入下一关",
   }
@@ -918,7 +918,7 @@ local function draw_pause()
   local s = "暂停"
   print(s, (256 - tw(s)) / 2 + 1, 111, 1)
   print(s, (256 - tw(s)) / 2, 110, 7)
-  local hints = {"Ⓑ 或 Start 继续", "Select 音乐开关"}
+  local hints = {"Ⓑ 或 Menu 继续", "View 音乐开关"}
   for i = 1, 2 do print(hints[i], (256 - tw(hints[i])) / 2, 136 + (i - 1) * 18, 6) end
 end
 local function draw_clear()
@@ -955,7 +955,7 @@ local function draw_over()
   row("最高 " .. fmt(best), 140, 30)
   if new_best and flr(t / 6) % 2 == 0 then row("★ 新纪录 ★", 160, 31) end
   if flr(t / 16) % 2 == 0 then row("Ⓐ 再来一局", 182, 7) end
-  row("Start 回标题", 204, 6)
+  row("Menu 回标题", 204, 6)
 end
 local function draw_title()
   cls(13)
@@ -995,7 +995,7 @@ local function draw_title()
     print(s, (256 - tw(s)) / 2 + 1, 201, 1)
     print(s, (256 - tw(s)) / 2, 200, 7)
   end
-  s = "⬆⬇ 选择　Select 音乐开关"
+  s = "↑↓ 选择　View 音乐开关"
   print(s, (256 - tw(s)) / 2, 224, 6)
   print("FrostMiKu ・ FC-16", (256 - tw("FrostMiKu ・ FC-16")) / 2, 244, 10)
 end

@@ -7,12 +7,12 @@
 -- CHR 并映射 ENDESGA-64（管线自测通过；未放 ROM 时使用现有致敬美术）。
 --
 -- 操作：←→ 移动（Ⓑ=J 跑）  Ⓐ=K 跳（按住跳更高）  ↓ 蹲 / 进管道  Ⓑ 发火球（火力态）
---       Start 暂停  Select 音乐开关
--- 分层：常量与音频 → 精灵烘焙 → 关卡数据 → 物理与实体 → 机制 → UI/帧循环
+--       Menu 暂停  View 音乐开关
+-- 分层：常量与音频 → 精灵烘焙 → 关卡数据 → 物理与实体 → 机制 → UI/幀循环
 
 -- ---------------------------------------------------------------- 常量
 
--- 物理常量（换算自参考实现 smb-ref：整数亚像素表 / 256 → 每帧像素）
+-- 物理常量（换算自参考实现 smb-ref：整数亚像素表 / 256 → 每幀像素）
 local MAX_WALK   = 1.5      -- 0x18/16 最大步行速度
 local MAX_RUN    = 2.5      -- 0x28/16 最大跑动速度
 local ACC_WALK   = 0.40625  -- 0x98/256 步行加速 / 低速段松键减速
@@ -33,12 +33,12 @@ local SHELL_SPD = 3.0       -- 0x30/16 龟壳被踢速度
 local FIRE_VX = 4.0         -- 0x40/16 火球水平速度
 local FIRE_GRAV = 0.3125    -- 0x50/256 火球重力
 local FIRE_BOUNCE = -3.0    -- 火球落地反弹
-local TIME_TICK = 24        -- 计时器每 24 帧减 1
-local STAR_TIME = 660       -- 无敌星时长（帧）
+local TIME_TICK = 24        -- 计时器每 24 幀减 1
+local STAR_TIME = 660       -- 无敌星时长（幀）
 local HURT_TIME = 120       -- 受伤无敌时长
-local MULTI_COIN_T = 264    -- 多金币砖计时（0x0b 单位 x24 帧）
+local MULTI_COIN_T = 264    -- 多金币砖计时（0x0b 单位 x24 幀）
 local SHELL_WAKE = 340      -- 龟壳苏醒时间
-local RUN_GRACE = 10        -- 松开 B 后保持跑动上限的帧数
+local RUN_GRACE = 10        -- 松开 B 后保持跑动上限的幀数
 
 -- 输入键位（SPEC §6）
 local KEY = { L = 0, R = 1, U = 2, D = 3, A = 4, B = 5, SEL = 10, STA = 11 }
@@ -730,7 +730,7 @@ local function bake_mario_big()
 end
 
 local function bake_enemies()
-  -- goomba 行走两帧（脚交替）
+  -- goomba 行走两幀（脚交替）
   bake_digits(S.GOOMBA, M, {
     "................",
     ".....UUUUUU.....",
@@ -786,7 +786,7 @@ local function bake_enemies()
     "HHHHHHHHHHHHHHHH",
     "................",
   })
-  -- koopa 两帧（朝左，16x24：上 tile 头 + 下 tile 壳脚）
+  -- koopa 两幀（朝左，16x24：上 tile 头 + 下 tile 壳脚）
   bake_digits(S.KOOPA_T, M, {
     "................",
     "....ooo.........",
@@ -956,7 +956,7 @@ local function bake_items()
     "................",
     "................",
   })
-  -- 金币 4 帧旋转
+  -- 金币 4 幀旋转
   bake_digits(S.COIN, M, {
     "................",
     ".....YYYY.......",
@@ -1048,7 +1048,7 @@ local function bake_items()
     "................",
     "................",
   })
-  -- 火球两帧 + 爆点
+  -- 火球两幀 + 爆点
   bake_digits(S.FIRE, M, {
     "................",
     "................",
@@ -1662,7 +1662,7 @@ local function bake_castle()
     "................",
     "................",
   })
-  -- 库巴（两帧 32x32 = 4 tile；A = 灰鳞，R = 腹甲，Y = 背刺，W = 眼/爪）
+  -- 库巴（两幀 32x32 = 4 tile；A = 灰鳞，R = 腹甲，Y = 背刺，W = 眼/爪）
   local function bowser_frame(shift)
     local top = {
       "................",
@@ -1700,7 +1700,7 @@ local function bake_castle()
       "................",
       "................",
     }
-    if shift then  -- 第二帧错位一像素制造走路感
+    if shift then  -- 第二幀错位一像素制造走路感
       top[13] = "..WAAAAAAW......"
       top[14] = "...WAAAAAAW....."
     end
@@ -2119,7 +2119,7 @@ local function new_game_state()
     lv = nil, contents = nil, cam = 0,
     mario = nil, ents = {}, parts = {}, pops = {}, bumps = {},
     spawned = {},                   -- 关卡敌人出生标记
-    multi = {},                     -- 多币砖计时 "tx,ty" → 帧数
+    multi = {},                     -- 多币砖计时 "tx,ty" → 幀数
     score = 0, coins = 0, lives = 3, lvi = 1, time = 400, timefr = 0, hurry = false,
     chain = 0, best = 0, bestlv = 1, music_on = true,
     flash = 0, flag_y = 0, shake = 0,
@@ -2815,7 +2815,7 @@ local function update_ents()
         e.y = ny
       end
     elseif e.kind == "firebar" then
-      -- 火棒：原版角速度 40/256（$1b 慢速顺时针）或 56/256（$1d 慢速逆时针）/帧
+      -- 火棒：原版角速度 40/256（$1b 慢速顺时针）或 56/256（$1d 慢速逆时针）/幀
       e.ang = (e.ang + e.spd / 256 * e.dir) % 32
       local cx, cy = e.x, e.y
       for i = 0, 5 do
@@ -3713,7 +3713,7 @@ local function draw_title()
   print(lv, flr((256 - tw(lv)) / 2), 238, C.WHITE)
   local b = "最高分 " .. game.best .. "  最远 1-" .. game.bestlv
   print(b, flr((256 - tw(b)) / 2), 8, C.WHITE)
-  local op = "Select 音乐开关  Start 暂停"
+  local op = "View 音乐开关  Menu 暂停"
   print(op, flr((256 - tw(op)) / 2), 164, C.COIND)
 end
 
@@ -3797,13 +3797,13 @@ function _draw()
       rect(96, 100, 64, 40, C.WHITE)
       local t = "暂停"
       print(t, flr((256 - tw(t)) / 2), 108, C.WHITE)
-      local p = "Start 继续"
+      local p = "Menu 继续"
       print(p, flr((256 - tw(p)) / 2), 124, C.COIND)
     end
   end
 end
 
--- ---------------------------------------------------------------- 帧循环
+-- ---------------------------------------------------------------- 幀循环
 
 function _update()
   update_states()
@@ -3822,7 +3822,7 @@ function _init()
 end
 
 -- ---------------------------------------------------------------- 物理换算表（README 同步）
--- 参考实现（亚像素 1/256 px，60fps）        换算        本作（px/帧 或 px/帧^2）
+-- 参考实现（亚像素 1/256 px，60fps）        换算        本作（px/幀 或 px/幀^2）
 -- MAX_WALK_SPEED      0x18/16            = 1.5        最大步行
 -- MAX_RUN_SPEED       0x28/16            = 2.5        最大跑动
 -- WALK_ACCEL          0x98/256           = 0.40625    步行加速 / 低速松键减速
@@ -3837,4 +3837,4 @@ end
 -- SHELL_SPEED         0x30/16            = 3.0
 -- FIREBALL            0x40/16            = 4.0（重力 0x50/256=0.3125，反弹 -3）
 -- STOMP_BOUNCE        $fc                = -4（按住 A 上升期间轻重力）
--- TIME_TICK           每 24 帧减 1（400 起倒计，剩 100 警告，归零死亡）
+-- TIME_TICK           每 24 幀减 1（400 起倒计，剩 100 警告，归零死亡）

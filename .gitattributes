@@ -1,0 +1,7 @@
+*.fc16 binary
+*.bin binary
+*.png binary
+*.wav binary
+*.lua text eol=lf
+*.py text eol=lf
+*.md text eol=lf

@@ -4,9 +4,9 @@
 -- 明暗相间花纹；吃食头部放大；星果光环 + 倒计时闪烁 + 扩散环庆祝；
 -- 死亡闪红（绘制期 + 显示期映射）+ 撞击回弹 + 自尾向头逐节碎裂
 -- 音频：转向轻响 / 吃食音高随连吃上升 8 级 / 星果琶音 / 死亡下坠 / 新纪录旋律 /
---       原创 8 小节循环 BGM（Select 开关）；分模式最高分 dset + fflush 持久化
+--       原创 8 小节循环 BGM（View 开关）；分模式最高分 dset + fflush 持久化
 -- 精灵与全部 SFX/PATTERN 由 _init 程序化写入（SPEC §4.2/§5.2），颜色直取 §2.2 色表
--- 操作：⬅⬆⬇➡ 转向（入队即刻预转向 + 轻响）　Ⓑ/Start 暂停　Ⓐ 确认・重来　Select 音乐开关
+-- 操作：←↑↓→ 转向（入队即刻预转向 + 轻响）　Ⓑ/Menu 暂停　Ⓐ 确认・重来　View 音乐开关
 
 -- ---------------------------------------------------------------- 常量
 
@@ -239,7 +239,7 @@ end
 local state, t = "title", 0 -- title | play | pause | dying | over
 local mode, spd, sel_row = 1, 2, 1
 local body      -- {{x, y, mx, my}, ...} 头在前；mx/my = 最近一步位移方向
-local dir, pend -- 当前方向 / 转向缓冲（≤2）
+local dir, pend -- 当前方向 / 转向缓冲（至多2）
 local step_t, step_int, eat_pulse
 local food, sfruit
 local score, best, eaten, final_len
@@ -437,7 +437,7 @@ local function step_snake()
 end
 local function update_play()
   for k = 0, 3 do -- 转向输入：两级缓冲，先按先转；入队即按生效方向校验轴向
-    if btnp(k) and #pend < 2 then -- 同轴（含 180° 回头）当场拒收，不占缓冲位
+    if dirp(k) and #pend < 2 then -- 同轴（含 180° 回头）当场拒收，不占缓冲位
       local d = KEY2DIR[k]
       local eff = pend[#pend] or dir
       if d % 2 ~= eff % 2 then
@@ -485,9 +485,9 @@ local function update_title()
   -- 装饰蛇沿利萨茹轨迹巡游（节距 ≈ 10px 保证体节相连）
   trail[#trail + 1] = {128 + cos(t * 0.006) * 84, 130 + sin(t * 0.012) * 54}
   if #trail > 90 then table.remove(trail, 1) end
-  if btnp(2) or btnp(3) then sel_row = 3 - sel_row sfx(0, 0)
-  elseif btnp(0) then adjust(-1)
-  elseif btnp(1) then adjust(1) end
+  if dirp(2) or dirp(3) then sel_row = 3 - sel_row sfx(0, 0)
+  elseif dirp(0) then adjust(-1)
+  elseif dirp(1) then adjust(1) end
   if btnp(10) then toggle_music() end
   if btnp(4) then start_game() end
 end
@@ -627,7 +627,7 @@ end
 
 local function draw_bottom()
   rectfill(0, 240, 256, 16, 2)
-  local hints = {"⬅⬆⬇➡ 转向　Ⓑ 暂停", "Select 音乐开关", "★ 特殊果实 +50", "速度随长度提升"}
+  local hints = {"←↑↓→ 转向　Ⓑ 暂停", "View 音乐开关", "★ 特殊果实 +50", "速度随长度提升"}
   local s = hints[flr(t / 150) % #hints + 1]
   print(s, (256 - tw(s)) / 2, 240, 6)
 end
@@ -640,7 +640,7 @@ local function draw_pause()
   local s = "暂停"
   print(s, (256 - tw(s)) / 2 + 1, 103, 1)
   print(s, (256 - tw(s)) / 2, 102, 7)
-  local hints = {"Ⓑ 或 Start 继续", "Select 音乐开关"}
+  local hints = {"Ⓑ 或 Menu 继续", "View 音乐开关"}
   for i = 1, 2 do print(hints[i], (256 - tw(hints[i])) / 2, 128 + (i - 1) * 18, 6) end
 end
 local function draw_over()
@@ -664,7 +664,7 @@ local function draw_over()
   row("最高 " .. fmt(best), 144, 30)
   if new_best and flr(t / 6) % 2 == 0 then row("★ 新纪录 ★", 164, 31) end
   if flr(t / 16) % 2 == 0 then row("Ⓐ 再来一局", 184, 7) end
-  row("Start 回标题", 204, 6)
+  row("Menu 回标题", 204, 6)
 end
 local function draw_title_snake()
   local n = #trail
@@ -718,7 +718,7 @@ local function draw_title()
     print(s, (256 - tw(s)) / 2 + 1, 191, 1)
     print(s, (256 - tw(s)) / 2, 190, 7)
   end
-  local hints = {"⬅⬆⬇➡ 选择　Ⓐ 开始", "Select 音乐开关"}
+  local hints = {"←↑↓→ 选择　Ⓐ 开始", "View 音乐开关"}
   for i = 1, 2 do print(hints[i], (256 - tw(hints[i])) / 2, 214 + (i - 1) * 18, 6) end
   print("♪", 242, 2, music_on and 30 or 10)
   print("FrostMiKu ・ FC-16", (256 - tw("FrostMiKu ・ FC-16")) / 2, 240, 10)
@@ -764,11 +764,11 @@ function _draw()
     draw_title()
     return
   end
-  if shake > 0 then -- 死亡震屏（与帧号绑定，保持确定性）
+  if shake > 0 then -- 死亡震屏（与幀号绑定，保持确定性）
     local a = min(5, shake * 0.6)
     camera(flr(sin(t * 0.11) * a), flr(cos(t * 0.17) * a * 0.6))
   end
-  -- 死亡红闪之一：显示期映射把棋盘底色整体染红（帧缓冲不变）
+  -- 死亡红闪之一：显示期映射把棋盘底色整体染红（幀缓冲不变）
   local flash = state == "dying" and die_t < 24 and flr(die_t / 4) % 2 == 0
   if flash then
     pal(15, 61, 1)

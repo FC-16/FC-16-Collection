@@ -11,20 +11,20 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 32825
+@code 32812
 -- 数独 ・ FC-16 演示卡带
 -- 经典 9×9 数独：三档难度（入门 40 提示数 / 进阶 32 / 困难 26），全部由卡带内
--- 回溯算法现场生成。出题流水线切片到多帧执行（协程 + 每帧预算），绝不单帧算完：
+-- 回溯算法现场生成。出题流水线切片到多幀执行（协程 + 每幀预算），绝不单幀算完：
 --   1) 随机候选顺序回溯生成完整终盘；
 --   2) 中心对称挖洞，每移除一格（对）都用「解数计数器（数到 2 即止）」验证唯一解，
 --      不唯一立即回填；MRV（候选最少格优先）保证验证高效。
 -- 操作：光标移动 → Ⓐ 呼出数字条 → 选数确认；Ⓑ 擦除；Ⓛ 铅笔候选（3×3 小字，
 --       填数自动清理同行/列/宫同数候选）；Ⓡ 提示揭示答案（每局 3 次）；
---       Ⓧ 冲突检查开关（标红行/列/宫内重复）；Start 暂停菜单；Select 音乐开关。
+--       Ⓧ 冲突检查开关（标红行/列/宫内重复）；Menu 暂停菜单；View 音乐开关。
 -- 辅助：光标行列宫淡染、同数高亮、给定双描白字 / 玩家青蓝 / 提示绿 / 冲突红、
 --       数字条余量计数；胜利斜向金波扫场 + 结算（用时/提示/填错/新纪录）。
 -- 音频：移动/填数（按数字五声音阶变调）/擦除/填错/提示/胜利 SFX + 原创
---       4 小节 C 五声舒缓 BGM 循环（Select 开关）。
+--       4 小节 C 五声舒缓 BGM 循环（View 开关）。
 -- 存档：各难度最佳用时 dset(0..2)、最少提示 dset(3..5)、音乐开关 dset(6)，整数
 --       秒存储，fflush 持久化（SPEC §13）。
 
@@ -50,7 +50,7 @@ local C_CONFL  = 63  -- 冲突红 #FF0040
 local C_CURSOR = 30  -- 光标格填充 #FFA214
 local C_INK    = 16  -- 选中底上的墨色数字 #391F21
 local C_GOLD   = 31  -- 亮金 #FFEB57
-local C_AMBER  = 24  -- 深金（光标描边偶帧）#E07438
+local C_AMBER  = 24  -- 深金（光标描边偶幀）#E07438
 local C_TXT    = 8   -- 正文亮字 #C7CFDD
 local C_DIM    = 10  -- 暗字 #657392
 
@@ -72,7 +72,7 @@ local function ctext(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
 -- ---------------------------------------------------------------- 状态
 
 local state = "title"  -- title / gen / play / pause / win
-local t = 0            -- 全局帧计数
+local t = 0            -- 全局幀计数
 local diff = 1         -- 当前难度 1..3
 local title_sel = 1
 local pause_sel = 1
@@ -82,10 +82,10 @@ local cx, cy = 4, 4    -- 光标（列/行，0 起）
 local pencil = false   -- 铅笔候选模式
 local check = false    -- Ⓧ 冲突检查显示
 local hints_left = HINTS_MAX
-local play_frames = 0  -- 计时帧（暂停不累计）
+local play_frames = 0  -- 计时幀（暂停不累计）
 local mistakes = 0     -- 填错次数（与答案不符的填入）
 local sol, giv, puz, own, penc -- 答案 / 题面 / 盘面 / 来源(1玩家 2提示) / 候选表
-local conf = {}        -- 冲突格标记（检查模式下逐帧重算）
+local conf = {}        -- 冲突格标记（检查模式下逐幀重算）
 local rep = { 0, 0, 0, 0 }   -- 方向键按住计时（自动重复）
 local rep_bar = 0            -- 数字条左右按住计时
 local gen                    -- 出题协程
@@ -95,8 +95,8 @@ local music_on, bgm_on = true, false
 
 local TIPS = {
   "Ⓐ 选数　Ⓑ 擦除　Ⓛ 铅笔候选",
-  "Ⓡ 提示　Ⓧ 检查　Start 菜单",
-  "Select 音乐开关",
+  "Ⓡ 提示　Ⓧ 检查　Menu 菜单",
+  "View 音乐开关",
 }
 
 local function set_bgm(on)
@@ -135,7 +135,7 @@ local function expand(notes, k, wave, vol) -- 音符序列按 k 步展开（0 = 
   return out
 end
 -- BGM：C 大调五声舒缓小品，4 小节回环；旋律 ch4（ROUND）/ 贝斯 ch5（BASS），
--- speed 8：每小节 256 帧，全曲约 17 秒；PATTERN 0-3 首 BEGIN 末 END，占 ch4-5
+-- speed 8：每小节 256 幀，全曲约 17 秒；PATTERN 0-3 首 BEGIN 末 END，占 ch4-5
 local BGM_MEL = {
   { 72, 0, 76, 0, 79, 0, 76, 0 }, -- C5 ・ E5 ・ G5 ・ E5
   { 69, 0, 72, 0, 74, 0, 0, 0 },  -- A4 ・ C5 ・ D5
@@ -201,7 +201,7 @@ local function bake_tiny()
   end
 end
 
--- ---------------------------------------------------------------- 出题引擎（协程分帧）
+-- ---------------------------------------------------------------- 出题引擎（协程分幀）
 
 -- 预计算格位元信息：RC[i] = {r, c, b}；行/列/宫的格索引清单
 local RC, ROWS, COLS, BOXS = {}, {}, {}, {}
@@ -221,7 +221,7 @@ local function build_maps()
 end
 
 local NG = { bd = {}, rows = {}, cols = {}, boxs = {} } -- 出题工作区
-local ng_nodes = 0   -- 验证节点计数（分帧切片用）
+local ng_nodes = 0   -- 验证节点计数（分幀切片用）
 
 local function ng_set(i, d, on) -- 在 NG 盘面放置/撤除一个数字
   local rc = RC[i]
@@ -232,7 +232,7 @@ local function ng_set(i, d, on) -- 在 NG 盘面放置/撤除一个数字
 end
 
 -- 解数计数：MRV（候选最少空格优先）回溯，数满 limit 即早退。
--- 在出题协程内调用：每 12 个验证节点 yield 一次，由帧驱动器限流。
+-- 在出题协程内调用：每 12 个验证节点 yield 一次，由幀驱动器限流。
 local function ng_count(limit)
   local rows, cols, boxs = {}, {}, {}
   for i = 0, 8 do rows[i], cols[i], boxs[i] = {}, {}, {} end
@@ -454,7 +454,7 @@ local function use_hint()
 end
 
 local function start_gen()
-  srand(frame())                               -- 以开局帧号为种子（确定性随机）
+  srand(frame())                               -- 以开局幀号为种子（确定性随机）
   gen_phase, gen_prog = 0, 0
   gen = coroutine.create(gen_worker)
   state = "gen"
@@ -502,7 +502,7 @@ end
 -- ---------------------------------------------------------------- 更新
 
 local function update_title()
-  if btnp(2) or btnp(3) or btnp(0) or btnp(1) then
+  if dirp(2) or dirp(3) or dirp(0) or dirp(1) then
     title_sel = title_sel % 3 + 1              -- 任意方向键循环切换难度
     sfx(0, 0)
   end
@@ -516,13 +516,13 @@ end
 
 local function update_gen()
   if btnp(10) then toggle_music() end
-  if btnp(11) then                             -- Start 取消出题回标题
+  if btnp(11) then                             -- Menu 取消出题回标题
     state = "title"
     gen = nil
     sfx(11, 0)
     return
   end
-  for _ = 1, 4 do                              -- 每帧最多 4 段切片（预算内）
+  for _ = 1, 4 do                              -- 每幀最多 4 段切片（预算内）
     if gen == nil or coroutine.status(gen) == "dead" then break end
     local ok, err = coroutine.resume(gen)
     if not ok then error(err) end
@@ -541,7 +541,7 @@ local function update_play()
   play_frames = play_frames + 1                -- 计时仅对局中推进
   if focus == 0 then
     for d = 0, 3 do                            -- 光标移动：首按即动 + 自动重复
-      if btn(d) then
+      if dir(d) then
         rep[d + 1] = rep[d + 1] + 1
         if rep[d + 1] == 1 or (rep[d + 1] > 14 and rep[d + 1] % 3 == 0) then
           if d == 0 and cx > 0 then cx = cx - 1 sfx(2, 0)
@@ -566,7 +566,7 @@ local function update_play()
     end
   else
     local bdir = 0                             -- 数字条：左右选数（自动重复）
-    if btn(0) then bdir = -1 elseif btn(1) then bdir = 1 end
+    if dir(0) then bdir = -1 elseif dir(1) then bdir = 1 end
     if bdir ~= 0 then
       rep_bar = rep_bar + 1
       if rep_bar == 1 or (rep_bar > 12 and rep_bar % 2 == 0) then
@@ -576,7 +576,7 @@ local function update_play()
     else
       rep_bar = 0
     end
-    if btnp(2) then                            -- ↑ 回棋盘
+    if dirp(2) then                            -- ↑ 回棋盘
       focus = 0
       rep = { 0, 0, 0, 0 }
       sfx(0, 0)
@@ -604,10 +604,10 @@ local function update_pause()
   if btnp(11) or btnp(5) then
     state = "play"
     sfx(11, 0)
-  elseif btnp(2) or btnp(0) then
+  elseif dirp(2) or dirp(0) then
     pause_sel = (pause_sel + 2) % 4 + 1
     sfx(0, 0)
-  elseif btnp(3) or btnp(1) then
+  elseif dirp(3) or dirp(1) then
     pause_sel = pause_sel % 4 + 1
     sfx(0, 0)
   elseif btnp(4) then
@@ -837,7 +837,7 @@ local function draw_gen()
   rrectfill(76, 148, 104, 12, 3, C_CELL_D)     -- 进度条
   rrect(76, 148, 104, 12, 3, C_GRID)
   rectfill(78, 150, flr(100 * gen_prog), 8, 30)
-  if flr(t / 20) % 2 == 0 then ctext("Start 返回", 180, C_DIM) end
+  if flr(t / 20) % 2 == 0 then ctext("Menu 返回", 180, C_DIM) end
 end
 
 local function draw_title()
@@ -878,7 +878,7 @@ local function draw_title()
     print(bs, 182 - tw(bs), y, sel and 7 or C_DIM)
   end
   if flr(t / 20) % 2 == 0 then
-    local hint = flr(t / 150) % 2 == 0 and "↑↓ 选择　Ⓐ 出题开局" or "Select 音乐开关"
+    local hint = flr(t / 150) % 2 == 0 and "↑↓ 选择　Ⓐ 出题开局" or "View 音乐开关"
     ctext(hint, 212, 7)
   end
   print("♪", 240, 4, music_on and 30 or 10)
@@ -938,7 +938,7 @@ local function draw_win()
     if flr(t / 6) % 2 == 0 then ctext("☆ 提示新纪录 ☆", 156, C_HINTC) end
   end
   if flr(t / 16) % 2 == 0 then ctext("Ⓐ 再来一局", 174, 7) end
-  ctext("Start 回标题", 190, C_DIM)
+  ctext("Menu 回标题", 190, C_DIM)
 end
 
 function _draw()

@@ -11,7 +11,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 58438
+@code 56684
 -- 坦克大战（FC-16）・ 致敬 Battle City 的原创重制
 -- 玩法与关卡布局忠实还原经典（关卡数据还原自原作 ROM 出厂表）；
 -- 像素美术与音乐为本卡带原创，以 FC-16 出厂 64 色自绘。
@@ -21,7 +21,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 -- 砖墙以 8×8 半格为破坏粒度；钢墙挡弹（3 级火力可摧毁）；
 -- 水挡车不挡弹；树冠盖在坦克上层；冰面带惯性滑行。
 --
--- 操作：⬅⬆⬇➡ 移动・Ⓐ 开火・Start 暂停・Select 音乐开关
+-- 操作：←↑↓→ 移动・Ⓐ 开火・Menu 暂停・View 音乐开关
 
 -- ================================================================ 常量
 
@@ -170,7 +170,7 @@ local function edge_d(px, py, pts)
 end
 
 -- ================================================================ 精灵烘焙
--- 瓦片号：0-7 玩家 ・ 8-39 敌四型（每型 4 向 × 2 履带帧）・ 40 砖 41 钢
+-- 瓦片号：0-7 玩家 ・ 8-39 敌四型（每型 4 向 × 2 履带幀）・ 40 砖 41 钢
 -- 42/43 水 44 树 45 冰 46/47 鹰 ・ 48-53 道具 ・ 54-56 爆炸 ・ 57-59 出生星
 -- 60 子弹 ・ 61 面板小图标
 
@@ -184,7 +184,7 @@ local function bake(id, fn)
   end
 end
 
--- 履带列：深灰底 + 交替履齿（f 为帧相位）
+-- 履带列：深灰底 + 交替履齿（f 为幀相位）
 local function treads(x, y, f, x0, x1)
   if x < x0 or x > x1 then return nil end
   if (y + f) % 4 < 2 then return 5 end
@@ -466,7 +466,7 @@ local function bake_all()
     return nil
   end)
 
-  -- 爆炸三帧（第三帧运行时 2× 放大绘制）
+  -- 爆炸三幀（第三幀运行时 2× 放大绘制）
   bake(54, function (x, y)
     local dx, dy = x - 7.5, y - 7.5
     local d2 = dx * dx + dy * dy
@@ -497,7 +497,7 @@ local function bake_all()
     return nil
   end)
 
-  -- 出生闪星三帧（十字 → 十字+斜 → 大星芒）
+  -- 出生闪星三幀（十字 → 十字+斜 → 大星芒）
   bake(57, function (x, y)
     local ax, ay = abs(x - 7.5) - 0.5, abs(y - 7.5) - 0.5
     if (ax <= 0.5 and ay <= 2.5) or (ay <= 0.5 and ax <= 2.5) then return 7 end
@@ -845,7 +845,7 @@ local function kill_player()
   G.resp = 70
 end
 
--- 单步（≤2px）推进后的碰撞：地形 / 坦克
+-- 单步（至多2px）推进后的碰撞：地形 / 坦克
 local function bullet_step(b)
   if b.x < -2 or b.x > FPX + 2 or b.y < -2 or b.y > FPX + 2 then
     b.dead = true
@@ -965,10 +965,10 @@ local function upd_player()
   local d = nil
   if btn(KEYDIR[p.dir + 1]) then
     d = p.dir
-  elseif btn(2) then d = 0
-  elseif btn(3) then d = 2
-  elseif btn(0) then d = 3
-  elseif btn(1) then d = 1 end
+  elseif dir(2) then d = 0
+  elseif dir(3) then d = 2
+  elseif dir(0) then d = 3
+  elseif dir(1) then d = 1 end
 
   local moving = false
   if d then
@@ -1421,7 +1421,7 @@ local function draw_top()
   print(hs, PX - 4 - tw(hs), 4, 23)
   if G.bgm then print("♪", PX - 16 - tw(hs), 4, 41) end
   line(0, 23, PX - 1, 23, 11)
-  local h = "⬅⬆⬇➡ 移动・Ⓐ 开火"
+  local h = "←↑↓→ 移动・Ⓐ 开火"
   print(h, flr((PX - tw(h)) / 2), 240, 9)
   line(0, 233, PX - 1, 233, 11)
 end
@@ -1482,9 +1482,9 @@ local function draw_pause_overlay()
   local s = "暂停"
   print(s, flr((256 - tw(s)) / 2), 72, 31)
   local lines = {
-    "⬅⬆⬇➡ 移动・Ⓐ 开火",
-    "Start 继续",
-    "Select 音乐开关",
+    "←↑↓→ 移动・Ⓐ 开火",
+    "Menu 继续",
+    "View 音乐开关",
     "护基地・灭 20 辆过关",
   }
   for i = 1, 4 do
@@ -1525,7 +1525,7 @@ local function draw_title()
     local s = "按 Ⓐ 开始"
     print(s, flr((256 - tw(s)) / 2), 172, 7)
   end
-  local f = "Select 音乐开关"
+  local f = "View 音乐开关"
   print(f, flr((256 - tw(f)) / 2), 190, 5)
   local r1 = "最高 " .. G.hi .. " 分"
   local r2 = "最远 第 " .. G.fstage .. " 关"
@@ -1590,7 +1590,7 @@ local function draw_over()
     local a = "Ⓐ 续关（本关重来・分数清零）"
     print(a, flr((256 - tw(a)) / 2), 168, 30)
   end
-  local b = "Start 返回标题"
+  local b = "Menu 返回标题"
   print(b, flr((256 - tw(b)) / 2), 192, 9)
 end
 
@@ -1616,12 +1616,12 @@ local function draw_victory()
   local l3 = "最高 " .. G.hi .. " 分"
   print(l3, flr((256 - tw(l3)) / 2), 168, 23)
   if flr(t / 20) % 2 == 0 then
-    local s = "按 Start 返回标题"
+    local s = "按 Menu 返回标题"
     print(s, flr((256 - tw(s)) / 2), 208, 7)
   end
 end
 
--- ================================================================ 帧循环
+-- ================================================================ 幀循环
 
 function _init()
   G = {

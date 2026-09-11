@@ -11,7 +11,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 40103
+@code 40098
 -- FC-16 飞行棋（demo/ludo）
 -- 经典中式四色飞行棋：52 格环形跑道（每色 13 格）＋各色 6 格终点跑道＋虚线飞行捷径
 -- 简化与约定（详见 README.md）：
@@ -22,7 +22,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 --   ・终点须恰好到达，多出的步数回退走完
 --   ・首位 4 机全部到达者获胜，随后直接结算名次（其余按进度排名）
 -- 确定性：AI 为纯状态启发式；骰子与装饰粒子用 rnd（PCG32），不读真实时钟
--- 操作：Ⓐ 掷骰／确认　⬅➡⬆⬇ 选机　Ⓑ 弃权　Select 音乐开关　Start 回标题
+-- 操作：Ⓐ 掷骰／确认　←→↑↓ 选机　Ⓑ 弃权　View 音乐开关　Menu 回标题
 
 -- ================================================================ 几何
 
@@ -800,12 +800,12 @@ local function update_play()
         G.msel = ((G.msel - 1 + d) % #G.mov) + 1
         sfx(9)
       end
-      if btnp(0) or btnp(2) then
-        G.holdd = btnp(0) and 0 or 2
+      if dirp(0) or dirp(2) then
+        G.holdd = dirp(0) and 0 or 2
         G.holdt = 0
         shift(-1)
-      elseif btnp(1) or btnp(3) then
-        G.holdd = btnp(1) and 1 or 3
+      elseif dirp(1) or dirp(3) then
+        G.holdd = dirp(1) and 1 or 3
         G.holdt = 0
         shift(1)
       elseif G.holdd and btn(G.holdd) then
@@ -854,10 +854,10 @@ local function update_play()
 end
 
 local function update_title()
-  if btnp(0) or btnp(2) then
+  if dirp(0) or dirp(2) then
     G.humans = (G.humans - 2) % 4 + 1
     sfx(9)
-  elseif btnp(1) or btnp(3) then
+  elseif dirp(1) or dirp(3) then
     G.humans = G.humans % 4 + 1
     sfx(9)
   end
@@ -1017,7 +1017,7 @@ local function draw_board()
   trifill(106, 107, 149, 107, GCX, GCY, PC[2][1])
   trifill(149, 107, 149, 150, GCX, GCY, PC[3][1])
   trifill(106, 150, 149, 150, GCX, GCY, PC[4][1])
-  print("✽", 120, 121, 31)
+  print("★", 120, 121, 31)
 
   -- 飞行捷径虚线走廊
   for p = 1, 4 do
@@ -1159,7 +1159,7 @@ local function prompt_text()
     if G.extra then return "奖励再掷！" .. nm .. " Ⓐ 掷骰" end
     return nm .. " Ⓐ 掷骰"
   elseif G.phase == "select" then
-    return "⬅➡⬆⬇ 选机 Ⓐ 确认 Ⓑ 弃权"
+    return "←→↑↓ 选机 Ⓐ 确认 Ⓑ 弃权"
   elseif G.phase == "rollanim" then
     return nm .. " 掷骰中"
   end
@@ -1227,7 +1227,7 @@ local function draw_title()
   local py = 118
   rrectfill(38, py, 180, 76, 6, 13)
   rrect(38, py, 180, 76, 6, 12)
-  print("⬅➡ 玩家数", 128 - tw("⬅➡ 玩家数") / 2, py + 6, 7)
+  print("←→ 玩家数", 128 - tw("←→ 玩家数") / 2, py + 6, 7)
   big_text(tostring(G.humans), 76, py + 24, 31)
   print("人", 92, py + 28, 7)
   for p = 1, 4 do
@@ -1245,7 +1245,7 @@ local function draw_title()
   if flr(G.t / 20) % 2 == 0 then
     print("Ⓐ 开始游戏", 128 - tw("Ⓐ 开始游戏") / 2, 202, 31)
   end
-  local ms = "Select 音乐：" .. (G.music_on and "开" or "关")
+  local ms = "View 音乐：" .. (G.music_on and "开" or "关")
   print(ms, 128 - tw(ms) / 2, 220, 10)
   local rs = "掷6起飞・跳跃・飞跃・撞机"
   print(rs, 128 - tw(rs) / 2, 240, 10)

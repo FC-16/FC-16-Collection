@@ -11,18 +11,18 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 35325
+@code 35321
 -- FC-16 井字棋演示卡带
 -- ============================================================
 -- 经典井字棋 + 终极井字棋（9 宫嵌套变体）。
 --   ・双人 / 人机（简单：赢+必堵+随机；普通：赢堵中心对角角边启发；
---     困难：完美 minimax，negamax + 记忆化 + 协程分帧搜索，不可战胜），
+--     困难：完美 minimax，negamax + 记忆化 + 协程分幀搜索，不可战胜），
 --     先手可选（玩家先 / 电脑先 / 观战演示）
 --   ・终极井字棋：9×9 嵌套，落子小格决定对手行棋宫，被占宫任选；
 --     小宫三连成格、三格成线获胜；AI 为启发式（简单随机 / 普通 /
 --     困难多一步终胜防察）
 -- 手绘描边风 X / O 棋子（_init 程序化烘焙）、落子弹入动画、胜利连线高亮、
--- 平局演出、悔棋（Ⓑ）、Start 重开、Ⓨ 回标题、战绩存档、双音色与 BGM。
+-- 平局演出、悔棋（Ⓑ）、Menu 重开、Ⓨ 回标题、战绩存档、双音色与 BGM。
 -- ---------------------------------------------------------------- 常量
 local C_BG, C_BG_D, C_BG_L = 13, 15, 12     -- 深靛底三档
 local C_PANEL, C_PANEL2, C_INK = 22, 21, 17  -- 纸面 / 纸缘 / 棕墨
@@ -101,7 +101,7 @@ local function spset(u, v, c)
   poke((flr(v / 16) * 16 + flr(u / 16)) * 256 + (v % 16) * 16 + u % 16, c)
 end
 -- 手绘 X：两条锥形微弯笔画 + 深描边 + 左上受光；全程平方距离比较（无
--- sqrt）；yb..ye 为行区间（分帧烘焙省单帧预算）
+-- sqrt）；yb..ye 为行区间（分幀烘焙省单幀预算）
 local function bake_x(u0, v0, S, yb, ye)
   local m = S * 0.21
   local amp, outl = S * 0.028, S * 0.03
@@ -209,11 +209,11 @@ local function wavy2(x0, y0, x1, y1, col, ph)
   end
 end
 -- ---------------------------------------------------------------- 状态
-local t = 0                 -- 全局帧计数
+local t = 0                 -- 全局幀计数
 local state = "title"       -- title / play
 local title = { mode = 1, diff = 2, first = 1, uopp = 1 }
 local sel_row = 1
-local bake_queue = {}       -- 分帧烘焙队列（避免 _init 超单帧预算）
+local bake_queue = {}       -- 分幀烘焙队列（避免 _init 超单幀预算）
 local bake_done = 0
 local gmode, gdiff, gfirst, guopp  -- 本局配置快照
 local ai_side = 0           -- 0 无 / 1 / 2 / 3 双方皆电脑（观战）
@@ -392,7 +392,7 @@ local function normal_pick()
   end
   return si[flr(rnd(#si)) + 1]
 end
--- 困难：完美 minimax（negamax + 记忆化 + 协程分帧让出预算）
+-- 困难：完美 minimax（negamax + 记忆化 + 协程分幀让出预算）
 -- 值编码（视角 = 行棋方）：n 手取胜 = 10-n（越快越大）；n 手告负 = n-10
 -- （越晚越大）；平 = 0。父值 v = 1-c（子值 c>0）/ -1-c（c<0）/ 0
 local MEMO = {}
@@ -407,7 +407,7 @@ local function solve(b, k, mover)
   node_cnt = node_cnt + 1
   if node_cnt >= 700 then
     node_cnt = 0
-    coroutine.yield()  -- 分帧让出预算（每 700 节点一次）
+    coroutine.yield()  -- 分幀让出预算（每 700 节点一次）
   end
   local best = nil
   for i = 1, 9 do
@@ -573,11 +573,11 @@ local function clamp_ucursor()  -- 光标钳入目标宫
     gy = flr(mid(flr((targ - 1) / 3) * 3, gy, flr((targ - 1) / 3) * 3 + 2))
   end
 end
--- 方向键按住重复（首帧动一格，停 12 帧后每 4 帧一格）
+-- 方向键按住重复（首幀动一格，停 12 幀后每 4 幀一格）
 local function cursor_input()
   local lim = (gmode == 3) and 8 or 2
   for d = 0, 3 do
-    if btn(d) then rep[d + 1] = rep[d + 1] + 1
+    if dir(d) then rep[d + 1] = rep[d + 1] + 1
       if rep[d + 1] == 1 or (rep[d + 1] > 12 and (rep[d + 1] - 13) % 4 == 0) then local ox, oy = gx, gy
         if d == B_L then gx = gx - 1
         elseif d == B_R then gx = gx + 1
@@ -651,7 +651,7 @@ end
 function _update()
   t = t + 1
   if #bake_queue > 0 then
-    -- 每帧只烘焙一张（省单帧预算；标题期即完成，不碍观瞻）
+    -- 每幀只烘焙一张（省单幀预算；标题期即完成，不碍观瞻）
     local f = table.remove(bake_queue, 1)
     f()
     bake_done = bake_done + 1
@@ -812,7 +812,7 @@ local function draw_hints()
   elseif gmode == 3 then st = string.format("战绩 先%d 后%d 平%d", stats[7], stats[8], stats[9]) end
   local list
   if winner ~= nil then list = { "Ⓐ再来一局　Ⓨ回标题" }
-  elseif ai_side == 3 then list = { "观战中　Start 重开", st, "Select 音乐" }
+  elseif ai_side == 3 then list = { "观战中　Menu 重开", st, "View 音乐" }
   elseif gmode == 3 then list = { "Ⓐ落子　Ⓑ悔棋　Start重开", "Ⓨ回标题　Select音乐", "落子入对应宫　被占则任选", st }
   else list = { "Ⓐ落子　Ⓑ悔棋　Start重开", "Ⓨ回标题　Select音乐", st } end
   local s = list[flr(t / 150) % #list + 1]
@@ -863,11 +863,11 @@ local function draw_title()
   ctext(string.format("终极　先%d　后%d　平%d", stats[7], stats[8], stats[9]), y0 + 42, C_TXT)
   rectfill(0, BOT_Y, 256, 256 - BOT_Y, C_BG_D)
   line(0, BOT_Y, 255, BOT_Y, C_BG_L)
-  local hs = "⬅➡调整　⬆⬇选行　Ⓐ开始"
+  local hs = "←→调整　↑↓选行　Ⓐ开始"
   print(hs, flr((256 - tw(hs)) / 2), 242, C_TXT_M)
 end
 function _draw()
-  pal()  -- 复位两级映射（幽灵棋子的绘制期映射每帧局部设置）
+  pal()  -- 复位两级映射（幽灵棋子的绘制期映射每幀局部设置）
   if state == "title" then draw_title()
     return
   end
@@ -889,7 +889,7 @@ function _draw()
 end
 -- ---------------------------------------------------------------- 初始化
 function _init()
-  -- 棋子烘焙分四帧执行（瓦片 (0..2,16..18)=X / (4..6,16..18)=O）
+  -- 棋子烘焙分四幀执行（瓦片 (0..2,16..18)=X / (4..6,16..18)=O）
   bake_queue[1] = function() bake_x(0, 256, 48, 0, 23) end
   bake_queue[2] = function() bake_x(0, 256, 48, 24, 47) end
   bake_queue[3] = function() bake_o(64, 256, 48, 0, 23) end

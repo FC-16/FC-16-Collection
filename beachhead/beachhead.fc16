@@ -11,7 +11,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 82393
+@code 82395
 --=============================================================================
 -- 抢滩登陆战 2002 · FC-16 卡带
 --
@@ -364,7 +364,7 @@ local function init_ground()
   end
 end
 
--- 标题大字（帧缓冲 → 精灵 2× 采集）--------------------------------------------
+-- 标题大字（幀缓冲 → 精灵 2× 采集）--------------------------------------------
 local function capture_text(str, w, srow)
   cls(0)
   print(str, 0, 0, 7)
@@ -407,7 +407,7 @@ local P = {
   hit_mark = 0, hit_kill = false, hit_x = 0, hit_y = 0, hit_z = 0,
 }
 local HI = 0
-local DRAW_COST = 0   -- 上一帧绘制期 VM 指令数（驱动自适应 LOD）
+local DRAW_COST = 0   -- 上一幀绘制期 VM 指令数（驱动自适应 LOD）
 
 -- 实体 ----------------------------------------------------------------------
 local ENT, PART, PROJ = {}, {}, {}
@@ -618,8 +618,8 @@ local function spawn(kind, x, z, opts)
   return e
 end
 
--- 实体绘制管线（顶点暂存复用，避免每帧分配）------------------------------------
--- 盒体是凸多面体：背面剔除后可见面（≤3）在投影上互不重叠，因此部件内无需
+-- 实体绘制管线（顶点暂存复用，避免每幀分配）------------------------------------
+-- 盒体是凸多面体：背面剔除后可见面（至多3）在投影上互不重叠，因此部件内无需
 -- 面片排序，部件之间由远→近的画家序保证遮挡，全部 trifill 直接内联发射。
 local SXv, SYv = {}, {}            -- 屏幕坐标（每部件 8 角）
 local PORD = {}                    -- 部件排序键（深度×16+部件号）
@@ -642,7 +642,7 @@ local function draw_entity(e)
   local np = #parts
   local d = e._d
   -- 距离 LOD：远处士兵画双三角剪影，更远直接跳过；
-  -- 帧成本超限时压缩全模型距离（自适应降压，下一帧生效）
+  -- 幀成本超限时压缩全模型距离（自适应降压，下一幀生效）
   if e.kind == "soldier" then
     if d > 230 then return end
     local bd = 48
@@ -1337,7 +1337,7 @@ end
 --   initial  初始状态名（可为函数，按出生条件选择）
 --   states   { 名字 = { enter = f(e), update = f(e) -> 下一状态名或 nil } }
 --   on_hit   受击未毁时调用（坦克 / 装甲车借此横移规避）
--- 状态内约定：e.stt 本状态帧龄，e.t 总帧龄，e.ft 开火计时，e.ph 相位种子；
+-- 状态内约定：e.stt 本状态幀龄，e.t 总幀龄，e.ft 开火计时，e.ph 相位种子；
 -- 置 e.dead = true 交由主循环移除。
 -- =============================================================================
 
@@ -1997,8 +1997,8 @@ local rot_ramp, el_ramp = 0, 0   -- 长按加速：短按微调、按住约半�
 
 local function update_player()
   local rot = 0
-  if btn(0) then rot = rot - 1 end
-  if btn(1) then rot = rot + 1 end
+  if dir(0) then rot = rot - 1 end
+  if dir(1) then rot = rot + 1 end
   if snap_t >= 0 then
     snap_t = snap_t + 1
     local f = snap_t / 10
@@ -2013,7 +2013,7 @@ local function update_player()
       rot_ramp = 0
     else
       rot_ramp = min(30, rot_ramp + 1)
-      -- 起步 5 帧超微调（约 0.3°/帧），之后照常加速
+      -- 起步 5 幀超微调（约 0.3°/幀），之后照常加速
       local k = rot_ramp <= 5 and 0.0009
         or (0.0018 + 0.0062 * (rot_ramp - 5) / 25)
       CAM.yaw = CAM.yaw + rot * k
@@ -2026,8 +2026,8 @@ local function update_player()
   end
   CAM.yaw = wrap(CAM.yaw)
   local el = 0
-  if btn(2) then el = el + 1 end
-  if btn(3) then el = el - 1 end
+  if dir(2) then el = el + 1 end
+  if dir(3) then el = el - 1 end
   if el == 0 then
     el_ramp = 0
   else
@@ -2273,7 +2273,7 @@ local function draw_title()
   end
   local hs = "最高纪录 " .. string.format("%06d", HI)
   print(hs, CX - tw(hs) / 2, 206, PAL.gold)
-  local ctl = "⬅➡ 转向 ⬆⬇ 俯仰 Ⓐ 机枪 Ⓑ 火炮 Ⓧ 装填"
+  local ctl = "←→ 转向 ↑↓ 俯仰 Ⓐ 机枪 Ⓑ 火炮 Ⓧ 装填"
   print(ctl, CX - tw(ctl) / 2, 228, PAL.palgray)
 end
 
@@ -2459,7 +2459,7 @@ function _draw()
     print("暂停", CX - tw("暂停") / 2, 100, PAL.gold)
     print("Ⓐ 继续战斗", 88, 124, 7)
     print("Ⓧ 重新开始", 88, 144, 7)
-    print("Start 返回战场", 76, 164, PAL.palgray)
+    print("Menu 返回战场", 76, 164, PAL.palgray)
   else
     draw_scene()
     if P.dmg_flash > 0 then

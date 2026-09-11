@@ -1,5 +1,5 @@
 -- 雷霆战机（FC-16）
--- 纵版弹幕射击：WASD 移动 / J 射击 / Start 暂停
+-- 纵版弹幕射击：WASD 移动 / J 射击 / Menu 暂停
 -- 纯 Lua 卡带（不依赖精灵与地图段）：程序化几何绘制 + 芯片音效（§5.2 poke 写入）
 -- Neo 霓虹风格：紫黑夜空 + 合成波网格 + 霓虹太阳，实体全部高亮描边发光
 -- 波次递增：grunt → weaver → tank，每 5 波 boss（环形弹幕 + 瞄准三连）
@@ -144,10 +144,10 @@ end
 
 function update_player()
   local sp = 2.4
-  if btn(0) then player.x = player.x - sp end
-  if btn(1) then player.x = player.x + sp end
-  if btn(2) then player.y = player.y - sp end
-  if btn(3) then player.y = player.y + sp end
+  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
+  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
+  player.x = player.x + dx * sp
+  player.y = player.y + dy * sp
   player.x = mid(player.x, 12, 244)
   player.y = mid(player.y, 60, 244)
 
@@ -592,7 +592,7 @@ function draw_title()
   neon_text("雷霆战机", flr((256 - tw("雷霆战机")) / 2), 56, 44)
   neon_text("NEON JET", flr((256 - tw("NEON JET")) / 2), 84, 60)
   if flr(t / 30) % 2 == 0 then
-    neon_text("按 Start 开始", flr((256 - tw("按 Start 开始")) / 2), 140, 7)
+    neon_text("按 Menu 开始", flr((256 - tw("按 Menu 开始")) / 2), 140, 7)
   end
   print("WASD 移动　J 射击", flr((256 - tw("WASD 移动　J 射击")) / 2), 168, 10)
   print("最高 " .. best, flr((256 - tw("最高 " .. best)) / 2), 184, 10)
@@ -635,7 +635,7 @@ function _draw()
       rectfill(0, 116, 256, 24, 15)
       rect(0, 116, 256, 24, 41)
       print("已暂停", flr((256 - tw("已暂停")) / 2), 118, 7)
-      print("按 Start 继续", flr((256 - tw("按 Start 继续")) / 2), 134, 20)
+      print("按 Menu 继续", flr((256 - tw("按 Menu 继续")) / 2), 134, 20)
     end
     if state == "over" then
       draw_over()

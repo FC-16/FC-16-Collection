@@ -11,8 +11,8 @@
 -- 演出：洪泛逐圈波纹、爆炸震屏、胜利彩带；数字 1-8 高对比固定查表色。
 -- 资产全部程序化：14px 格子精灵 poke 烘焙；SFX / BGM 按 SPEC §5.2 位写入。
 --
--- 操作：⬅➡⬆⬇ 移动（按住重复）・Ⓐ 翻开・Ⓑ 插旗循环・Ⓧ 和弦・
---       Select 音乐开关・Start 对局中重开 / 终局回标题
+-- 操作：←→↑↓ 移动（按住重复）・Ⓐ 翻开・Ⓑ 插旗循环・Ⓧ 和弦・
+--       View 音乐开关・Menu 对局中重开 / 终局回标题
 -- =====================================================================
 
 -- ---------------------------------------------------------------- 常量
@@ -79,13 +79,13 @@ local BOARD_H = 224
 local S_OPEN, S_FLAG, S_UNFLAG, S_CHORD = 0, 1, 2, 3
 local S_BOOM, S_WIN, S_LOSE, S_CUR, S_GO = 4, 5, 6, 7, 8
 
--- 震屏偏移表（确定性查表，帧龄每 2 帧换一格）
+-- 震屏偏移表（确定性查表，幀龄每 2 幀换一格）
 local SHK = { { -3, 2 }, { 3, -2 }, { -2, -3 }, { 2, 3 },
               { -3, -1 }, { 3, 1 }, { -1, 3 }, { 1, -2 } }
 
 -- 底栏提示轮播
 local HINTS = {
-  "⬅➡⬆⬇移动 Ⓐ翻开 Ⓑ插旗",
+  "←→↑↓移动 Ⓐ翻开 Ⓑ插旗",
   "Ⓑ再按出问号 Ⓧ和弦齐开",
   "首击必定安全 放心开局",
 }
@@ -434,7 +434,7 @@ local function init_audio()
   init_sfx(S_GO, { 61, 68 }, 3, 9, 2)              -- 开局
 
   -- BGM：C 大调 I-vi-IV-V 四小节循环（旋律 / 琶音和声 / 贝斯 = ch5-7）
-  -- 每小节 8 个八分音符 ×4 步、speed 5 → 160 帧/小节
+  -- 每小节 8 个八分音符 ×4 步、speed 5 → 160 幀/小节
   local melody = {
     { 53, 0, 56, 58, 61, 0, 58, 56 },  -- C
     { 58, 0, 61, 58, 56, 0, 53, 0 },   -- Am
@@ -698,7 +698,7 @@ local function draw_board()
         elseif state[i] == 1 then
           if t >= ot[i] then
             blit(adj[i] > 0 and 7 + adj[i] or 2, sx, sy)
-            -- 波纹展开闪现：出现后 2 帧叠白色抖动
+            -- 波纹展开闪现：出现后 2 幀叠白色抖动
             if t - ot[i] < 2 then
               fillp(0x7777)
               rectfill(sx, sy, CS, CS, 8 * 256 + C_OPEN)
@@ -843,8 +843,8 @@ local function draw_title()
     print(bs, 232 - tw(bs), y, best > 0 and C_GOLD or C_GRAY)
   end
   draw_title_strip()
-  cprint("⬆⬇选难度 Ⓐ/Start 开始", 186, C_GRAY)
-  cprint("Select 音乐" .. (music_on and "开" or "关"), 238, C_GRAY)
+  cprint("↑↓选难度 Ⓐ/Menu 开始", 186, C_GRAY)
+  cprint("View 音乐" .. (music_on and "开" or "关"), 238, C_GRAY)
 end
 
 function _draw()
@@ -853,7 +853,7 @@ function _draw()
     draw_title()
     return
   end
-  -- 震屏：爆炸后 22 帧查表抖动（叠加横向滚动）
+  -- 震屏：爆炸后 22 幀查表抖动（叠加横向滚动）
   local shx, shy = 0, 0
   if dead and t - boom.t0 < 22 then
     local o = SHK[flr((t - boom.t0) / 2) % 8 + 1]
@@ -878,10 +878,10 @@ local function nudge(dx, dy)
   sfx(S_CUR)
 end
 
--- 方向键按住重复（btnp 无自动重复：首按 1 步，按住 14 帧后每 5 帧一步）
+-- 方向键按住重复（btnp 无自动重复：首按 1 步，按住 14 幀后每 5 幀一步）
 local function cursor_repeat()
-  local dx = (btn(1) and 1 or 0) - (btn(0) and 1 or 0)
-  local dy = (btn(3) and 1 or 0) - (btn(2) and 1 or 0)
+  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
+  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
   if dx == 0 and dy == 0 then
     hold_dx, hold_dy, rep_t = 0, 0, 0
     return
@@ -906,11 +906,11 @@ local function update_scroll()
 end
 
 local function update_title()
-  if btnp(2) then
+  if dirp(2) then
     title_sel = title_sel == 1 and 3 or title_sel - 1
     sfx(S_CUR)
   end
-  if btnp(3) then
+  if dirp(3) then
     title_sel = title_sel % 3 + 1
     sfx(S_CUR)
   end

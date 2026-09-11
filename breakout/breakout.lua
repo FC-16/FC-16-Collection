@@ -2,13 +2,13 @@
 -- FC-16 打砖块（Breakout / Arkanoid 风格）演示卡带
 --
 -- 玩法：←→ 移动挡板（带惯性微加速），Ⓐ 发射小球 / 发射激光，
---       Start 暂停，Select 音乐开关，标题画面 Ⓐ 开始。
+--       Menu 暂停，View 音乐开关，标题画面 Ⓐ 开始。
 -- 砖阵：8 关字符画编码；1-3 击多耐久砖（破损渐变外观）、不可毁钢砖、
 --       含道具砖；清光全部可破坏砖过关。
 -- 道具（Ⓐ 接住胶囊生效）：E 加宽 / L 激光 / M 三倍球 / N 减速 / + 加命。
 -- 演出：砖碎四溅粒子、球拖尾、挡板受击闪光、胶囊飘落旋转、
 --       过关清屏波、掉球失败演出（挡板爆碎 + 全屏调光）。
--- 音频：SFX 音高随砖耐久变化；A 小调四声部循环 BGM（Select 开关）。
+-- 音频：SFX 音高随砖耐久变化；A 小调四声部循环 BGM（View 开关）。
 -- 存档：最高分 + 最远关卡（dset + fflush）。
 --
 -- 美术与音乐均为本卡带原创，全部由 _init 逐像素 / 逐字节程序化生成，
@@ -418,7 +418,7 @@ local function expand(notes, n)
   return out
 end
 
--- BGM：A 小调四声部循环（Am-F-C-G），速度 4（每步 4 帧，每小节 32 步）
+-- BGM：A 小调四声部循环（Am-F-C-G），速度 4（每步 4 幀，每小节 32 步）
 local function init_bgm()
   -- 音名辅助：P(八度, 半音) → SFX 音高（C0=1）
   local function P(oct, semi) return oct * 12 + semi + 1 end
@@ -503,7 +503,7 @@ end
 
 -- ---------------------------------------------------------------- 状态
 
-local t = 0                -- 全局帧计数
+local t = 0                -- 全局幀计数
 local state = "title"      -- title / ready / play / clear / dying / over
 local state_t = 0
 local paused = false
@@ -837,8 +837,8 @@ end
 
 local function update_paddle()
   local dir = 0
-  if btn(0) then dir = dir - 1 end
-  if btn(1) then dir = dir + 1 end
+  if dir(0) then dir = dir - 1 end
+  if dir(1) then dir = dir + 1 end
   if dir ~= 0 then
     paddle_vx = mid(-4.4, paddle_vx + dir * 0.6, 4.4)
   else
@@ -1080,7 +1080,7 @@ function _init()
   if music_on then music(0, 400, 0xF0) end
 end
 
--- ---------------------------------------------------------------- 帧更新
+-- ---------------------------------------------------------------- 幀更新
 
 local function tick_timers()
   if exp_t > 0 then exp_t = exp_t - 1 end
@@ -1110,7 +1110,7 @@ function _update()
   update_parts()
   update_pops()
 
-  -- Select：任意时刻音乐开关
+  -- View：任意时刻音乐开关
   if btnp(10) then toggle_music() end
 
   if state == "title" then
@@ -1142,7 +1142,7 @@ function _update()
     return
   end
 
-  -- Start：暂停（过关演出中不可暂停）
+  -- Menu：暂停（过关演出中不可暂停）
   if state ~= "clear" and btnp(11) then
     paused = not paused
     sfx(14)
@@ -1325,7 +1325,7 @@ local function draw_bottom()
   line(0, 237, 255, 237, 3)
   local hints = {
     "←→ 移动 Ⓐ 发射・激光",
-    "Start 暂停・Select 音乐",
+    "Menu 暂停・View 音乐",
     "接住道具胶囊强化挡板",
     "打碎全部可破坏砖块过关",
   }
@@ -1374,7 +1374,7 @@ local function draw_title()
   cprint("E加宽 L激光 M多球 N减速 +加命", 238, 6)
 end
 
--- 失败 / 结算调光：显示期调色映射把亮色压暗（帧缓冲不变）
+-- 失败 / 结算调光：显示期调色映射把亮色压暗（幀缓冲不变）
 local DIM_MAP = {
   { 7, 6 }, { 6, 5 }, { 5, 4 }, { 4, 3 }, { 3, 2 },
   { 8, 9 }, { 9, 11 }, { 11, 13 },
@@ -1480,7 +1480,7 @@ function _draw()
     rrectfill(66, 104, 124, 48, 8, 13)
     rrect(66, 104, 124, 48, 8, 26)
     cprint("已暂停", 114, 30)
-    cprint("Start 继续", 134, 6)
+    cprint("Menu 继续", 134, 6)
   end
 
   if state == "over" then

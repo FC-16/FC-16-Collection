@@ -2,9 +2,9 @@
 -- 美术与音乐原创：精灵、配色、音效、旋律均为本卡带自绘自编；
 -- 迷宫骨架（四角能量豆、鬼屋、左右隧道）与鬼行为规则致敬经典街机。
 --
--- 分层：常量/迷宫数据 → 精灵烘焙 → 音频 → 网格移动 → 鬼 AI → 流程 → 绘制/UI → 帧循环
+-- 分层：常量/迷宫数据 → 精灵烘焙 → 音频 → 网格移动 → 鬼 AI → 流程 → 绘制/UI → 幀循环
 --
--- 操作：方向键（WASD）移动；Start 暂停；Select(Tab) 音乐开关；标题画面 Ⓐ/Start 开始
+-- 操作：方向键（WASD）移动；Menu 暂停；View(Tab) 音乐开关；标题画面 Ⓐ/Menu 开始
 
 -- ============================================================ 常量与迷宫数据
 
@@ -70,9 +70,9 @@ local FRUIT_DEF = {
   { "西瓜", 1000 }, { "星星", 2000 }, { "铃铛", 3000 }, { "钥匙", 5000 },
 }
 
--- 散/逐交替时长（帧）：7s 散 20s 逐 …… 第 8 段起永远逐
+-- 散/逐交替时长（幀）：7s 散 20s 逐 …… 第 8 段起永远逐
 local MODE_T = { 420, 1200, 420, 1200, 300, 1200, 300, 1e9 }
--- 惊恐时长（帧）按关卡
+-- 惊恐时长（幀）按关卡
 local FRIGHT_T = { 360, 300, 240, 180, 120, 300, 120, 60, 60 }
 local POW2 = { 1, 2, 4, 8 }
 
@@ -90,7 +90,7 @@ local CHOMP_CH, FRIGHT_CH, EVT_CH, DIE_CH, JING_CH = 0, 1, 2, 3, 4
 
 -- ============================================================ 全局状态（文件局部）
 
-local t = 0                     -- 帧计数
+local t = 0                     -- 幀计数
 local state = "title"           -- title/ready/play/dying/clear/gameover
 local score, hi, lives, level = 0, 0, 3, 1
 local extra_given, bgm_on = false, true
@@ -286,7 +286,7 @@ end
 
 -- ============================================================ 音频（SPEC §5.2 布局）
 
--- 写一条 SFX：notes 为音高表（0 休止），wave 波形，vol 音量，speed 每步帧数
+-- 写一条 SFX：notes 为音高表（0 休止），wave 波形，vol 音量，speed 每步幀数
 local function init_sfx(id, notes, wave, vol, speed, o)
   o = o or {}
   local base = 0x060000 + id * 112
@@ -753,7 +753,7 @@ local BTND = { 2, 1, 3, 4 }
 
 local function update_pac()
   for b = 0, 3 do
-    if btn(b) then pac.want = BTND[b + 1] end
+    if dir(b) then pac.want = BTND[b + 1] end
   end
   if pac.stop then
     local w = pac.want
@@ -991,7 +991,7 @@ local function draw_ghost(x, y, main, shade, dir, mode, r)
     local x1 = flr(x + hw)
     rectfill(x0, y + ry, x1 - x0 + 1, 1, body)
   end
-  -- 裙摆波浪（两帧交替）
+  -- 裙摆波浪（两幀交替）
   local f = (flr(t / 9) % 2) * 2
   local q = r > 9 and 5 or 4
   for i = -r, r - 1 do
@@ -1150,16 +1150,16 @@ local function draw_title()
   local hs = "最高分 " .. hi
   print(hs, 128 - tw(hs) / 2, 178, 23)
   if flr(t / 25) % 2 == 0 then
-    local st = "按 Ⓐ 或 Start 开始"
+    local st = "按 Ⓐ 或 Menu 开始"
     print(st, 128 - tw(st) / 2, 200, 30)
   end
   local mu = "Tab 音乐：" .. (bgm_on and "开" or "关")
   print(mu, 128 - tw(mu) / 2, 220, 6)
-  local cr = "方向键移动・Start 暂停"
+  local cr = "方向键移动・Menu 暂停"
   print(cr, 128 - tw(cr) / 2, 238, 5)
 end
 
--- ============================================================ 帧循环
+-- ============================================================ 幀循环
 
 function _init()
   bake_walls()
@@ -1184,7 +1184,7 @@ function _update()
     update_title()
   elseif state == "ready" then
     for b = 0, 3 do
-      if btn(b) then pac.want = BTND[b + 1] end
+      if dir(b) then pac.want = BTND[b + 1] end
     end
     ready_t = ready_t + 1
     if ready_t >= (ready_long and 170 or 110) then
@@ -1223,7 +1223,7 @@ function _draw()
     fillp()
     local s = "已暂停"
     print(s, 128 - tw(s) / 2, 112, 7)
-    local s2 = "Start 继续"
+    local s2 = "Menu 继续"
     print(s2, 128 - tw(s2) / 2, 136, 6)
   end
 end

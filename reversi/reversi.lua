@@ -2,15 +2,15 @@
 -- 标准 8×8 黑白棋（Reversi/Othello）：玩家执黑先行，AI 执白，三档难度。
 --   入门＝贪心翻最多（带本局种子的随机扰动）；进阶＝位置权重贪心（角最大 /
 --       角旁负 / 边正，附送角惩罚与行动力压制）；困难＝α-β 剪枝 minimax
---       （深度 4，评估＝位置权重＋行动力＋潜在翻转前线子，终盘空格 ≤9 改为
---       精确求解至终局），搜索按节点预算切片到多帧执行（coroutine 分帧），
+--       （深度 4，评估＝位置权重＋行动力＋潜在翻转前线子，终盘空格 至多9 改为
+--       精确求解至终局），搜索按节点预算切片到多幀执行（coroutine 分幀），
 --       排序与走子全确定性，扰动只走本局 srand 的 rnd。
 -- 演出：落子弹跳缩放入场；翻转按距落子点距离错峰（横向椭圆压缩再展开模拟
 --       翻面＋中途变色），翻转音效逐枚变调；AI 落子金环提示；非法落子红闪
 --       抖动；无手可下自动跳过横幅；终局黑白对比条 + 胜负大字 + 各难度战绩。
 -- 操作：←→↑↓ 移动光标（可按住连移，光标旁显示 C4 式坐标）　Ⓐ 落子　
---       Ⓧ 悔棋（成对撤回玩家+AI 两手，不限次）　Start 暂停菜单
---       （继续/认输/重开/回标题）　Select 音乐开关
+--       Ⓧ 悔棋（成对撤回玩家+AI 两手，不限次）　Menu 暂停菜单
+--       （继续/认输/重开/回标题）　View 音乐开关
 -- 音频：落子/翻转/非法/跳过/终局 SFX + 原创安静棋类 BGM（D 小调 4 小节循环），
 --       全部由 _init 程序化写入（SPEC §4.2/§5.2），棋盘与棋子亦程序化烘焙。
 -- 存档：dset(0..8) 各难度 胜/负/和 战绩，dset(9) 音乐开关，fflush 落盘（§13）。
@@ -21,8 +21,8 @@ local CELL = 24                     -- 格边长（像素）
 local BX, BY = 8, 36                -- 棋盘 (0,0) 格左上角屏幕坐标
 local TOP_H, BOT_Y = 28, 240        -- 顶栏高 / 底栏 y
 local PANEL_X, PANEL_W = 206, 46    -- 右侧信息板
-local FLIP_DUR = 8                  -- 单枚翻转动画帧数
-local DROP_DUR = 14                 -- 落子入场动画帧数
+local FLIP_DUR = 8                  -- 单枚翻转动画幀数
+local DROP_DUR = 14                 -- 落子入场动画幀数
 
 -- 色号直取 SPEC §2.2（禁止色号算术推导明暗）
 local C_BG, C_PANEL, C_EDGE = 13, 14, 11
@@ -47,8 +47,8 @@ local WT = {
 local CORNER = {[1] = true, [8] = true, [57] = true, [64] = true}
 
 local HINTS = {
-  "Ⓐ 落子　Ⓧ 悔棋　Start 菜单",
-  "Select 音乐开关",
+  "Ⓐ 落子　Ⓧ 悔棋　Menu 菜单",
+  "View 音乐开关",
   "落子须至少夹翻一枚对方棋子",
   "占住四角！角落的棋子不会被翻转",
 }
@@ -71,7 +71,7 @@ local function write_sfx(id, speed, steps, len)
 end
 
 -- 安静棋类 BGM：D 小调 4 小节循环，ch4 旋律（ROUND）/ ch5 贝斯（BASS），
--- speed 8，每小节 256 帧，全曲约 17 秒；Pattern 0-3，mask 0x30
+-- speed 8，每小节 256 幀，全曲约 17 秒；Pattern 0-3，mask 0x30
 local MEL = {
   {51, 0, 54, 56, 58, 0, 56, 54},  -- D4 F4 G4 A4 G4 F4
   {56, 0, 58, 0, 61, 0, 58, 56},   -- G4 A4 C5 A4 G4
@@ -217,8 +217,8 @@ end
 
 -- ---------------------------------------------------------------- 状态
 
-local t = 0                  -- 全局帧计数
-local gt = 0                 -- 对局计时帧（暂停/菜单不计时）
+local t = 0                  -- 全局幀计数
+local gt = 0                 -- 对局计时幀（暂停/菜单不计时）
 local state = "title"        -- title | play | over
 local diff = 1               -- 难度 1 入门 / 2 进阶 / 3 困难
 local phase = "input"        -- input | anim | think | pass（play 中）
@@ -303,7 +303,7 @@ local function apply_move(i, c, fl)
   sfx(1, 0)
 end
 
--- ---------------------------------------------------------------- AI（搜索板 + 分帧切片）
+-- ---------------------------------------------------------------- AI（搜索板 + 分幀切片）
 
 -- 搜索用独立棋盘（思考期间 _draw 仍读 B），并维护增量评估状态：
 --   SW  位置权重带符号和（黑正）    SF1/SF2  双方前线子数（潜力翻转面）
@@ -314,7 +314,7 @@ local MOV, MVS, MVC, ORD, FB = {}, {}, {}, {}, {}
 for d = 0, 13 do
   MOV[d], MVS[d], MVC[d], ORD[d], FB[d] = {}, {}, {}, {}, {}
 end
-local ticks, TICK_BUDGET = 0, 200  -- 每帧搜索切片预算（节点/候选段数）
+local ticks, TICK_BUDGET = 0, 200  -- 每幀搜索切片预算（节点/候选段数）
 
 local function tick()
   ticks = ticks + 1
@@ -541,7 +541,7 @@ local function ai_medium(n)
   return MOV[0][bj]
 end
 
--- 困难：α-β 深度 4；终盘空格 ≤9 改为精确求解至终局
+-- 困难：α-β 深度 4；终盘空格 至多9 改为精确求解至终局
 local function think_root()
   s_load()
   local n = gen(0, 2)
@@ -635,7 +635,7 @@ local think = {co = nil, best = nil, fallback = nil, t = 0, min_t = 0}
 function start_think()
   phase = "think"
   think.t = 0
-  think.min_t = (diff == 3) and 24 or 36 -- 最短思考演出帧数
+  think.min_t = (diff == 3) and 24 or 36 -- 最短思考演出幀数
   think.best = nil
   think.fallback = nil
   for i = 1, 64 do
@@ -665,7 +665,7 @@ end
 local function update_think()
   think.t = think.t + 1
   if think.co then
-    ticks = 0 -- 每帧一个切片：预算内跑，超预算 yield 到下一帧
+    ticks = 0 -- 每幀一个切片：预算内跑，超预算 yield 到下一幀
     local ok, res = coroutine.resume(think.co)
     if not ok then
       printh("reversi: AI 错误 " .. tostring(res))
@@ -723,7 +723,7 @@ end
 
 local function cursor_input()
   for d = 0, 3 do
-    if btn(d) then
+    if dir(d) then
       rep[d + 1] = rep[d + 1] + 1
       if rep[d + 1] == 1 or (rep[d + 1] > 14 and (rep[d + 1] - 15) % 4 == 0) then
         if d == 0 then cx = max(0, cx - 1)
@@ -739,10 +739,10 @@ local function cursor_input()
 end
 
 local function update_menu()
-  if btnp(2) then
+  if dirp(2) then
     menu_i = (menu_i + 2) % 4 + 1
     sfx(4, 1)
-  elseif btnp(3) then
+  elseif dirp(3) then
     menu_i = menu_i % 4 + 1
     sfx(4, 1)
   elseif btnp(11) or btnp(5) then
@@ -820,10 +820,10 @@ local function update_play()
 end
 
 local function update_title()
-  if btnp(0) then
+  if dirp(0) then
     diff = (diff + 1) % 3 + 1
     sfx(4, 1)
-  elseif btnp(1) then
+  elseif dirp(1) then
     diff = diff % 3 + 1
     sfx(4, 1)
   end
@@ -1073,7 +1073,7 @@ local function draw_over()
       54, y, d == diff and C_GOLD or C_MID)
   end
   if flr(t / 16) % 2 == 0 then
-    ctext("Ⓐ 再来一局　Start 回标题", 186, C_TXT)
+    ctext("Ⓐ 再来一局　Menu 回标题", 186, C_TXT)
   end
 end
 
@@ -1082,7 +1082,7 @@ local function draw_title()
   fillp(0x0421)
   rectfill(0, 0, 256, 256, 12 * 256 + C_BG)
   fillp()
-  -- 压暗棋盘（显示期映射，帧缓冲不变）
+  -- 压暗棋盘（显示期映射，幀缓冲不变）
   pal(34, 36, 1)
   pal(35, 37, 1)
   pal(19, 18, 1)
@@ -1126,7 +1126,7 @@ local function draw_title()
     print(s, flr((256 - tw(s)) / 2) + 1, 195, 15)
     ctext(s, 193, 7)
   end
-  ctext("←→ 选难度　Select 音乐", 220, C_MID)
+  ctext("←→ 选难度　View 音乐", 220, C_MID)
   ctext("FrostMiKu ・ FC-16", 242, C_EDGE)
   print("♪", 240, 4, music_on and C_GOLD or C_EDGE)
 end

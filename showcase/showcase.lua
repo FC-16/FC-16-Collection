@@ -2,7 +2,7 @@
 -- 覆盖：中文文本 / 64 色调色板 / 精灵与地图 / 2D 物理 / 芯片音频 / 存档
 -- （文案含 ←→、全角空格——均在 v0.5 字集标准内）
 --
--- 操作：左右移动，J 跳跃，K 音效，Start 存档（文案只用固件字集内的字符）
+-- 操作：AD 移动，J 跳跃，K 音效，Menu 存档（文案只用固件字集内的字符）
 -- 标题画面停留约 2.5 秒后自动进入演示（街机式 attract mode）
 
 local mode = "title" -- title | game
@@ -115,7 +115,7 @@ end
 function _update()
   t = t + 1
   if mode == "title" then
-    -- Start 或 2.5 秒后自动开始（attract mode）
+    -- Menu 或 2.5 秒后自动开始（attract mode）
     if btnp(11) or t > 150 then
       mode = "game"
       music(0, 500)
@@ -125,8 +125,8 @@ function _update()
 
   -- on_ground 由上一物理步的碰撞回调设置（normal 为推开方向：站在地面上时朝上）
   local sp = 150
-  if btn(0) then player.vel = v(-sp, player.vel.y) end
-  if btn(1) then player.vel = v(sp, player.vel.y) end
+  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
+  if dx ~= 0 then player.vel = v(dx * sp, player.vel.y) end
   if btnp(4) and on_ground then
     player.vel = v(player.vel.x, -300)
     on_ground = false -- 消费：起跳后不再算落地
@@ -182,7 +182,7 @@ function draw_title()
 
   -- 跳动的提示
   if flr(t / 20) % 2 == 0 then
-    local s4 = "按 Start 开始"
+    local s4 = "按 Menu 开始"
     print(s4, (256 - tw(s4)) / 2, 224, 58)
   end
   local s5 = "最佳：" .. string.format("%d", best)
@@ -221,7 +221,7 @@ function draw_game()
   print("最佳：" .. string.format("%d", best), 8, 24, 40)
   rectfill(0, 238, 256, 18, 0)
   print("A/D 移动　J 跳跃", 8, 240, 9)
-  print("帧 " .. string.format("%d", frame()), 200, 6, 9)
+  print("幀 " .. string.format("%d", frame()), 200, 6, 9)
   if saved_flash > 0 then
     saved_flash = saved_flash - 1
     if flr(saved_flash / 8) % 2 == 0 then

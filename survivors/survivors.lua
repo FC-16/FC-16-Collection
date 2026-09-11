@@ -1,7 +1,7 @@
 -- 暗夜幸存者（FC-16）
 -- 吸血鬼幸存者式割草生存：无限墓园地图，武器自动出击，收集经验结晶升级
 --
--- 操作：WASD 移动 / 武器全自动 / 升级选卡 ←→ + J / Start 暂停
+-- 操作：WASD 移动 / 武器全自动 / 升级选卡 ZX + J / Menu 暂停
 -- 目标：活过 10 分钟，见到黎明（死神将在 10:00 降临）
 -- 纯 Lua 卡带：精灵表与地图在 _init 程序化生成（sset / poke2），音频 poke 写入（§5.2）
 
@@ -788,11 +788,8 @@ function hurt_player(dmg)
 end
 
 function update_player()
-  local dx, dy = 0, 0
-  if btn(0) then dx = dx - 1 end
-  if btn(1) then dx = dx + 1 end
-  if btn(2) then dy = dy - 1 end
-  if btn(3) then dy = dy + 1 end
+  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
+  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
   local l = sqrt(dx * dx + dy * dy)
   if l > 0 then
     local sp = move_sp()
@@ -1190,11 +1187,11 @@ function _update()
       update_play()
     end
   elseif state == "levelup" then
-    if btnp(0) then
+    if dirp(0) then
       choice_sel = choice_sel - 1
       if choice_sel < 1 then choice_sel = #choices end
     end
-    if btnp(1) then
+    if dirp(1) then
       choice_sel = choice_sel + 1
       if choice_sel > #choices then choice_sel = 1 end
     end
@@ -1555,7 +1552,7 @@ function draw_pause()
   print(string.format("移速 x%d%%　拾取 %dpx", flr(move_sp() / 1.3 * 100), flr(pick_r())),
     flr((256 - tw("移速 x100%　拾取 26px")) / 2), y + 12, 6)
   if flr(t / 20) % 2 == 0 then
-    print("按 Start 继续", flr((256 - tw("按 Start 继续")) / 2), 226, 10)
+    print("按 Menu 继续", flr((256 - tw("按 Menu 继续")) / 2), 226, 10)
   end
 end
 
@@ -1584,7 +1581,7 @@ function draw_over()
     print("最佳 " .. clock_str(best_t), flr((256 - tw("最佳 0:00")) / 2), 180, 10)
   end
   if over_t > 45 and flr(t / 20) % 2 == 0 then
-    print("按 Start 返回", flr((256 - tw("按 Start 返回")) / 2), 216, 10)
+    print("按 Menu 返回", flr((256 - tw("按 Menu 返回")) / 2), 216, 10)
   end
 end
 
@@ -1646,7 +1643,7 @@ function draw_title()
   dtext("暗夜幸存者", flr((256 - tw("暗夜幸存者")) / 2), 76, 11)
   print("DARK SURVIVORS", flr((256 - tw("DARK SURVIVORS")) / 2), 104, 6)
   if flr(t / 25) % 2 == 0 then
-    dtext("按 Start 开始", flr((256 - tw("按 Start 开始")) / 2), 140, 7)
+    dtext("按 Menu 开始", flr((256 - tw("按 Menu 开始")) / 2), 140, 7)
   end
   print("WASD 移动　武器自动出击", flr((256 - tw("WASD 移动　武器自动出击")) / 2), 196, 9)
   print("收集结晶升级　活过 10 分钟", flr((256 - tw("收集结晶升级　活过 10 分钟")) / 2), 212, 9)

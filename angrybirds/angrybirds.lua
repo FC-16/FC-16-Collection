@@ -4,8 +4,8 @@
 --
 -- 操作：
 --   Ⓐ 按住拉弓，方向键调角度与力度，松开 Ⓐ 发射；Ⓑ 取消拉弓
---   Start 菜单（继续/重开/选关）　Select 音乐开关
---   结算画面：Ⓐ 下一关（失败时重试），Start 返回选关
+--   Menu 菜单（继续/重开/选关）　View 音乐开关
+--   结算画面：Ⓐ 下一关（失败时重试），Menu 返回选关
 --
 -- 伤害模型：撞击冲量 = 接近速度 × 有效质量（动碰静取自身质量，动碰动取约化质量）；
 -- 超过材料耐久即破坏。速度快照在物理步进前采集（回调读到的是求解后速度）。
@@ -115,7 +115,7 @@ local NLEVEL = #LV
 local HINTS = {
   "Ⓐ 按住拉弓　方向键调角度与力度",
   "松开 Ⓐ 发射　Ⓑ 取消",
-  "Start 菜单　Select 音乐开关",
+  "Menu 菜单　View 音乐开关",
 }
 
 -- ================================================================ 音频（SPEC §5.2）
@@ -297,8 +297,8 @@ end
 -- ================================================================ 全局状态
 
 local state = "title" -- title | select | play | pause | settle
-local t = 0           -- 全局帧
-local gt = 0          -- 本关帧
+local t = 0           -- 全局幀
+local gt = 0          -- 本关幀
 local cur_lv = 1      -- 当前关卡
 local score = 0
 local stars, best = {}, {}
@@ -492,7 +492,7 @@ end
 
 -- 标记破坏：碰撞回调可能成对触发，若一方回调立即 phy_del 自己，
 -- 另一方的回调再读 other.id 就会踩到已删除的 body。
--- 因此回调内只做标记与演出，物理体统一延迟到下一帧 update 删除。
+-- 因此回调内只做标记与演出，物理体统一延迟到下一幀 update 删除。
 local function mark_destroy(e)
   if e.dead then return end
   e.dead = true
@@ -778,7 +778,7 @@ local function settle_lose()
   sfx(11)
 end
 
--- 暂停冻结（物理每帧自动步进，靠零重力+零速度冻结世界）
+-- 暂停冻结（物理每幀自动步进，靠零重力+零速度冻结世界）
 local frozen
 local function freeze_list(list)
   for i = 1, #list do
@@ -814,10 +814,10 @@ end
 -- ================================================================ 更新
 
 local function update_select()
-  if btnp(0) then sel = (sel - 2) % NLEVEL + 1 sfx(12) end
-  if btnp(1) then sel = sel % NLEVEL + 1 sfx(12) end
-  if btnp(2) then sel = (sel - 6) % NLEVEL + 1 sfx(12) end
-  if btnp(3) then sel = (sel + 4) % NLEVEL + 1 sfx(12) end
+  if dirp(0) then sel = (sel - 2) % NLEVEL + 1 sfx(12) end
+  if dirp(1) then sel = sel % NLEVEL + 1 sfx(12) end
+  if dirp(2) then sel = (sel - 6) % NLEVEL + 1 sfx(12) end
+  if dirp(3) then sel = (sel + 4) % NLEVEL + 1 sfx(12) end
   if btnp(4) then
     if unlocked(sel) then
       start_level(sel)
@@ -830,8 +830,8 @@ local function update_select()
 end
 
 local function update_pause()
-  if btnp(3) then pause_sel = pause_sel % 3 + 1 sfx(12) end
-  if btnp(2) then pause_sel = (pause_sel + 1) % 3 + 1 sfx(12) end
+  if dirp(3) then pause_sel = pause_sel % 3 + 1 sfx(12) end
+  if dirp(2) then pause_sel = (pause_sel + 1) % 3 + 1 sfx(12) end
   -- 上 = (n+1)%3+1，下 = n%3+1，循环三选一
   if btnp(11) or btnp(5) then
     pause_unfreeze()
@@ -911,10 +911,10 @@ local function update_play()
     if btn(4) then phase = "aim" end
   elseif phase == "aim" then
     local changed = false
-    if btn(0) then aim_ang = max(10, aim_ang - 0.55) changed = true end
-    if btn(1) then aim_ang = min(80, aim_ang + 0.55) changed = true end
-    if btn(3) then aim_pow = max(0, aim_pow - 0.007) changed = true end
-    if btn(2) then aim_pow = min(1, aim_pow + 0.007) changed = true end
+    if dir(0) then aim_ang = max(10, aim_ang - 0.55) changed = true end
+    if dir(1) then aim_ang = min(80, aim_ang + 0.55) changed = true end
+    if dir(3) then aim_pow = max(0, aim_pow - 0.007) changed = true end
+    if dir(2) then aim_pow = min(1, aim_pow + 0.007) changed = true end
     if changed and gt % 4 == 0 then play_sfx(0) end
     if btnp(5) then
       phase = "ready"
@@ -945,7 +945,7 @@ local function update_play()
     end
   end
 
-  -- 清理上一帧标记破坏的实体
+  -- 清理上一幀标记破坏的实体
   sweep_dead()
 
   -- 出界清理（猪出界视为消灭）
@@ -1229,7 +1229,7 @@ local function draw_pause()
   for i = 1, 3 do
     local c = i == pause_sel and 30 or 6
     if i == pause_sel then
-      print("➡", px + 14, py + 32 + (i - 1) * 17, 30)
+      print("→", px + 14, py + 32 + (i - 1) * 17, 30)
     end
     print(opts[i], px + 36, py + 32 + (i - 1) * 17, c)
   end
@@ -1273,7 +1273,7 @@ local function draw_settle()
     local rs = "Ⓐ 重试"
     shadow_print(rs, 128 - tw(rs) / 2, py + 112, 6)
   end
-  local ss = "Start 选关"
+  local ss = "Menu 选关"
   shadow_print(ss, 128 - tw(ss) / 2, py + 112 + 16 - 2, 9)
 end
 
@@ -1334,7 +1334,7 @@ local function draw_select()
     and ("第" .. sel .. "关・" .. LV[sel].name .. "　鸟 ×" .. LV[sel].birds)
     or "先通过前一关解锁"
   shadow_print(info, 128 - tw(info) / 2, 202, 22)
-  local h = "Ⓐ 选择　Start 返回"
+  local h = "Ⓐ 选择　Menu 返回"
   shadow_print(h, 128 - tw(h) / 2, 224, 6)
 end
 
@@ -1353,7 +1353,7 @@ local function draw_play()
   for i = 1, birds_left - on_sling do
     sspr(16, 0, 16, 16, 2 + (i - 1) * 13, 210, 11, 11)
   end
-  -- 结构（本帧刚标记破坏的实体不再绘制，由下一帧 sweep 删除）
+  -- 结构（本幀刚标记破坏的实体不再绘制，由下一幀 sweep 删除）
   for i = 1, #blocks do
     if not blocks[i].dead then draw_block(blocks[i]) end
   end

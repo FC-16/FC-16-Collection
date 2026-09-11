@@ -4,19 +4,19 @@
 --
 -- 演出：牌面缓动滑移（ease-out）、合并弹跳 + 闪光 + 飘字、新牌放大淡入、
 --       大数字合并粒子与震屏、512/1024 里程碑横幅、2048 金色射线胜利庆祝；
---       合并音效音高随数值档位升高，轻量 BGM（A 小调四小节循环）用 Select 开关。
+--       合并音效音高随数值档位升高，轻量 BGM（A 小调四小节循环）用 View 开关。
 -- 规则：无效移动不生成新牌（棋盘抖动 + 闷响）；得分 = 合并产生数值之和；
---       最高分经 dset + fflush 持久化；Ⓑ 撤销最近 3 步；Start 重开；无路可走判负。
+--       最高分经 dset + fflush 持久化；Ⓑ 撤销最近 3 步；Menu 重开；无路可走判负。
 --
--- 确定性：随机数只用于新牌生成（rnd）；演出抖动取自帧计数（SPEC §7.2），
+-- 确定性：随机数只用于新牌生成（rnd）；演出抖动取自幀计数（SPEC §7.2），
 --         同 seed 同输入序列结果逐位一致。
 
 -- ---------------------------------------------------------------- 布局常量
 
 local CELL, GAP, BPAD = 44, 4, 6     -- 格宽 / 格距 / 棋盘内边距
 local BX, BY = 28, 36                 -- 棋盘底板左上
-local SLIDE_T = 8                     -- 滑动动画帧数
-local SPAWN_T, POP_T = 12, 10         -- 生成淡入 / 合并弹跳帧数
+local SLIDE_T = 8                     -- 滑动动画幀数
+local SPAWN_T, POP_T = 12, 10         -- 生成淡入 / 合并弹跳幀数
 local UNDO_MAX = 3                    -- 撤销栈深度
 
 local DVEC = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}}  -- 各方向 {行,列} 单位向量
@@ -77,7 +77,7 @@ local function bignum(s, cx, cy, sz, g, c)
   end
 end
 
--- 牌面数字：按位数查表取块号尺寸（4 位 39px ≤ 44px 格宽），≥5 位退回固件 ASCII
+-- 牌面数字：按位数查表取块号尺寸（4 位 39px 至多 44px 格宽），≥5 位退回固件 ASCII
 local NUMS = {6, 5, 4, 3, 2}
 
 local function draw_num(v, cx, cy, k)
@@ -466,7 +466,7 @@ local function apply_dir(d)
   sfx(1)
 end
 
--- ---------------------------------------------------------------- 帧更新
+-- ---------------------------------------------------------------- 幀更新
 
 function _update()
   if shake2_t > 0 then shake2_t = shake2_t - 1 end
@@ -518,7 +518,7 @@ function _update()
 
   if anim and anim.phase == "slide" then
     for d = 0, 3 do                        -- 动画中缓冲下一次方向
-      if btnp(d) then queued_dir = d end
+      if dirp(d) then queued_dir = d end
     end
     step_slide()
     return
@@ -540,10 +540,10 @@ function _update()
   queued_dir = nil
   if d ~= nil then
     apply_dir(d)
-  elseif btnp(0) then apply_dir(0)
-  elseif btnp(1) then apply_dir(1)
-  elseif btnp(2) then apply_dir(2)
-  elseif btnp(3) then apply_dir(3)
+  elseif dirp(0) then apply_dir(0)
+  elseif dirp(1) then apply_dir(1)
+  elseif dirp(2) then apply_dir(2)
+  elseif dirp(3) then apply_dir(3)
   elseif btnp(5) then do_undo()
   elseif btnp(11) then new_game() sfx(9) end
 end
@@ -685,7 +685,7 @@ local function draw_cele()
   rect(44, 92, 168, 84, 31)
   local s1 = "2048 达成！"
   big_text(s1, (256 - tw(s1)) / 2, 106, 31)
-  local s2 = "Ⓐ 继续挑战　Start 新一局"
+  local s2 = "Ⓐ 继续挑战　Menu 新一局"
   print(s2, (256 - tw(s2)) / 2, 140, 7)
 end
 
@@ -697,7 +697,7 @@ local function draw_over()
   local s2 = "得分 " .. fmt(score) .. "　最高 " .. fmt(best)
   print(s2, (256 - tw(s2)) / 2, 128, 7)
   if frame() % 30 < 20 then
-    local s3 = "Ⓑ 悔棋一步　Start / Ⓐ 重开"
+    local s3 = "Ⓑ 悔棋一步　Menu / Ⓐ 重开"
     print(s3, (256 - tw(s3)) / 2, 150, 31)
   end
 end
@@ -705,9 +705,9 @@ end
 local function draw_hints()
   local s
   if flr(frame() / 240) % 2 == 0 then
-    s = "⬅⬆⬇➡ 移动　Ⓑ 撤销"
+    s = "←↑↓→ 移动　Ⓑ 撤销"
   else
-    s = "Start 重开　Select 音乐"
+    s = "Menu 重开　View 音乐"
   end
   print(s, (256 - tw(s)) / 2, 239, 9)
 end
@@ -758,13 +758,13 @@ local function draw_title()
     s = "最高 " .. fmt(best)
     print(s, (256 - tw(s)) / 2, 222, 30)
   end
-  s = "Select 音乐开关"
+  s = "View 音乐开关"
   print(s, (256 - tw(s)) / 2, 239, 6)
 end
 
 function _draw()
   camera(0, 0)
-  if shake2_t > 4 then                      -- 大合并震屏（帧计数抖动）
+  if shake2_t > 4 then                      -- 大合并震屏（幀计数抖动）
     camera((frame() * 13 % 5) - 2, (frame() * 7 % 5) - 2)
   end
   cls(14)

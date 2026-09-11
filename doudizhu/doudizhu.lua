@@ -6,8 +6,8 @@
 --       /四带二(两单或两对)/炸弹/王炸；2 与王不入顺。
 -- 无精灵资产：牌面、牌背、界面全部程序化绘制（迷你 3×5 点数字形 + 5×5 花色字形）。
 -- SFX 与背景音乐由 _init 按 SPEC §5.2 布局 poke 写入。
--- 操作：⬅➡移动光标（按住重复）　⬆/Ⓐ抬起或放回当前牌　⬇放回当前牌　Ⓑ清空选择
---       Ⓧ出牌　Ⓨ不要　Ⓡ提示（复用 AI 跟牌逻辑）　Start/Ⓐ 结算后再来一局。
+-- 操作：←→移动光标（按住重复）　↑/Ⓐ抬起或放回当前牌　↓放回当前牌　Ⓑ清空选择
+--       Ⓧ出牌　Ⓨ不要　Ⓡ提示（复用 AI 跟牌逻辑）　Menu/Ⓐ 结算后再来一局。
 -- 存档：dset 槽 0 = 累计积分，槽 1 = 局数。
 
 -- ================================================================ 常量与配色
@@ -184,7 +184,7 @@ local function analyze(cards)
       return {kind = "pairseq", main = ranks[nr], len = nr, cards = cards}
     end
   end
-  -- 飞机族：点数 ≤A 的全部三张必须构成连续段
+  -- 飞机族：点数 至多A 的全部三张必须构成连续段
   local t3 = {}
   for _, r in ipairs(ranks) do
     if cnt[r] == 3 and r <= 14 then t3[#t3 + 1] = r end
@@ -684,7 +684,7 @@ end
 -- ================================================================ 游戏状态
 
 local state          -- title / deal / bid / play / settle
-local t              -- 全局帧计数（动画）
+local t              -- 全局幀计数（动画）
 local deck           -- 洗好的 54 张
 local bottom         -- 3 张底牌
 local bottom_up      -- 底牌是否明示
@@ -846,8 +846,8 @@ local function player_input()
   -- 光标左右（自实现按住重复）
   if n > 0 then
     local dir = 0
-    if btn(0) then dir = dir - 1 end
-    if btn(1) then dir = dir + 1 end
+    if dir(0) then dir = dir - 1 end
+    if dir(1) then dir = dir + 1 end
     if dir ~= 0 then
       if dir ~= rep_dir then
         rep_dir = dir
@@ -864,13 +864,13 @@ local function player_input()
       rep_dir = 0
     end
   end
-  if btnp(2) or btnp(4) then -- ⬆/Ⓐ 抬起或放回
+  if dirp(2) or btnp(4) then -- ↑/Ⓐ 抬起或放回
     if n > 0 then
       sel[cur] = not sel[cur]
       sfx(1)
     end
   end
-  if btnp(3) then -- ⬇ 放回当前牌
+  if dirp(3) then -- ↓ 放回当前牌
     if sel[cur] then
       sel[cur] = false
       sfx(1)
@@ -1069,8 +1069,8 @@ local function update_bid()
     if conclude_t <= 0 then start_new_game() end
   elseif bid_turn == 1 then
     -- 玩家叫分
-    if btnp(0) or btnp(1) then
-      local dir = btnp(0) and -1 or 1
+    if dirp(0) or dirp(1) then
+      local dir = dirp(0) and -1 or 1
       local i = bid_cursor
       repeat
         i = i + dir
@@ -1364,7 +1364,7 @@ local function draw_bidbox()
       rect(bx, 74, 52, 20, i == bid_cursor and C_GOLD2 or C_PANEL_BD)
       print(OPT_LABEL[i], bx + (52 - tw(OPT_LABEL[i])) / 2, 77, av and C_CREAM or C_DIM)
     end
-    local hs = "⬅➡选择 Ⓐ确认"
+    local hs = "←→选择 Ⓐ确认"
     print(hs, (256 - tw(hs)) / 2, 102, C_DIM)
   else
     local s = SEAT_NAME[bid_turn] .. "思考中" .. string.rep(".", flr(t / 15) % 4)
@@ -1512,7 +1512,7 @@ function _draw()
     draw_hand()
     if state == "deal" then draw_deal_anim() end
     if state == "play" and turn == 1 and not over_seat then
-      local s = "⬅➡选Ⓐ抬Ⓑ清Ⓧ出Ⓨ过Ⓡ提示"
+      local s = "←→选Ⓐ抬Ⓑ清Ⓧ出Ⓨ过Ⓡ提示"
       print(s, (256 - tw(s)) / 2, 232, C_DIM)
     end
     if state == "settle" then draw_settle() end

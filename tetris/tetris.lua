@@ -5,14 +5,14 @@
 --   Ⓧ 暂存换块（落锁后刷新）/ 三格预告 / 软降硬降计分 /
 --   触底锁定延迟（可被移动旋转重置，上限 15 次）/ 等级加速曲线 /
 --   消行闪白 + 由中心向外的碎裂动画与粒子 / 四消射线庆祝 /
---   最高分 dset 持久化 / Korobeiniki 双段循环 BGM（Select 开关）
+--   最高分 dset 持久化 / Korobeiniki 双段循环 BGM（View 开关）
 --
 -- 精灵表与全部 SFX/PATTERN 数据由 _init 程序化 poke 写入（SPEC §4.2/§5.2），
 -- 卡带不携带二进制资产。方块质感：主色 + 上左高光 + 下右暗边 + 深色外圈，
 -- 全部颜色直接取自 §2.2 固定色表，不做色号算术推导。
 --
--- 操作：⬅➡ 移动（按住 DAS 重复）　⬆/Ⓐ 顺旋　Ⓑ 反旋
---　　　 ⬇ 软降（按住）　Ⓡ 硬降　Ⓧ 暂存　Start 暂停　Select 音乐
+-- 操作：←→ 移动（按住 DAS 重复）　↑/Ⓐ 顺旋　Ⓑ 反旋
+--　　　 ↓ 软降（按住）　Ⓡ 硬降　Ⓧ 暂存　Menu 暂停　View 音乐
 
 -- ---------------------------------------------------------------- 常量
 
@@ -70,11 +70,11 @@ end
 -- 简化踢墙偏移（全部方块统一尝试；±2 覆盖 I 贴壁旋转）
 local KICKS = {{0, 0}, {-1, 0}, {1, 0}, {0, -1}, {-1, -1}, {1, -1}, {-2, 0}, {2, 0}}
 
-local DAS, ARR, SOFT_INT = 10, 3, 2     -- 横移初始延迟 / 重复间隔 / 软降间隔（帧）
+local DAS, ARR, SOFT_INT = 10, 3, 2     -- 横移初始延迟 / 重复间隔 / 软降间隔（幀）
 local LOCK_DELAY, LOCK_RESETS = 30, 15  -- 触底锁定延迟与重置次数上限
 local LINE_SCORE = {100, 300, 500, 800} -- 1-4 消基础分（×等级）
 
--- 下落间隔：1 级 1 秒/格，随等级指数收紧，最快 2 帧/格
+-- 下落间隔：1 级 1 秒/格，随等级指数收紧，最快 2 幀/格
 local function fall_interval(lvl)
   return max(2, flr(60 * pow(0.82, lvl - 1)))
 end
@@ -453,7 +453,7 @@ local function collapse_rows(rows)
   for y = 0, ROWS - 1 do board[y] = nb[y + 1] end
 end
 
--- 消行动画：前 12 帧整行闪白，之后格子由中心向外逐列碎裂成粒子
+-- 消行动画：前 12 幀整行闪白，之后格子由中心向外逐列碎裂成粒子
 local function update_clearing()
   local ct = clearing.t + 1
   clearing.t = ct
@@ -546,20 +546,20 @@ local function hard_drop()
   lock_piece()
 end
 
--- 横移：按下立即走一格，充电 DAS 帧后每 ARR 帧重复；换向时重新充电
+-- 横移：按下立即走一格，充电 DAS 幀后每 ARR 幀重复；换向时重新充电
 local function das_step()
-  local L, R = btn(0), btn(1)
-  if btnp(0) and not R then
+  local L, R = dir(0), dir(1)
+  if dirp(0) and not R then
     das_dir, das_t = -1, 0
     try_move(-1)
     return
-  elseif btnp(1) and not L then
+  elseif dirp(1) and not L then
     das_dir, das_t = 1, 0
     try_move(1)
     return
   end
   if das_dir == 0 then
-    -- 尚未锁定方向（如两键同帧按下）：恢复单键时重新起充
+    -- 尚未锁定方向（如两键同幀按下）：恢复单键时重新起充
     if L and not R then
       das_dir, das_t = -1, 0
     elseif R and not L then
@@ -584,9 +584,9 @@ local function das_step()
   if das_t > DAS and (das_t - DAS) % ARR == 0 then try_move(das_dir) end
 end
 
--- 软降：每 SOFT_INT 帧下落一格并 +1 分；贴地时加速锁定计时
+-- 软降：每 SOFT_INT 幀下落一格并 +1 分；贴地时加速锁定计时
 local function soft_step()
-  if btn(3) then
+  if dir(3) then
     soft_t = soft_t + 1
     if soft_t >= SOFT_INT then
       soft_t = 0
@@ -605,7 +605,7 @@ local function soft_step()
   end
 end
 
--- 重力与锁定：触底后累计 LOCK_DELAY 帧锁定；离地即清零
+-- 重力与锁定：触底后累计 LOCK_DELAY 幀锁定；离地即清零
 local function gravity_step()
   if not cur then return end
   if collide(cur.p, cur.r, cur.x, cur.y + 1) then
@@ -626,7 +626,7 @@ local function play_step()
   if not cur then return end
   if btnp(6) then do_hold() end
   if not cur then return end
-  if btnp(2) or btnp(4) then try_rotate(1) end
+  if dirp(2) or btnp(4) then try_rotate(1) end
   if btnp(5) then try_rotate(-1) end
   das_step()
   if not cur then return end
@@ -698,7 +698,7 @@ local function update_title()
   if btnp(10) then toggle_music() end
 end
 
--- 结束收场：从底行向上每 2 帧把已有格子灰化，随后浮出结算面板
+-- 结束收场：从底行向上每 2 幀把已有格子灰化，随后浮出结算面板
 local function update_over()
   over_t = over_t + 1
   if over_row >= 0 then
@@ -771,7 +771,7 @@ local function draw_board()
   end
 end
 
--- 四消庆祝射线（圈制三角函数，确定性与帧号绑定）
+-- 四消庆祝射线（圈制三角函数，确定性与幀号绑定）
 local function draw_rays(cx, cy, col)
   for i = 0, 11 do
     if i % 2 == 0 then
@@ -942,10 +942,10 @@ local function draw_pause()
   print(s, 128 - tw(s) / 2 + 1, 75, 1)
   print(s, 128 - tw(s) / 2, 74, 7)
   local hints = {
-    "⬅➡移动　⬆Ⓐ旋转",
+    "←→移动　↑Ⓐ旋转",
     "Ⓑ反转　Ⓧ暂存",
-    "⬇软降　Ⓡ硬降",
-    "Select 音乐　Start 继续",
+    "↓软降　Ⓡ硬降",
+    "View 音乐　Menu 继续",
   }
   for i = 1, 4 do
     local h = hints[i]
@@ -979,7 +979,7 @@ local function draw_over_panel()
     s = "Ⓐ再来一局"
     print(s, (256 - tw(s)) / 2, 168, 7)
   end
-  s = "Start 回标题"
+  s = "Menu 回标题"
   print(s, (256 - tw(s)) / 2, 190, 9)
 end
 
@@ -1021,9 +1021,9 @@ local function draw_title()
   end
 
   local hints = {
-    "⬅➡移动　⬆Ⓐ旋转　Ⓑ反转",
-    "⬇软降　Ⓡ硬降　Ⓧ暂存",
-    "Start 暂停　Select 音乐",
+    "←→移动　↑Ⓐ旋转　Ⓑ反转",
+    "↓软降　Ⓡ硬降　Ⓧ暂存",
+    "Menu 暂停　View 音乐",
   }
   for i = 1, 3 do
     local h = hints[i]
@@ -1102,7 +1102,7 @@ function _draw()
     draw_title()
     return
   end
-  if shake > 0 then -- 硬降/四消震屏（与帧号绑定，保持确定性）
+  if shake > 0 then -- 硬降/四消震屏（与幀号绑定，保持确定性）
     local a = min(5, shake * 0.7)
     camera(flr(sin(t * 0.11) * a), flr(cos(t * 0.17) * a * 0.6))
   end

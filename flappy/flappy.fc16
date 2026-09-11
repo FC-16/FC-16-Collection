@@ -11,7 +11,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 27678
+@code 27751
 -- 弹跳鸟 ・ FC-16 演示卡带
 -- 玩法：Ⓐ/Ⓑ/方向键拍翅上飞，穿过管道缺口 +1 分；撞管 / 落地即亡，顶边只挡不死
 -- 难度：分数越高卷速越快、缺口越窄（均有上限）；每局随机 白天 / 黄昏 / 夜晚 三种天色
@@ -19,23 +19,23 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 --       得分跳字、过管音高渐升、撞击白闪 + 羽毛四散、坠落扬尘、地面投影、
 --       结算面板滑入 + 奖牌（铜 10 / 银 20 / 金 30 / 白金 40）游走闪光与分数滚动
 -- 音频：拍翅 / 得分 / 撞击 / 坠落 / 落地 / 面板 / 奖牌 / 新纪录 SFX + 原创 8 小节
---       循环 BGM（Select 开关，占 ch4-7）；最高分 dset(0)、音乐开关 dset(1) 持久化
+--       循环 BGM（View 开关，占 ch4-7）；最高分 dset(0)、音乐开关 dset(1) 持久化
 -- 云朵、大号记分数字由 _init 程序化烘焙，小鸟为运行时三角 + 圆组合绘制
 -- （SPEC §4.2/§5.2），颜色全部直取 §2.2 固定色表
--- 操作：Ⓐ/Ⓑ/方向键 拍翅 Select 音乐开关 Ⓐ 开始・再来一局 Start 回标题
+-- 操作：Ⓐ/Ⓑ/方向键 拍翅 View 音乐开关 Ⓐ 开始・再来一局 Menu 回标题
 
 -- ---------------------------------------------------------------- 常量
 
 local GROUND_Y = 232          -- 地面顶边（世界不动，小鸟固定 x，场景左卷）
 local BIRD_X = 72             -- 小鸟固定屏幕横坐标
 local BIRD_R = 6              -- 碰撞半径（视觉半径 6.8，判定略宽容）
-local GRAV = 0.18             -- 重力（像素/帧^2）
-local FLAP_V = -3.4           -- 拍翅速度（像素/帧）
+local GRAV = 0.18             -- 重力（像素/幀^2）
+local FLAP_V = -3.4           -- 拍翅速度（像素/幀）
 local MAX_FALL = 4.5          -- 最大下落速度
 local PIPE_W = 32             -- 管道宽度
 local PIPE_DIST = 128         -- 管道水平间距
 local GAP0, GAP_MIN = 86, 64  -- 缺口初始 / 收缩下限（像素）
-local SPD0, SPD_MAX = 1.6, 2.4 -- 卷速初始 / 上限（像素/帧）
+local SPD0, SPD_MAX = 1.6, 2.4 -- 卷速初始 / 上限（像素/幀）
 -- 奖牌门槛：铜 10・银 20・金 30・白金 40
 local MEDALS = {
   {19, 18, "铜牌"}, {8, 5, "银牌"}, {31, 28, "金牌"}, {7, 43, "白金牌"},
@@ -361,9 +361,7 @@ local function update_title()
   bird.y = 128 + sin(t * 0.05) * 5
   bird.rot = sin(t * 0.05 + 0.3) * 0.04
   bird.wph = bird.wph + 0.12
-  for k = 0, 5 do
-    if btnp(k) then start_game() return end
-  end
+  if btnp(4) or btnp(5) or dirp(0) or dirp(1) or dirp(2) or dirp(3) then start_game() return end
 end
 
 local function update_ready()
@@ -371,9 +369,7 @@ local function update_ready()
   bird.y = 112 + sin(t * 0.09) * 5
   bird.rot = sin(t * 0.09 + 0.25) * 0.03
   bird.wph = bird.wph + 0.14
-  for k = 0, 5 do
-    if btnp(k) then state = "play" do_flap() return end
-  end
+  if btnp(4) or btnp(5) or dirp(0) or dirp(1) or dirp(2) or dirp(3) then state = "play" do_flap() return end
 end
 
 -- 小鸟圆 vs 轴对齐矩形
@@ -384,9 +380,7 @@ local function hit_rect(rx, ry, rw, rh)
 end
 
 local function update_play()
-  for k = 0, 5 do
-    if btnp(k) then do_flap() break end
-  end
+  if btnp(4) or btnp(5) or dirp(0) or dirp(1) or dirp(2) or dirp(3) then do_flap() end
   -- 物理：重力、限速、上缘只挡不死
   bird.vy = min(bird.vy + GRAV, MAX_FALL)
   bird.y = bird.y + bird.vy
@@ -506,7 +500,7 @@ end
 
 local function draw_clouds()
   local g = THEMES[theme]
-  pal(7, g.cloud)    -- 云朵精灵按天色着色（显示期不动帧缓冲）
+  pal(7, g.cloud)    -- 云朵精灵按天色着色（显示期不动幀缓冲）
   pal(8, g.cloudsh)
   for i = 1, #CLOUDS do
     local c = CLOUDS[i]
@@ -699,7 +693,7 @@ local function draw_title()
   cp("最高纪录 " .. best, 150, 31)
   if flr(t / 20) % 2 == 0 then cp("按 Ⓐ 开始", 181, 7) end
   cp("Ⓐ Ⓑ 方向键 拍翅", 208, 7)
-  cp("Select 音乐开关", 224, 7)
+  cp("View 音乐开关", 224, 7)
   cp("FrostMiKu ・ FC-16", 239, 7, 17)
 end
 
@@ -747,7 +741,7 @@ local function draw_over_ui()
   draw_digits(best, flr(160 - digits_w(best) / 2), py + 80)
   if over_t > 48 then
     if flr(t / 16) % 2 == 0 then cp("Ⓐ 再来一局", 208, 7) end
-    cp("Start 回标题", 225, 6)
+    cp("Menu 回标题", 225, 6)
   end
 end
 
@@ -778,7 +772,7 @@ end
 function _draw()
   pal()
   cls(0)
-  if shake > 0 then -- 撞击震屏（与帧号绑定，确定性）
+  if shake > 0 then -- 撞击震屏（与幀号绑定，确定性）
     camera(flr(sin(t * 0.9) * min(3, shake * 0.5)), flr(cos(t * 1.3) * min(2, shake * 0.4)))
   end
   draw_world()
@@ -798,7 +792,7 @@ function _draw()
   camera(0, 0)
   if state == "ready" then draw_ready_ui() end
   if state == "over" then draw_over_ui() end
-  if state == "dying" and die_t < 5 then -- 撞击白闪：显示期整体映射（帧缓冲不变）
+  if state == "dying" and die_t < 5 then -- 撞击白闪：显示期整体映射（幀缓冲不变）
     for i = 0, 63 do pal(i, 7, 1) end
   end
 end

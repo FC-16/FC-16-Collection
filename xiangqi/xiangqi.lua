@@ -9,13 +9,13 @@
 --
 -- AI：极小极大 + α-β（fail-soft），深度 2（黑方走 + 红方最佳回应）；
 --   评估 = 子力 + 兵推进 / 马炮中心 / 车炮机动性微调；
---   根走法级分帧搜索（每帧限量），思考期间顶栏显示"思考中"；
+--   根走法级分幀搜索（每幀限量），思考期间顶栏显示"思考中"；
 --   同分取首个最佳（确定性，不使用随机数）。
 --
 -- 模式：双人对局（热座）/ 人机对局（玩家执红先行）。
--- 操作：⬅➡⬆⬇ 移动光标（按住重复）・Ⓐ 选子 / 走子・Ⓑ 取消
---       Ⓧ/Ⓨ 悔棋（人机退回到玩家上一手前）・Select 音乐开关
---       Start 回标题（终局画面 Ⓐ 再来一局）
+-- 操作：←→↑↓ 移动光标（按住重复）・Ⓐ 选子 / 走子・Ⓑ 取消
+--       Ⓧ/Ⓨ 悔棋（人机退回到玩家上一手前）・View 音乐开关
+--       Menu 回标题（终局画面 Ⓐ 再来一局）
 --
 -- 资产全部程序化：棋子圆片精灵 poke 烘焙；SFX / BGM 按位写入；
 --   战绩存 dset 槽 0-3（红胜 / 黑胜 / 总局 / 音乐开关）。
@@ -338,7 +338,7 @@ local t = 0
 local title_sel = 1
 local stats = { 0, 0, 0 } -- 红胜 / 黑胜 / 总局
 local music_on = true
-local thinking = nil     -- AI 分帧搜索状态
+local thinking = nil     -- AI 分幀搜索状态
 
 local ANIM_DUR = 9
 
@@ -452,7 +452,7 @@ local function red_best(beta)
 end
 
 local AI_ROOT_F, AI_ROOT_T = {}, {}
-local AI_PER_FRAME = 2 -- 每帧处理的根走法数（预算内摊帧）
+local AI_PER_FRAME = 2 -- 每幀处理的根走法数（预算内摊幀）
 
 local function ai_begin()
   local n = gen_moves(true, AI_ROOT_F, AI_ROOT_T)
@@ -696,10 +696,10 @@ local function nudge(dx, dy)
   sfx(S_CUR)
 end
 
--- 方向键按住重复（btnp 无自动重复，自实现：首按 1 步，按住 14 帧后每 5 帧一步）
+-- 方向键按住重复（btnp 无自动重复，自实现：首按 1 步，按住 14 幀后每 5 幀一步）
 local function cursor_repeat()
-  local dx = (btn(1) and 1 or 0) - (btn(0) and 1 or 0)
-  local dy = (btn(3) and 1 or 0) - (btn(2) and 1 or 0)
+  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
+  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
   if dx == 0 and dy == 0 then
     hold_dx, hold_dy, rep_t = 0, 0, 0
     return
@@ -746,7 +746,7 @@ local function press_a()
 end
 
 local function update_title()
-  if btnp(2) or btnp(3) then
+  if dirp(2) or dirp(3) then
     title_sel = title_sel == 1 and 2 or 1
     sfx(S_CUR)
   end
@@ -774,7 +774,7 @@ function _update()
     update_title()
     return
   end
-  -- Select 音乐 / Start 回标题 对任意子状态生效
+  -- View 音乐 / Menu 回标题 对任意子状态生效
   if btnp(10) then toggle_music() end
   if btnp(11) then goto_title() return end
   if anim then
@@ -960,7 +960,7 @@ local function draw_bottombar()
   rectfill(0, 240, 256, 16, C_PANEL)
   line(0, 240, 255, 240, C_EDGE)
   local hints = {
-    "⬅➡⬆⬇移动 Ⓐ选走 Ⓑ取消",
+    "←→↑↓移动 Ⓐ选走 Ⓑ取消",
     "Ⓧ/Ⓨ悔棋 Select音乐",
     "Start回标题",
   }
@@ -1022,7 +1022,7 @@ local function draw_title()
   -- 战绩（拆两行，避免过宽）
   cprint("战绩 红 " .. stats[1] .. " 胜 ・ 黑 " .. stats[2] .. " 胜", 192, C_GOLD_L)
   cprint("共 " .. stats[3] .. " 局", 210, C_GOLD_L)
-  cprint("Ⓐ/Start 开始 ・ Select 音乐" .. (music_on and "开" or "关"), 232, C_GRAY)
+  cprint("Ⓐ/Menu 开始 ・ View 音乐" .. (music_on and "开" or "关"), 232, C_GRAY)
 end
 
 function _draw()

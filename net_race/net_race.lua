@@ -1,4 +1,4 @@
--- FC-16/1 多人平台竞速验收卡带。
+-- FC-16/2 多人平台竞速验收卡带。
 -- 本地实例只管理大厅；玩法只在全新的确定性同步实例中运行。
 
 local screen="title"
@@ -46,16 +46,16 @@ end
 
 local function update_lobby()
   if screen=="title" then
-    if btnp(2) then choice=max(1,choice-1) end
-    if btnp(3) then choice=min(3,choice+1) end
+    if dirp(2) then choice=max(1,choice-1) end
+    if dirp(3) then choice=min(3,choice+1) end
     if btnp(11) then
       if choice==1 then connect_internet() elseif choice==2 then open_nearby() else scan_nearby() end
     end
   elseif screen=="rooms" then
     rooms=nearby_rooms()
     room_choice=min(room_choice,max(1,#rooms))
-    if #rooms>0 and btnp(2) then room_choice=max(1,room_choice-1) end
-    if #rooms>0 and btnp(3) then room_choice=min(#rooms,room_choice+1) end
+    if #rooms>0 and dirp(2) then room_choice=max(1,room_choice-1) end
+    if #rooms>0 and dirp(3) then room_choice=min(#rooms,room_choice+1) end
     if btnp(11) and #rooms>0 then nearby_connect(rooms[room_choice].id,function(r) if r=="connected" then screen="waiting" end status=r end) end
   elseif screen=="waiting" then
     if session_state()=="closed" then
@@ -103,7 +103,7 @@ function _draw()
     end
   elseif screen=="waiting" then
     local player=session_player()
-    print("玩家 "..(player and (player+1) or "连接中").."　Start 准备",44,88,7)
+    print("玩家 "..(player and (player+1) or "连接中").."　Menu 准备",44,88,7)
     local m=session_members() for i=1,#m do print("P"..(m[i].player+1)..(m[i].ready and " 已准备" or " 等待"),76,112+i*16,m[i].ready and 36 or 18) end
   elseif screen=="result" then
     print("P"..(winner+1).." 获胜",92,96,30)
@@ -137,7 +137,8 @@ function update_race()
   for p=0,session_players()-1 do
     local a=players[p]
     if a.active then
-      if btn(0,p) then a.vx=-90 elseif btn(1,p) then a.vx=90 else a.vx=a.vx*0.75 end
+      local dx=(dir(1,p) and 1 or 0)-(dir(0,p) and 1 or 0)
+      if dx~=0 then a.vx=dx*90 else a.vx=a.vx*0.75 end
       if btnp(4,p) and a.ground then a.vy=-235 a.ground=false end
       a.vy=min(260,a.vy+9)
       a.x=a.x+a.vx/60 a.y=a.y+a.vy/60
@@ -153,7 +154,7 @@ function draw_race()
   cls(2)
   for i=1,#plats do local q=plats[i] platform(q[1],q[2],q[3],q[4],i==#plats and 30 or 34) end
   for p=0,session_players()-1 do local a=players[p] if a.active then circfill(a.x,a.y,7,p==0 and 41 or 18) print("P"..(p+1),a.x-5,a.y-17,7) end end
-  print("帧 "..sync_frame(),8,8,7)
+  print("幀 "..sync_frame(),8,8,7)
 end
 
 function on_sync_end(result)

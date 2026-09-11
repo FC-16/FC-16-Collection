@@ -11,29 +11,29 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 53029
+@code 53030
 -- 球球大作战 ・ FC-16 演示卡带
 -- 1024×1024 竞技场：方向键加速（速度上限随体型降低）；
 -- 半径大 15% 且包裹中心即可吞并（得 80% 质量），吃豆微成长；质量 600 获胜
 -- 多球机制：Ⓐ 分身（可分身球沿移动方向一分为二 + 前冲，可连按 1→2→4：仅受
---   单球质量 ≥ 40 与家族 ≤ 4 限制，不吃冷却），
+--   单球质量 ≥ 40 与家族 至多 4 限制，不吃冷却），
 --   Ⓧ 吐球（每颗分身各沿行进方向吐出一颗不受控的球：−16 质量换 12 质量球，
 --   任何球可吃——含自己与其他玩家，单球质量 ≥ 36 才能吐，场上上限 64 删最旧）；
 --   同体互不吞噬：合体冷却 6 秒（每球独立，HUD 有倒计时条），未冷却重叠轻微排斥，
 --   双方冷却结束接近自动合体（质量相加、位置取大球、速度按质量加权）；
 --   分身被拒时拒绝音 + 飘字说明原因（质量不足 / 球数已满），绝不静默失败；
---   球数预算：AI 全体 ≤ 24 与玩家 ≤ 4 互不挤占，玩家不会因 AI 挤满而无法分身；
+--   球数预算：AI 全体 至多 24 与玩家 至多 4 互不挤占，玩家不会因 AI 挤满而无法分身；
 --   玩家被吃光所有分身才算死亡
--- AI 三层状态机：L1 战略（逃跑>狩猎>发育>游走，30 帧决策 + 迟滞/最短驻留）、
---   L2 战术（10 帧：密度簇打分 / 拦截预判与可达校验 / 逃逸向量 / 分身突袭与逃逸分身）、
---   L3 反应（每帧转向合成：威胁排斥・墙体回避・同体分离/合体吸引・食物吸引）；
+-- AI 三层状态机：L1 战略（逃跑>狩猎>发育>游走，30 幀决策 + 迟滞/最短驻留）、
+--   L2 战术（10 幀：密度簇打分 / 拦截预判与可达校验 / 逃逸向量 / 分身突袭与逃逸分身）、
+--   L3 反应（每幀转向合成：威胁排斥・墙体回避・同体分离/合体吸引・食物吸引）；
 --   每 AI 生成侵略性/谨慎度/转向迟钝个性参数，全部决策走本局 rnd 确定性随机流
 -- 绘制层级：食物豆 → 吐出的球 → 光环 → 全部球按质量升序（大球压小球）→ 粒子 → 飘字
 -- 镜头随最大分身体型缩放取景 + 浅色网格、亮墙边界；HUD 质量/排名按实体总质量计，
 --   小地图画出每个玩家分身；右上排行榜按家族总质量取前四
 -- 音频：吃豆音高随体型下降 / 吞球 / 分身 / 吐球 / 死亡 / 胜利 SFX +
---   原创 8 小节循环 BGM（Select 开关，占 ch4-7）；纪录 dset(0..2) 持久化
--- 操作：⬅⬆⬇➡ 移动　Ⓐ 分身　Ⓧ 吐球　Ⓐ 开始/再来一局　Start 回标题
+--   原创 8 小节循环 BGM（View 开关，占 ch4-7）；纪录 dset(0..2) 持久化
+-- 操作：←↑↓→ 移动　Ⓐ 分身　Ⓧ 吐球　Ⓐ 开始/再来一局　Menu 回标题
 
 -- ---------------------------------------------------------------- 常量
 
@@ -53,15 +53,15 @@ local AI_BALL_CAP = 24             -- AI 球数预算（玩家 4 球不计入，
 local BALL_ABS = 28                -- 全场绝对上限 = AI 预算 24 + 玩家 4（防超额保险）
 local AI_FAM_MAX = 2               -- AI 每族球数上限（每体至多分身 1 次）
 local SPLIT_CD = 360               -- 合体冷却（6 秒，每球独立）：只限制合体，不限制再分身
-local SPLIT_IMP = 9                -- 分身前冲初速（px/帧，摩擦衰减）
-local SPLIT_IMP_T = 30             -- 前冲期帧数（期内跳过同体排斥）
+local SPLIT_IMP = 9                -- 分身前冲初速（px/幀，摩擦衰减）
+local SPLIT_IMP_T = 30             -- 前冲期幀数（期内跳过同体排斥）
 local SPIT_COST = 16               -- 吐球消耗质量
 local SPIT_MIN_MASS = 36           -- 单球吐球门槛（吐后不低于 20；大球不受其他小球拖累）
 local SPORE_MASS = 12              -- 吐出球的质量
 local SPORE_R = 3.5                -- 吐出球半径
 local SPORE_N = 64                 -- 场上吐球上限（超限删最旧）
-local SPIT_V = 7                   -- 吐出球初速（px/帧，衰减）
-local L1_PERIOD, L2_PERIOD = 30, 10 -- AI 战略/战术决策周期（帧，按球错峰）
+local SPIT_V = 7                   -- 吐出球初速（px/幀，衰减）
+local L1_PERIOD, L2_PERIOD = 30, 10 -- AI 战略/战术决策周期（幀，按球错峰）
 local DWELL = 45                   -- AI 模式最短驻留（防抖动）
 local VIEW = 190                   -- AI 视野基准半径（世界像素）
 local CELLS, CELLW = 8, 128        -- 发育密度网格：8×8 格 × 128px
@@ -76,7 +76,7 @@ local PELLET_COLS = {32, 33, 34, 41, 42, 43, 45, 46, 30, 31, 23, 57, 8, 21}
 local NAMES = {"绿豆", "苹果", "蓝鲸", "橙子", "紫薯", "桃子", "银币", "樱桃",
   "柠檬", "西瓜", "葡萄", "草莓", "抹茶", "可可", "奶昔", "布丁"}
 local HINTS = {"Ⓐ 分身　Ⓧ 吐球", "同体冷却后靠近自动合体",
-  "吐出的球谁都能吃", "大球吞小球", "质量 600 即胜利", "Select 音乐开关"}
+  "吐出的球谁都能吃", "大球吞小球", "质量 600 即胜利", "View 音乐开关"}
 local function fmt(n) return string.format("%d", flr(n + 0.5)) end -- 防御取整：dget 定点解码可能带尾差
 
 -- ---------------------------------------------------------------- 音频（SPEC §5.2）
@@ -166,13 +166,13 @@ local fam_counter                 -- AI 家族编号（玩家固定 0）
 local cam = {x = W / 2, y = W / 2, s = 1}
 local lb, rank, fam_n             -- 家族排行榜（总质量降序）/ 玩家名次 / 家族数
 local final_rank, final_count = 1, AI_N + 1
-local play_t, kills, max_mass     -- 生存帧数 / 吞噬数 / 峰值总质量
-local grace                       -- 开局保护帧数（防秒吞）
+local play_t, kills, max_mass     -- 生存幀数 / 吞噬数 / 峰值总质量
+local grace                       -- 开局保护幀数（防秒吞）
 local win, die_t, win_t, over_t, shake = false, 0, 0, 0, 0
 local new_mass, new_surv, new_kills = false, false, false
 local music_on, bgm_on
 local name_pool                   -- AI 名字池（取空重填，避免连续重名）
-local cells                       -- 发育密度网格（每帧重建：n 计数 + 样本点）
+local cells                       -- 发育密度网格（每幀重建：n 计数 + 样本点）
 local deco                        -- 标题装饰球与豆
 
 local function toggle_music()
@@ -331,7 +331,7 @@ local function move_ball(b, tx, ty, rate)
   b.vx = b.vx + (tx - b.vx) * rate
   b.vy = b.vy + (ty - b.vy) * rate
   local ix, iy = 0, 0
-  if b.imp_t > 0 then -- 分身前冲：独立冲量按帧摩擦衰减
+  if b.imp_t > 0 then -- 分身前冲：独立冲量按幀摩擦衰减
     b.imp_t = b.imp_t - 1
     ix, iy = b.ivx, b.ivy
     b.ivx, b.ivy = b.ivx * 0.9, b.ivy * 0.9
@@ -361,7 +361,7 @@ local function split_ball(b, dx, dy) -- 一分为二：各半质量，新球带�
   local nb = new_ball(b.x + dx * b.r * 0.25, b.y + dy * b.r * 0.25, half, b.sk, b.name, b.fam)
   nb.r = b.r * 0.7
   nb.face = atan2(dx, dy)
-  nb.ivx, nb.ivy = dx * SPLIT_IMP, dy * SPLIT_IMP -- px/帧，前冲期内跳过同体排斥
+  nb.ivx, nb.ivy = dx * SPLIT_IMP, dy * SPLIT_IMP -- px/幀，前冲期内跳过同体排斥
   nb.imp_t = SPLIT_IMP_T
   nb.split_cd = SPLIT_CD
   balls[#balls + 1] = nb
@@ -385,10 +385,10 @@ end
 -- 玩家操控：方向合成单位向量作用于全部分身；Ⓐ 分身 / Ⓧ 吐球
 local function control_player()
   local ax, ay = 0, 0
-  if btn(0) then ax = ax - 1 end
-  if btn(1) then ax = ax + 1 end
-  if btn(2) then ay = ay - 1 end
-  if btn(3) then ay = ay + 1 end
+  if dir(0) then ax = ax - 1 end
+  if dir(1) then ax = ax + 1 end
+  if dir(2) then ay = ay - 1 end
+  if dir(3) then ay = ay + 1 end
   local il = ax ~= 0 or ay ~= 0
   if il then
     local l = sqrt(ax * ax + ay * ay)
@@ -465,7 +465,7 @@ local function control_player()
 end
 
 -- ---------------------------------------------------------------- AI・L1 战略层
--- 全局模式 = 逃跑 > 狩猎 > 发育 > 游走；每 ~30 帧决策 + 迟滞/最短驻留防抖动
+-- 全局模式 = 逃跑 > 狩猎 > 发育 > 游走；每 ~30 幀决策 + 迟滞/最短驻留防抖动
 
 local function food_near(b, r) -- 周边密度格有无食物/吐球
   local cx, cy = flr(b.x / CELLW), flr(b.y / CELLW)
@@ -482,7 +482,7 @@ local function ai_l1(b)
   ai.l1_t = L1_PERIOD
   local per = b.per
   local vis = VIEW + b.r * 1.5
-  -- 逃跑：存在 r ≥ 我×1.15 且逼近（30 帧预测）的威胁；感知半径收紧，留追击空间
+  -- 逃跑：存在 r ≥ 我×1.15 且逼近（30 幀预测）的威胁；感知半径收紧，留追击空间
   local threat
   for i = 1, #balls do
     local o = balls[i]
@@ -490,7 +490,7 @@ local function ai_l1(b)
       local dx, dy = o.x - b.x, o.y - b.y
       local d0 = sqrt(dx * dx + dy * dy)
       if d0 < 130 + b.r * 1.2 + per.cau * 80 + o.r then
-        local px2, py2 = o.x + o.vx * 0.5, o.y + o.vy * 0.5 -- 30 帧 ≈ 0.5s 预测
+        local px2, py2 = o.x + o.vx * 0.5, o.y + o.vy * 0.5 -- 30 幀 ≈ 0.5s 预测
         local qx, qy = px2 - b.x, py2 - b.y
         local d1 = sqrt(qx * qx + qy * qy)
         if d1 < d0 + 24 or d0 < o.r + b.r + 80 then threat = o break end
@@ -537,7 +537,7 @@ local function ai_l1(b)
 end
 
 -- ---------------------------------------------------------------- AI・L2 战术层
--- 每 ~10 帧产出目标点：密度簇 / 拦截预判 / 逃逸向量 / 分身突袭·逃逸分身
+-- 每 ~10 幀产出目标点：密度簇 / 拦截预判 / 逃逸向量 / 分身突袭·逃逸分身
 
 local function best_cluster(b) -- 密度格打分 = 数量 / 距离，返回最优簇中心
   local bx, by, bs
@@ -622,7 +622,7 @@ local function ai_l2(b)
 end
 
 -- ---------------------------------------------------------------- AI・L3 反应层
--- 每帧转向合成：威胁排斥・同体合体吸引・食物吸引（墙体回避在 seek 内）
+-- 每幀转向合成：威胁排斥・同体合体吸引・食物吸引（墙体回避在 seek 内）
 
 local function ai_l3(b)
   local ai = b.ai
@@ -677,7 +677,7 @@ local function ai_frame(b) -- 三层串接：L1 战略 → L2 战术 → L3 反�
   if ai.l2_t <= 0 then ai_l2(b) end
   local tx, ty, rate = ai_l3(b)
   move_ball(b, tx, ty, rate)
-  if ai.want_split then -- L2 标记、本帧统一执行
+  if ai.want_split then -- L2 标记、本幀统一执行
     ai.want_split = false
     local nb = split_ball(b, ai.sdirx, ai.sdiry)
     if nb and nb.ai then -- 新球继承狩猎/逃逸意图
@@ -814,7 +814,7 @@ local function eat_pass()
       end
     end
   end
-  -- 吞球：成对扫描（大 ≥1.15 倍且包裹中心深度达标），同体跳过；当帧顺序结算。
+  -- 吞球：成对扫描（大 ≥1.15 倍且包裹中心深度达标），同体跳过；当幀顺序结算。
   -- 玩家家族只在 play 状态参与吞咬（win 庆祝 / dying 演出期间免疫）
   for i = 1, #balls do
     local a = balls[i]
@@ -890,7 +890,7 @@ end
 
 -- ---------------------------------------------------------------- 密度网格
 
-local function build_cells() -- 每帧重建：豆计 1、吐球计 3（高价值），存样本点
+local function build_cells() -- 每幀重建：豆计 1、吐球计 3（高价值），存样本点
   for i = 1, CELLS * CELLS do
     local c = cells[i]
     if c then c.n = 0 else cells[i] = {n = 0, x = 0, y = 0} end
@@ -962,7 +962,7 @@ local function update_play()
     if b.fam ~= 0 then ai_frame(b) end
   end
   eat_pass()
-  if state ~= "play" then return end -- 本帧内玩家被吞光 / 达标即止
+  if state ~= "play" then return end -- 本幀内玩家被吞光 / 达标即止
   -- 重生队列：食物延时重生，球满员时顺延
   for i = #rspawns, 1, -1 do
     local q = rspawns[i]
@@ -1262,7 +1262,7 @@ local function draw_over_panel()
   if new_kills and flr(t / 6) % 2 == 0 then print("★", 176, 128, 30) end
   row("排名 " .. fmt(final_rank) .. "/" .. fmt(final_count), 148, 1)
   if flr(t / 24) % 4 ~= 3 then row("Ⓐ 再来一局", 174, 4) end
-  row("Start 回标题", 192, 10)
+  row("Menu 回标题", 192, 10)
 end
 local function draw_title()
   cls(13)
@@ -1303,7 +1303,7 @@ local function draw_title()
     print(s, (256 - tw(s)) / 2 + 1, 171, 1)
     print(s, (256 - tw(s)) / 2, 170, 7)
   end
-  local hints = {"Ⓐ 分身　Ⓧ 吐球", "⬅⬆⬇➡ 移动　Select 音乐开关"}
+  local hints = {"Ⓐ 分身　Ⓧ 吐球", "←↑↓→ 移动　View 音乐开关"}
   for i = 1, 2 do print(hints[i], (256 - tw(hints[i])) / 2, 202 + (i - 1) * 18, 6) end
   print("♪", 242, 2, music_on and 30 or 10)
   print("FrostMiKu ・ FC-16", (256 - tw("FrostMiKu ・ FC-16")) / 2, 240, 10)
@@ -1346,12 +1346,12 @@ function _draw()
     draw_title()
     return
   end
-  if shake > 0 then -- 被吞震屏（与帧号绑定，保持确定性）
+  if shake > 0 then -- 被吞震屏（与幀号绑定，保持确定性）
     local a = min(6, shake * 0.5)
     camera(flr(sin(t * 0.11) * a), flr(cos(t * 0.17) * a * 0.6))
   end
   if state == "dying" and die_t < 30 and flr(die_t / 5) % 2 == 0 then
-    pal(13, 60, 1) pal(12, 59, 1) pal(11, 26, 1) -- 显示期红闪（帧缓冲不变）
+    pal(13, 60, 1) pal(12, 59, 1) pal(11, 26, 1) -- 显示期红闪（幀缓冲不变）
   elseif state == "win" and flr(win_t / 6) % 4 == 0 then
     pal(13, 51, 1) pal(12, 52, 1)                -- 胜利紫金微闪
   end

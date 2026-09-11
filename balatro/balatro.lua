@@ -34,7 +34,7 @@ BOOST = {1, 1.5, 2}
 BOOST_NM = {"小盲注", "大盲注", "Boss 盲注"}
 PLANETS = {{"水星", "high"}, {"金星", "pair"}, {"地球", "two"}, {"火星", "three"}, {"木星", "straight"},
            {"土星", "flush"}, {"天王星", "full"}, {"海王星", "four"}, {"冥王星", "sflush"},
-           {"行星X", "five"}, {"谷神星", "fhouse"}, {"阋神星", "ffive"}}
+           {"行星X", "five"}, {"谷神星", "fhouse"}, {"冥王星", "ffive"}}
 TAGS = {{"投资标签", "通过 Boss 盲注后 +$15"}, {"重掷标签", "下次商店重掷免费"}, {"优惠标签", "下次商店半价"}}
 BOSSES = {
   {n="钩子", d="出牌后弃2张随机手牌", hook=1},
@@ -45,7 +45,7 @@ BOSSES = {
   {n="黑桃之头", d="所有 ♠ 失效", suit=1},
   {n="红心之头", d="所有 ♥ 失效", suit=2},
   {n="方片之头", d="所有 ♦ 失效", suit=3},
-  {n="镣铐", d="手牌上限 -1", manacle=1},
+  {n="手銬", d="手牌上限 -1", manacle=1},
   {n="心灵", d="必须打出 5 张牌", psychic=1},
   {n="邪眼", d="牌型不能重复", eye=1},
   {n="独口", d="本回合只能打出一种牌型", mouth=1},
@@ -57,6 +57,8 @@ BOSSES = {
 RAR_N = {"普通", "罕见", "稀有"}
 JCOL = {[1]=CL.blue2, [2]=34, [3]=CL.red}
 CH_TICK, CH_MUL, CH_UI = 3, 4, 5
+IA, IB, IX, IY = btnicon("a"), btnicon("b"), btnicon("x"), btnicon("y")
+IL, IR = btnicon("lb"), btnicon("rb")
 
 -- ============================================================ 小丑定义（52 张）
 -- i 独立触发(j)｜c 计分牌(j,pc)｜h 手牌保持(j,pc)｜dg 弃牌(j,弃牌组)｜rg 回合结束(j)
@@ -166,7 +168,7 @@ TAROTS = {
   {n="力量", d="至多2张牌 点数+1", mn=0, mx=2},
   {n="倒吊人", d="销毁至多2张牌", mn=0, mx=2},
   {n="死神", d="左侧牌变为右侧牌", mn=2, mx=2},
-  {n="节制", d="获得小丑卖价总和≤$50"},
+  {n="节制", d="获得小丑卖价总和<=$50"},
   {n="恶魔", d="1 张牌 变为黄金", mn=1, mx=1},
   {n="塔", d="1 张牌 变为石头", mn=1, mx=1},
   {n="星", d="至多3张牌 变为♦", mn=0, mx=3},
@@ -1032,11 +1034,11 @@ end
 -- ============================================================ 输入
 local rep = {k=-1, t=0}
 function btnpr(i)
-  if btnp(i) then
+  if dirp(i) then
     rep.k, rep.t = i, 12
     return true
   end
-  if rep.k == i and btn(i) then
+  if rep.k == i and dir(i) then
     rep.t = rep.t - 1
     if rep.t <= 0 then
       rep.t = 4
@@ -1051,8 +1053,8 @@ function buzz() sfx(20, CH_UI) end
 function up_title()
   local has_save = dget(0) == 19651
   local n2 = has_save and 3 or 2
-  if btnp(2) then menu.i = (menu.i - 2) % n2 + 1 sfx(0, CH_UI) end
-  if btnp(3) then menu.i = menu.i % n2 + 1 sfx(0, CH_UI) end
+  if dirp(2) then menu.i = (menu.i - 2) % n2 + 1 sfx(0, CH_UI) end
+  if dirp(3) then menu.i = menu.i % n2 + 1 sfx(0, CH_UI) end
   if btnp(4) or btnp(11) then
     local pick = menu.i
     if has_save and pick == 1 then
@@ -1164,9 +1166,9 @@ function dn_blind()
   end
   rectfill(0, 236, 256, 20, CL.d1)
   if R.blind < 3 then
-    print("Ⓐ选择 SELECT跳过 Ⓛ牌组Ⓡ牌型", 6, 238, CL.g2)
+    print(IA.."选择 VIEW跳过 "..IL.."牌组"..IR.."牌型", 6, 238, CL.g2)
   else
-    print("Ⓐ 迎战 Boss Ⓛ 牌组 Ⓡ 牌型", 6, 238, CL.g2)
+    print(IA.." 迎战 Boss "..IL.." 牌组 "..IR.." 牌型", 6, 238, CL.g2)
   end
   local x = 6
   if R.invest > 0 then print(TAGS[1][1], x, 222, CL.gold) x = x + 90 end
@@ -1228,8 +1230,8 @@ function tick_play()
 end
 function up_play()
   if P.phase ~= "input" then return end
-  if btnp(2) and P.row > 0 then P.row = P.row - 1 sfx(0, CH_UI) end
-  if btnp(3) and P.row < 2 then P.row = P.row + 1 sfx(0, CH_UI) end
+  if dirp(2) and P.row > 0 then P.row = P.row - 1 sfx(0, CH_UI) end
+  if dirp(3) and P.row < 2 then P.row = P.row + 1 sfx(0, CH_UI) end
   local n2 = #P.hand
   if P.row == 0 then
     if n2 > 0 then
@@ -1325,7 +1327,7 @@ function dn_cashout()
     rect(62, y - 2, 132, 24, CL.gold)
     print("总计", 80, y + 4, 7)
     print("+$" .. fmt(R.cash_sum), 148, y + 4, CL.gold)
-    if flr(tt / 20) % 2 == 0 then ptext("Ⓐ 前往商店", y + 36, 7) end
+    if flr(tt / 20) % 2 == 0 then ptext(IA.." 前往商店", y + 36, 7) end
   end
 end
 function up_shop()
@@ -1414,11 +1416,11 @@ function dn_over()
   ptext("挑战失败", 110, 7)
   ptext("到达 盲注 " .. R.ante .. " 回合 " .. R.round, 146, CL.g2)
   ptext("分数不足 目标 " .. fmtm(P and P.target or 0), 162, CL.g2)
-  if flr(tt / 20) % 2 == 0 then ptext("Ⓐ 回到标题", 210, 7) end
+  if flr(tt / 20) % 2 == 0 then ptext(IA.." 回到标题", 210, 7) end
 end
 function up_win()
-  if btnp(2) then M.wi = 1 sfx(0, CH_UI) end
-  if btnp(3) then M.wi = 2 sfx(0, CH_UI) end
+  if dirp(2) then M.wi = 1 sfx(0, CH_UI) end
+  if dirp(3) then M.wi = 2 sfx(0, CH_UI) end
   if btnp(4) or btnp(11) then
     if (M.wi or 1) == 1 then
       R.endless = true
@@ -1462,8 +1464,8 @@ end
 function deck_grid_nav(cur, n2, back)
   if btnpr(0) then return (cur - 2) % n2 + 1 end
   if btnpr(1) then return cur % n2 + 1 end
-  if btnp(2) then return (cur - 15) % n2 + 1 end
-  if btnp(3) then return (cur + 13) % n2 + 1 end
+  if dirp(2) then return (cur - 15) % n2 + 1 end
+  if dirp(3) then return (cur + 13) % n2 + 1 end
   return cur
 end
 function up_ov()
@@ -1557,7 +1559,7 @@ function dn_ov()
       if M.tg.cur == i then rect(cx - 1, cy - 1, 13, 17, CL.cur) end
     end
     rectfill(0, 240, 256, 16, CL.d1)
-    print("Ⓐ 选取  Ⓑ 取消  START 确认", 6, 240, CL.g2)
+    print(IA.." 选取  "..IB.." 取消  MENU 确认", 6, 240, CL.g2)
   elseif OV == "sell" then
     rectfill(48, 88, 160, 80, CL.bg)
     rect(48, 88, 160, 80, CL.red)
@@ -1567,7 +1569,7 @@ function dn_ov()
       printw(JOKERS[o.id].n, 56, 116, 7, 144)
       ptext("售价 $" .. fmt(max(1, flr(cost_of(o) / 2))), 136, CL.gold)
     end
-    ptext("Ⓐ 确认出售  Ⓑ 取消", 152, CL.g2)
+    ptext(IA.." 确认出售  "..IB.." 取消", 152, CL.g2)
   elseif OV == "deck" then
     rectfill(0, 0, 256, 256, 0)
     fillp(0xB656)
@@ -1605,11 +1607,11 @@ function dn_ov()
     ptext("操作说明", 16, 7)
     local rows = {
       "方向键 移动光标",
-      "Ⓐ 确认 选牌  Ⓑ 取消返回",
-      "START 出牌 购买 继续",
-      "SELECT 弃牌 盲注跳过",
-      "Ⓨ 排序重掷  Ⓧ 出售小丑",
-      "Ⓛ 牌组  Ⓡ 牌型等级",
+      IA.." 确认选牌  "..IB.." 取消返回",
+      "MENU 出牌 购买 继续",
+      "VIEW 弃牌 盲注跳过",
+      IY.." 排序重掷  "..IX.." 出售小丑",
+      IL.." 牌组  "..IR.." 牌型等级",
       "",
       "得分=筹码x倍率 达标即过",
       "小丑牌提供强化与联动",
@@ -1619,7 +1621,7 @@ function dn_ov()
     for i, s in ipairs(rows) do
       print(s, 24, 40 + i * 16, CL.g2)
     end
-    ptext("Ⓑ 返回", 240, CL.g1)
+    ptext(IB.." 返回", 240, CL.g1)
   end
 end
 
@@ -1823,12 +1825,12 @@ function dn_play()
       print((P.sortm == 1 and "排 点数" or "排 花色"), 100, 240, CL.g1)
       print("牌组 " .. #R.coll, 168, 240, CL.g1)
     else
-      print("Ⓐ 选牌 START出牌 SEL弃牌", 6, 222, CL.g1)
+      print(IA.." 选牌 MENU出牌 VIEW弃牌", 6, 222, CL.g1)
       if P.seln > 0 then print("已选 " .. P.seln .. "/5", 128, 222, CL.cur) end
       print("牌组 " .. #R.coll, 168, 240, CL.g1)
     end
   else
-    print("Ⓧ 出售小丑", 6, 222, CL.g1)
+    print(IX.." 出售小丑", 6, 222, CL.g1)
     print("小丑 " .. #R.jok .. "/" .. R.slots, 150, 222, CL.g1)
   end
   if P.row == 1 and #R.jok > 0 and P.phase == "input" then
@@ -1882,7 +1884,7 @@ function dn_shop()
     else
       ptext("已售出", y + 54, CL.d3, x, x + 64)
     end
-    if sell then ptext("Ⓐ 购买", y + 124, CL.cur, x, x + 64) end
+    if sell then ptext(IA.." 购买", y + 124, CL.cur, x, x + 64) end
   end
   local b2 = {"重掷 $" .. fmt(SHOP.free > 0 and 0 or (SHOP.half and flr(SHOP.reroll / 2) or SHOP.reroll)), "离开"}
   for i = 1, 2 do
@@ -1894,7 +1896,7 @@ function dn_shop()
   end
   draw_joker_row(198)
   rectfill(0, 232, 256, 24, CL.d1)
-  print("Ⓐ 购买 Ⓨ 重掷 Ⓛ 牌组 Ⓡ 牌型", 6, 240, CL.g2)
+  print(IA.." 购买 "..IY.." 重掷 "..IL.." 牌组 "..IR.." 牌型", 6, 240, CL.g2)
   local it = M.si <= 3 and SHOP.items[M.si] or nil
   if it then
     if it.k == "j" then

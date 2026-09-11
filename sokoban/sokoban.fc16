@@ -21,7 +21,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 -- 可解，最少推动参考值亦由求解器计算（见 README）。
 --
 -- 操作：方向移动（按住连续）；Ⓑ 悔棋（无限栈）；Ⓧ 重开本关；
---       Start 选关；Select 音乐开关；标题画面 Ⓐ 开始。
+--       Menu 选关；View 音乐开关；标题画面 Ⓐ 开始。
 -- 演出：推动滑动缓动、归位闪光与音效、过关庆祝、全通关终章、百叶窗转场。
 -- 死锁提示：箱子被推进死角时提示"卡住了 Ⓑ 悔棋"。
 -- 存档：最佳推动数与通关标记（dset + fflush，save-id：sokoban）。
@@ -32,8 +32,8 @@ local HUD_H = 16        -- 顶栏高
 local FOOT_Y = 238      -- 底栏顶
 local CS_BIG = 16       -- 小关卡格子像素
 local CS_SML = 12       -- 大关卡格子像素
-local ANIM_N = 5        -- 一步滑动帧数
-local REPEAT = 8        -- 按住连续移动节拍（帧）
+local ANIM_N = 5        -- 一步滑动幀数
+local REPEAT = 8        -- 按住连续移动节拍（幀）
 local UNDO_CAP = 1024   -- 悔棋栈上限
 
 -- 方向：1 上 2 下 3 左 4 右；DIR_IN[d] 为对应输入键 id（0← 1→ 2↑ 3↓）
@@ -64,8 +64,8 @@ local C_TXT_D = 10   -- 暗字 #657392
 local C_RED = 59     -- 警示红 #EA323C
 
 -- 精灵瓦片号：0..10 为 16px 组，16..26 为 12px 组
--- 组内：+0 地板 +1 墙 +2 目标 +3 箱 +4 归位箱 +5..6 下行两帧
---       +7..8 上行两帧 +9..10 左行两帧（右行 = 左行水平翻转）
+-- 组内：+0 地板 +1 墙 +2 目标 +3 箱 +4 归位箱 +5..6 下行两幀
+--       +7..8 上行两幀 +9..10 左行两幀（右行 = 左行水平翻转）
 local T16 = 0
 local T12 = 16
 local LOGO_T = 32 -- 标题字位图（3 瓦特 48×16，sspr 放大）
@@ -306,7 +306,7 @@ local function bake(id, s, fn)
   end
 end
 
--- 工人画法：dir 1 下 / 2 上 / 3 左；帧 f 0/1（腿脚交替、身体起伏）
+-- 工人画法：dir 1 下 / 2 上 / 3 左；幀 f 0/1（腿脚交替、身体起伏）
 local function worker_art(dir, f)
   local bob = (f == 1) and 1 or 0
   return function(x, y)
@@ -333,7 +333,7 @@ local function worker_art(dir, f)
       if x > 6.5 and x < 9.5 and y < 9.6 then return C_SKIN end
       return C_CLOTH
     end
-    -- 腿脚（帧交替：行走两帧迈不同侧的腿）
+    -- 腿脚（幀交替：行走两幀迈不同侧的腿）
     if y > 12.4 and y <= 15 then
       if dir == 3 then
         if (f == 0 and x > 8.6 and x < 11.4) or (f == 1 and x > 4.6 and x < 7.4) then
@@ -419,7 +419,7 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- init_sfx(id, notes, wave, vol, speed)：notes 为音高表（0 休止，≤32 步）
+-- init_sfx(id, notes, wave, vol, speed)：notes 为音高表（0 休止，至多32 步）
 local function init_sfx(id, notes, wave, vol, speed)
   local base = 0x060000 + id * 112
   u8(base, speed or 2)
@@ -585,7 +585,7 @@ end
 
 -- state：title / play / clear / finale（全局，便于端到端观测）
 -- cur_level / steps / pushes 为全局观测变量
-local t = 0               -- 全局帧
+local t = 0               -- 全局幀
 local st = {}             -- 当前关卡运行状态
 local sel = 1             -- 选关光标
 local best = {}           -- 各关最佳推动（1 起）
@@ -593,7 +593,7 @@ local music_on = true
 local trans = nil         -- {t, T, mid} 转场
 local sparks = {}         -- 粒子
 local total_pushes = 0    -- 本次会话累计推动（按过关净计数）
-local stuck_t = 0         -- 死锁提示剩余帧
+local stuck_t = 0         -- 死锁提示剩余幀
 
 local function start_transition(mid)
   trans = {t = 0, T = 9, mid = mid}
@@ -613,7 +613,7 @@ local function enter_level(idx)
     flash = nil,  -- {i, t} 归位闪光格
     cd = 0,       -- 连续移动冷却
     dir = 1,
-    frame = 0,    -- 行走帧（奇偶交替迈腿）
+    frame = 0,    -- 行走幀（奇偶交替迈腿）
     ct = 0,       -- 过关演出计时
   }
   for i in pairs(P.box) do st.box[i] = true end
@@ -760,11 +760,11 @@ local function update_play()
     return
   end
 
-  -- 方向输入（新按立即走一步；按住时每 REPEAT 帧一步）
+  -- 方向输入（新按立即走一步；按住时每 REPEAT 幀一步）
   if st.cd > 0 then st.cd = st.cd - 1 end
   local d = 0
-  if btn(2) then d = 1 elseif btn(3) then d = 2
-  elseif btn(0) then d = 3 elseif btn(1) then d = 4 end
+  if dir(2) then d = 1 elseif dir(3) then d = 2
+  elseif dir(0) then d = 3 elseif dir(1) then d = 4 end
   if d > 0 and not st.anim then
     if btnp(DIR_IN[d]) then
       try_move(d, true)
@@ -828,10 +828,10 @@ local function update_finale()
 end
 
 local function update_title()
-  if btnp(2) and sel > 4 then sel = sel - 4 sfx(S_MENU, 1) end
-  if btnp(3) and sel + 4 <= #LEVELS then sel = sel + 4 sfx(S_MENU, 1) end
-  if btnp(0) and sel % 4 ~= 1 then sel = sel - 1 sfx(S_MENU, 1) end
-  if btnp(1) and sel % 4 ~= 0 then sel = sel + 1 sfx(S_MENU, 1) end
+  if dirp(2) and sel > 4 then sel = sel - 4 sfx(S_MENU, 1) end
+  if dirp(3) and sel + 4 <= #LEVELS then sel = sel + 4 sfx(S_MENU, 1) end
+  if dirp(0) and sel % 4 ~= 1 then sel = sel - 1 sfx(S_MENU, 1) end
+  if dirp(1) and sel % 4 ~= 0 then sel = sel + 1 sfx(S_MENU, 1) end
   if btnp(4) or btnp(11) then
     sfx(S_OK, 1)
     start_transition(function() enter_level(sel) end)

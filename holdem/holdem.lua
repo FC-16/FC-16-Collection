@@ -4,8 +4,8 @@
 --   → 摊牌（7 选 5 最佳牌型，含 A2345 轮子顺）或全桌弃牌收池 → 分层边池结算 → 淘汰。
 -- 下注规则：最小加注 = 上一增量；不足额全下不重开加注权；每 8 手盲注翻倍。
 -- 热座隐私：多人类玩家轮到行动前显示遮罩，行动结束手牌立即隐藏。
--- 操作：⬅➡ 选动作　⬆⬇ 调加注档（最小/四分之一池/半池/满池/全下）　Ⓐ 确认
---       Ⓑ 快捷弃牌　Ⓧ 按住加速　Select 音乐开关　Start/Ⓐ 继续
+-- 操作：←→ 选动作　↑↓ 调加注档（最小/四分之一池/半池/满池/全下）　Ⓐ 确认
+--       Ⓑ 快捷弃牌　Ⓧ 按住加速　View 音乐开关　Menu/Ⓐ 继续
 -- 存档：dset 槽 0 累计手数、1 人类累计胜局、2 人类最佳单池、3 音乐开关。
 -- 全部资产程序化生成：迷你字形牌面、绿毡椭圆桌、筹码、SFX 与 BGM（SPEC §5.2 poke 写入）。
 
@@ -265,7 +265,7 @@ end
 
 -- ================================================================ 全局状态
 
-local state, t             -- 状态机 / 全局帧
+local state, t             -- 状态机 / 全局幀
 local seats_n, humans_n, diffn -- 配置：人数 / 人类数 / 难度
 local players              -- 座位表
 local button, sb_amt, bb_amt
@@ -1000,24 +1000,24 @@ end
 
 -- ================================================================ 输入
 
--- 返回 true 表示本帧完成了一次确认行动
+-- 返回 true 表示本幀完成了一次确认行动
 local function human_menu_input()
   local n = #menu.opts
-  if btnp(0) then
+  if dirp(0) then
     menu.cur = (menu.cur - 2) % n + 1
     sfx(1)
   end
-  if btnp(1) then
+  if dirp(1) then
     menu.cur = menu.cur % n + 1
     sfx(1)
   end
   local opt = menu.opts[menu.cur]
   if opt.id == "raise" and #opt.ladder > 1 then
-    if btnp(2) then
+    if dirp(2) then
       opt.li = min(#opt.ladder, opt.li + 1)
       sfx(1)
     end
-    if btnp(3) then
+    if dirp(3) then
       opt.li = max(1, opt.li - 1)
       sfx(1)
     end
@@ -1043,15 +1043,15 @@ end
 -- ================================================================ 更新
 
 local function update_title()
-  if btnp(2) then title_row = (title_row - 2) % 3 + 1 sfx(1) end
-  if btnp(3) then title_row = title_row % 3 + 1 sfx(1) end
+  if dirp(2) then title_row = (title_row - 2) % 3 + 1 sfx(1) end
+  if dirp(3) then title_row = title_row % 3 + 1 sfx(1) end
   local function cyc(v, lo, hi, d)
     v = v + d
     if v < lo then v = hi elseif v > hi then v = lo end
     return v
   end
-  if btnp(0) or btnp(1) then
-    local d = btnp(1) and 1 or -1
+  if dirp(0) or dirp(1) then
+    local d = dirp(1) and 1 or -1
     if title_row == 1 then seats_n = seats_n == 4 and 6 or 4 -- 只提供 4/6 人桌
     elseif title_row == 2 then humans_n = cyc(humans_n, 1, min(4, seats_n), d)
     else diffn = cyc(diffn, 1, 3, d) end
@@ -1448,7 +1448,7 @@ local function draw_bottom()
     local opt = menu.opts[menu.cur]
     local hint = "Ⓐ确认 Ⓑ弃牌"
     if opt.id == "raise" then
-      hint = "加至" .. fmt(opt.ladder[opt.li]) .. " ⬆⬇调 " .. fmt(opt.li) .. "/" .. fmt(#opt.ladder) .. " Ⓐ确认"
+      hint = "加至" .. fmt(opt.ladder[opt.li]) .. " ↑↓调 " .. fmt(opt.li) .. "/" .. fmt(#opt.ladder) .. " Ⓐ确认"
     end
     print(hint, 254 - tw(hint), 198, C_GOLD2)
   else
@@ -1631,9 +1631,9 @@ local function draw_title()
   end
   local st = "战绩 " .. fmt(st_hands) .. "手 " .. fmt(st_wins) .. "胜 最佳池" .. fmt(st_best)
   print(st, flr((256 - tw(st)) / 2), 196, C_DIM)
-  local hs = "⬅➡调值 ⬆⬇选行 Ⓐ开局"
+  local hs = "←→调值 ↑↓选行 Ⓐ开局"
   print(hs, flr((256 - tw(hs)) / 2), 214, C_GRAY)
-  local hs2 = "Select 音乐(" .. (bgm_on and "开" or "关") .. ") ・ Ⓧ 游戏中加速"
+  local hs2 = "View 音乐(" .. (bgm_on and "开" or "关") .. ") ・ Ⓧ 游戏中加速"
   print(hs2, flr((256 - tw(hs2)) / 2), 232, C_DIM)
 end
 

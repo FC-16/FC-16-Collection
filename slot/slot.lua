@@ -549,13 +549,13 @@ function _update()
   end
 
   if state == "idle" then
-    if btnp(2) then -- ↑：调注梯度上一档
+    if dirp(2) then -- ↑：调注梯度上一档
       for _, b in ipairs(BETS) do
         if b > bet then bet = b break end
       end
       sfx(11, CH_UI)
     end
-    if btnp(3) then -- ↓
+    if dirp(3) then -- ↓
       for i = #BETS, 1, -1 do
         if BETS[i] < bet then bet = BETS[i] break end
       end

@@ -11,7 +11,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 30358
+@code 30352
 -- =====================================================================
 -- FC-16 华容道演示卡带（demo/klotski）
 --
@@ -23,9 +23,9 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 --   引擎最少步由 BFS 独立复算，公开指移纪录逐关核验一致
 --   （横刀立马 81 步即 Gardner / 维基记载的最少纪录）。
 --
--- 操作：⬅➡⬆⬇ 直接推动当前高亮块（推不动则改选该向最近的块，
+-- 操作：←→↑↓ 直接推动当前高亮块（推不动则改选该向最近的块，
 --   按住自动重复）・Ⓐ/Ⓑ 悔棋（无限栈）・Ⓧ 重开・Ⓨ 可动提示开关
---   ・Ⓛ/Ⓡ 前后关卡・Select 音乐开关・Start 选关
+--   ・Ⓛ/Ⓡ 前后关卡・View 音乐开关・Menu 选关
 --
 -- 资产全部程序化：木纹滑块精灵 _init poke 烘焙（16×16 瓦片 3× 绘制），
 --   SFX / BGM 按 SPEC §5.2 位写入；每关最佳步数存 dset 槽 0-9。
@@ -373,7 +373,7 @@ end
 -- ---------------------------------------------------------------- 场景与演出
 
 local mode = "title"   -- title / select / help / play
-local t = 0             -- 全局帧计数
+local t = 0             -- 全局幀计数
 local title_sel = 1
 local sel_lv = 1        -- 选关光标
 local cx, cy = 1, 0     -- 盘上光标（格坐标，始终位于某棋子上）
@@ -382,7 +382,7 @@ local bump = nil        -- { i, dx, dy, t }
 local winf = nil        -- 过关演出 { phase, t, record, min_hit }
 local conf = {}         -- 彩带粒子
 
-local ANIM_DUR = 6      -- 每格滑动帧数
+local ANIM_DUR = 6      -- 每格滑动幀数
 local HOLD_DELAY, HOLD_EVERY = 10, 7
 
 local function cur_piece() return occ_at(cx, cy) end
@@ -479,8 +479,8 @@ end
 -- 方向键按住重复（btnp 无自动重复，自实现节拍）
 local hold_dx, hold_dy, rep_t = 0, 0, 0
 local function dir_repeat()
-  local dx = (btn(1) and 1 or 0) - (btn(0) and 1 or 0)
-  local dy = (btn(3) and 1 or 0) - (btn(2) and 1 or 0)
+  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
+  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
   if dx ~= 0 then dy = 0 end -- 斜按时取横向单轴
   if dx == 0 and dy == 0 then
     hold_dx, hold_dy, rep_t = 0, 0, 0
@@ -578,10 +578,10 @@ local function update_play()
 end
 
 local function update_select()
-  if btnp(2) and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
-  if btnp(3) and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
-  if btnp(0) and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
-  if btnp(1) and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
+  if dirp(2) and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
+  if dirp(3) and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
+  if dirp(0) and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
+  if dirp(1) and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
   if btnp(8) and sel_lv > 1 then sel_lv = sel_lv - 3 sfx(S_CUR) end
   if btnp(9) and sel_lv < NLV then sel_lv = min(sel_lv + 3, NLV) sfx(S_CUR) end
   if btnp(10) then toggle_music() return end
@@ -590,7 +590,7 @@ local function update_select()
 end
 
 local function update_title()
-  if btnp(2) or btnp(3) then
+  if dirp(2) or dirp(3) then
     title_sel = title_sel == 1 and 2 or 1
     sfx(S_CUR)
   end
@@ -813,7 +813,7 @@ end
 
 local HELP_PARAS = {
   "帮助曹操（2×2 大块）滑到棋盘下方中央的出口。滑块只能滑入相邻空位，不可斜移、跳跃或穿过其他块；每滑动一格计一步。",
-  "操作：⬅➡⬆⬇ 推动高亮块，推不动时改选该向最近的块，按住方向连续推动。Ⓐ/Ⓑ 悔棋（无限），Ⓧ 重开本关，Ⓨ 可动提示开关，Ⓛ/Ⓡ 前后关卡，Select 音乐开关，Start 选关。",
+  "操作：←→↑↓ 推动高亮块，推不动时改选该向最近的块，按住方向连续推动。Ⓐ/Ⓑ 悔棋（无限），Ⓧ 重开本关，Ⓨ 可动提示开关，Ⓛ/Ⓡ 前后关卡，View 音乐开关，Menu 选关。",
   "达成引擎最少步数有特别演出，各关最佳成绩自动存档。",
 }
 
@@ -853,7 +853,7 @@ local function draw_select()
       print(s, 216, y, on and C_WHITE or C_GRAY)
     end
   end
-  cprint("⬅➡⬆⬇选择 Ⓐ开始 Ⓑ返回", 240, C_GRAY)
+  cprint("←→↑↓选择 Ⓐ开始 Ⓑ返回", 240, C_GRAY)
 end
 
 local function draw_title()

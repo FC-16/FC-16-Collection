@@ -107,7 +107,7 @@ offered_upgrades={}
 skills_pool={
   {id="dyn",name="炸药",icon=147,apply=function()dynamite_unlocked=true end},
   {id="ghost",name="幽灵手枪",icon=151,apply=function()ghost_gun_unlocked=true end},
-  {id="shotgun",name="霰弹枪",icon=157,apply=function()bullet_multi_count=1 end},
+  {id="shotgun",name="散彈槍",icon=157,apply=function()bullet_multi_count=1 end},
   {id="mir",name="镜像射击",icon=156,apply=function()mirror_shot_enabled=true end},
   {id="ric",name="跳弹",icon=154,apply=function()bullet_ricochet_count=1 bullet_bounce_enabled=true end},
   {id="fire_dash",name="烈焰冲刺",icon=138,apply=function()fire_dash_unlocked=true end},
@@ -274,11 +274,11 @@ function _update()
     time=function()
       if level_up_pending then return 0 else return t() end
     end
-    if btnp(0) then 
+    if dirp(0) then
       selected_card=max(1,selected_card-1)
       sfx(32, 1)
     end
-    if btnp(1) then 
+    if dirp(1) then
       selected_card=min(3,selected_card+1)
       sfx(32, 1)
     end
@@ -297,26 +297,26 @@ function _update()
   local px=player_x
   local py=player_y
 
-  local move_x, move_y = 0, 0
+  local input_x = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
+  local input_y = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
+  local move_x = input_x * player_speed*DT
+  local move_y = input_y * player_speed*DT
   
-  if btn(0) then 
-    move_x = move_x - player_speed*DT
+  if input_x < 0 then
     if not player_facing_left and turn_transition_timer==0 then
       turn_transition_timer=8
       turn_transition_stage=0
     end
     player_facing_left=true 
   end
-  if btn(1) then 
-    move_x = move_x + player_speed*DT
+  if input_x > 0 then
     player_facing_left=false 
   end
-  if btn(2) then move_y = move_y - player_speed*DT end
-  if btn(3) then move_y = move_y + player_speed*DT end
   
-  if move_x ~= 0 and move_y ~= 0 then
-    move_x = move_x / 1.41
-    move_y = move_y / 1.41
+  local input_len = sqrt(input_x*input_x + input_y*input_y)
+  if input_len > 1 then
+    move_x = move_x / input_len
+    move_y = move_y / input_len
   end
   
   px = px + move_x
@@ -326,19 +326,19 @@ function _update()
   
   if direction_transition_timer>0 then
   else
-    local is_moving=btn(0) or btn(1) or btn(2) or btn(3)
+    local is_moving=input_x~=0 or input_y~=0
     
     if is_moving then
       player_direction="down"
-      if btn(2) and (btn(0) or btn(1)) then
+      if input_y<0 and input_x~=0 then
         player_direction="up_diag"
-      elseif btn(3) and (btn(0) or btn(1)) then
+      elseif input_y>0 and input_x~=0 then
         player_direction="down_diag"
-      elseif btn(2) then
+      elseif input_y<0 then
         player_direction="up"
-      elseif btn(3) then
+      elseif input_y>0 then
         player_direction="down"
-      elseif btn(0) or btn(1) then
+      elseif input_x~=0 then
         player_direction="side"
       end
       
@@ -412,10 +412,10 @@ function _update()
     gun_angle = gun_angle + diff*ease60(0.2)
   end
 
-  if (btn(0) or btn(1) or btn(2) or btn(3)) and chance30(0.6) then
+  if (input_x~=0 or input_y~=0) and chance30(0.6) then
     local px=player_x+8
     local py=player_y+16
-    emit(px,py,(btn(1) and 0.3 or 0)-(btn(0) and 0.3 or 0)+(rnd(1)-0.5)*0.4,(btn(3) and 0.3 or 0)-(btn(2) and 0.3 or 0)+(rnd(1)-0.5)*0.4-0.2,15+flr(rnd(10)),5+flr(rnd(3)),1,nil,true)
+    emit(px,py,input_x*0.3+(rnd(1)-0.5)*0.4,input_y*0.3+(rnd(1)-0.5)*0.4-0.2,15+flr(rnd(10)),5+flr(rnd(3)),1,nil,true)
   end
 
 
@@ -424,8 +424,8 @@ function _update()
     sfx(35)
     invulnerable_timer=60
     -- prefer input direction; if none, use character direction
-    local dx_input=(btn(1) and 1 or 0)-(btn(0) and 1 or 0)
-    local dy_input=(btn(3) and 1 or 0)-(btn(2) and 1 or 0)
+    local dx_input=input_x
+    local dy_input=input_y
     dash_dx=dx_input
     dash_dy=dy_input
     local len=sqrt(dash_dx*dash_dx+dash_dy*dash_dy)
@@ -930,7 +930,7 @@ function _draw()
       
       print("按开始键继续", ((256 - tw("按开始键继续")) / 2), ((105 - s)*2), COL[7])
     else
-      print("收集诅咒宝石获得经验", ((5)*2), ((20 - s)*2), COL[7])
+      print("收集詛咒寶石獲得經驗", ((5)*2), ((20 - s)*2), COL[7])
       print("尽可能长时间生存", ((10)*2), ((30 - s)*2), COL[7])
       print("方向键", ((30)*2), ((55 - s)*2), COL[8])
       print("移动", ((75)*2), ((55 - s)*2), COL[7])
@@ -1001,7 +1001,7 @@ function _draw()
     if player_direction == "side" then
       offset_x = player_facing_left and 8 or -8
     elseif player_direction == "up_diag" then
-      if btn(0) then
+      if dir(0) then
         spr_top1, spr_top2, spr_bot1, spr_bot2 = 165, 166, 181, 182
         hflip = true
       else
@@ -1263,7 +1263,7 @@ function _draw()
     print(""..total_xp, ((text_x)*2), ((stats_y + 25)*2), COL[7])
 
     -- restart prompt - centered, key name in red（原作 press ❎ to restart；
-    -- 本移植死亡重启走 Start。CJK 8px/字、ASCII 4px/字：按_ =12、开始键 =24、_重新开始 =36）
+    -- 本移植死亡重启走 Menu。CJK 8px/字、ASCII 4px/字：按_ =12、开始键 =24、_重新开始 =36）
     local restart_x = 28
     print("按 ", ((restart_x)*2), ((110 - slide_offset)*2), COL[7])
     print("开始键", ((restart_x + 12)*2), ((110 - slide_offset)*2), COL[8])
@@ -1389,7 +1389,7 @@ function _draw()
 
     local current_upgrade = offered_upgrades[selected_card]
     if current_upgrade then
-      -- 中文全宽 16px / ASCII 8px，用 tw 计宽居中（#str 是字节数，不适用）
+      -- Fusion 比例步进，用 tw 计宽居中（#str 是字节数，不适用）
       print(current_upgrade.name, ((256 - tw(current_upgrade.name)) / 2), ((118)*2), COL[7])
     end
   end

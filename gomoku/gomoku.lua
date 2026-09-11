@@ -12,7 +12,7 @@
 --   ・存档：dset 战绩统计（各模式胜/负/和）与 BGM 开关，fflush 落盘
 --
 -- 操作：方向键移动光标（按住自动重复），Ⓐ 落子，Ⓑ 悔棋，
---       Start 确认/回标题，Select 音乐开关。
+--       Menu 确认/回标题，View 音乐开关。
 
 -- ---------------------------------------------------------------- 常量
 
@@ -222,7 +222,7 @@ local function init_all_sfx()
 
   -- BGM：C 大调五声音阶小品，四小节回环（每小节一条 32 步 Pattern）。
   -- 旋律 ch4（ROUND，SFX 20-23），贝斯 ch5（BASS，SFX 30-33）；
-  -- speed 6：每小节 192 帧，全曲 12.8 秒。
+  -- speed 6：每小节 192 幀，全曲 12.8 秒。
   local melody = {
     { 53, 0, 56, 58, 61, 0, 58, 56 }, -- E G A C5 A G
     { 53, 0, 49, 0, 46, 49, 51, 0 },  -- E C A C D
@@ -255,7 +255,7 @@ end
 
 -- ---------------------------------------------------------------- 状态
 
-local t = 0                 -- 全局帧计数（本地自增）
+local t = 0                 -- 全局幀计数（本地自增）
 local state = "title"       -- title / play
 local menu_i = 1            -- 标题菜单：1 双人 / 2 人机
 local mode = 1              -- 对局模式：1 双人 / 2 人机
@@ -264,11 +264,11 @@ local hist = {}             -- 落子历史 {{x=,y=,c=},...}
 local turn = 1              -- 当前方：1 黑 / 2 白（黑先）
 local winner = nil          -- nil 进行中 / 0 和 / 1 黑 / 2 白
 local win_pts = nil         -- 五连两端与方向 {x1,y1,x2,y2,dx,dy,数量}
-local over_t = 0            -- 终局演出帧龄
+local over_t = 0            -- 终局演出幀龄
 local cx, cy = 7, 7         -- 光标（格坐标）
 local rep = { 0, 0, 0, 0 }  -- 方向键按住计时（自实现重复）
 local ai_think = false      -- AI 思考中
-local ai_t = 0              -- 思考剩余帧
+local ai_t = 0              -- 思考剩余幀
 local ai_x, ai_y = 7, 7     -- 预选落点
 local stats = { 0, 0, 0, 0, 0, 0 } -- 双人黑白和 / 人机胜负和
 local music_on = true
@@ -492,10 +492,10 @@ end
 
 -- ---------------------------------------------------------------- 更新
 
--- 方向键按住重复：首帧动一格，停 14 帧后每 4 帧动一格（btnp 无自动重复）
+-- 方向键按住重复：首幀动一格，停 14 幀后每 4 幀动一格（btnp 无自动重复）
 local function cursor_input()
   for d = 0, 3 do
-    if btn(d) then
+    if dir(d) then
       rep[d + 1] = rep[d + 1] + 1
       if rep[d + 1] == 1 or (rep[d + 1] > 14 and (rep[d + 1] - 15) % 4 == 0) then
         if d == BTN_L then
@@ -533,7 +533,7 @@ local function update_play()
   if btnp(BTN_SEL) then toggle_music() end
 
   if winner ~= nil then
-    -- 终局：Ⓐ 再来一局，Start 回标题
+    -- 终局：Ⓐ 再来一局，Menu 回标题
     over_t = over_t + 1
     if btnp(BTN_A) then
       sfx(7, CH_UI)
@@ -691,7 +691,7 @@ local function draw_win()
     rrect(x0, by, bw, bh, 6, flr(t / 4) % 2 == 0 and C_RED or C_YEL)
     if u >= 1 then
       ctext(msg, by + 10, mc)
-      ctext("Ⓐ 再来一局　Start 回标题", by + 36, C_TXT)
+      ctext("Ⓐ 再来一局　Menu 回标题", by + 36, C_TXT)
     end
   end
 end
@@ -716,8 +716,8 @@ local function draw_play()
   elseif not ai_think then
     draw_cursor()
   end
-  draw_bottom({ "Ⓐ 落子　Ⓑ 悔棋　Start 标题",
-                "Select 音乐 " .. (music_on and "开" or "关") })
+  draw_bottom({ "Ⓐ 落子　Ⓑ 悔棋　Menu 标题",
+                "View 音乐 " .. (music_on and "开" or "关") })
 end
 
 local function draw_title()
@@ -726,8 +726,8 @@ local function draw_title()
   fillp(0x0055)
   rectfill(0, 0, 256, 256, C_BG_L * 256 + C_BG)
   fillp()
-  -- 木棋盘压暗一档作背景（显示期调色映射，帧缓冲不变，SPEC §2.3）；
-  -- 映射在帧呈现时取值，须保持到本帧结束（_draw 开头统一复位）
+  -- 木棋盘压暗一档作背景（显示期调色映射，幀缓冲不变，SPEC §2.3）；
+  -- 映射在幀呈现时取值，须保持到本幀结束（_draw 开头统一复位）
   pal(C_WOOD, C_WOOD_DK, 1)
   pal(C_WOOD_HI, C_WOOD_DK, 1)
   pal(C_WOOD_LH, C_WOOD, 1)
@@ -773,11 +773,11 @@ local function draw_title()
   local l2 = string.format("人机　胜 %d　负 %d　和 %d", stats[4], stats[5], stats[6])
   ctext(l1, 190, C_TXT)
   ctext(l2, 210, 10)
-  draw_bottom({ "⬆⬇选择　Ⓐ开始　Select音乐" })
+  draw_bottom({ "↑↓选择　Ⓐ开始　Select音乐" })
 end
 
 function _draw()
-  pal()  -- 复位两级映射（标题压暗只在本帧标题分支内重新设置）
+  pal()  -- 复位两级映射（标题压暗只在本幀标题分支内重新设置）
   if state == "title" then
     draw_title()
   else

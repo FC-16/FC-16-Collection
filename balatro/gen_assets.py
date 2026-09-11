@@ -1003,39 +1003,42 @@ for i in range(3):
 glyph("x", x + 8, y + 16, 42)
 glyph("3", x + 13, y + 16, 42)
 
-# ================================================================ LOGO（固件字形 ×2）
-# font.bin：u32 数量 + 每条目 38B（u32 码点 | u8 宽 | u8 行数 | 16×u16 行点阵，高位在左）
+# ================================================================ LOGO（Fusion 固件字形 ×2）
+# font.bin：F12\0 + u32 数量；变长条目保存步进、bbox 与逐行 1bpp 位图。
 _fb = open("assets/font.bin", "rb").read()
-_cnt = struct.unpack("<I", _fb[:4])[0]
+assert _fb[:4] == b"F12\0"
+_cnt = struct.unpack("<I", _fb[4:8])[0]
 FG = {}
-_off = 4
+_off = 8
 for _ in range(_cnt):
     cp = struct.unpack("<I", _fb[_off:_off + 4])[0]
-    wd = _fb[_off + 4]
-    rows = [struct.unpack("<H", _fb[_off + 6 + j * 2:_off + 8 + j * 2])[0] for j in range(16)]
-    FG[cp] = (wd, rows)
-    _off += 38
+    advance = _fb[_off + 4]
+    bx, by = struct.unpack("<bb", _fb[_off + 5:_off + 7])
+    wd, ht = _fb[_off + 7:_off + 9]
+    stride = (wd + 7) // 8
+    bitmap = _fb[_off + 9:_off + 9 + stride * ht]
+    points = [(bx + x, by + y) for y in range(ht) for x in range(wd)
+              if bitmap[y * stride + x // 8] >> (7 - x % 8) & 1]
+    FG[cp] = (advance, points)
+    _off += 9 + stride * ht
+assert _off == len(_fb)
 
 LOGO_Y = 296
 word = "BALATRO"
 offs = [-2, 1, -1, 2, 0, -2, 1]
 ink_rows = set()
 for ch in word:
-    wd, rows = FG[ord(ch)]
-    for y in range(16):
-        if rows[y]:
-            ink_rows.add(y)
+    _, points = FG[ord(ch)]
+    ink_rows.update(y for _, y in points)
 y0 = min(ink_rows)
 for li, ch in enumerate(word):
-    wd, rows = FG[ord(ch)]
+    _, points = FG[ord(ch)]
     lx = 2 + li * 18
     ly = LOGO_Y + 4 + offs[li] - y0
-    pts = [(x, y) for y in range(16) for x in range(wd)
-           if rows[y] >> (wd - 1 - x) & 1]
     for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2), (-2, -2), (2, 2), (-2, 2), (2, -2)]:
-        for x, y in pts:
+        for x, y in points:
             fill(lx + x * 2 + dx, ly + y * 2 + dy, 2, 2, 1)
-    for x, y in pts:
+    for x, y in points:
         fill(lx + x * 2, ly + y * 2, 2, 2, 59)
 for yy in range(LOGO_Y, LOGO_Y + 40):
     for xx in range(0, 130):

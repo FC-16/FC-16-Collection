@@ -11,7 +11,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 @patterns 0
 @sflags 0
 @free 0
-@code 203550
+@code 203538
 -- ================================================================ 游戏数据
 --
 -- 全部数值提取自用户提供的原版 SWF（提取管线见 extract_swf.py）：
@@ -133,10 +133,10 @@ local M50_MOBS = {
   {45,20,2,2,"红色史来姆",0,false,false},
   {35,38,3,3,"小蝙蝠",0,false,false},
   {60,32,8,5,"初级法师",0,false,false},
-  {50,42,6,6,"骷髅人",0,false,false},
-  {55,52,12,8,"骷髅士兵",0,false,false},
+  {50,42,6,6,"白骨人",0,false,false},
+  {55,52,12,8,"白骨士兵",0,false,false},
   {50,48,22,12,"初级卫兵",0,false,false},
-  {100,65,15,30,"骷髅队长",0,false,false},
+  {100,65,15,30,"白骨队长",0,false,false},
   {100,180,110,50,"中级卫兵",0,false,false},
   {130,60,3,8,"大史来姆",0,false,false},
   {60,100,8,12,"大蝙蝠",0,false,false},
@@ -245,7 +245,7 @@ local M50_MSGS = {
   "    阿哈! 你还好吗? 这大章鱼挡住了我前进的道路，现在暗道终于完工了,你现在最好也躲开它。我要走了，再见。",
   "    我听说在塔内有2把隐藏的红钥匙。",
   "    在这区域不多次提升攻击力，就不能打败 石头人。切记前人教训！",
-  "    很好, 你打败了骷髅族，但别想象藐视骷髅人那样藐视我。我对于你就象是神一样，是不可战胜的。呵呵, 来吧!",
+  "    很好, 你打败了白骨族，但别想象藐视白骨人那样藐视我。我对于你就象是神一样，是不可战胜的。呵呵, 来吧!",
   "    上帝阿!我做梦也没想到我会被别人打败。毫无疑问你是比我强。但以你现在的状态对于大法师来说又太弱了，你仅仅取得了一个暂时的胜利。",
   "    大法师住在25楼，他是魔塔的主人。以你现在的状态去攻击他简直就是自杀。 你应当在取得更高级别的道具后再去打败他。",
   "    我没有什么可说的，但有一个确切的消息藏在这个楼层里。(我没有搞清楚此层在原游戏里的作用，现不找到所有的暗墙29楼暗道不开)",
@@ -336,11 +336,11 @@ local M50_EXCH = {
 -- 规则要点（与原版一致）：
 --   ・ 战斗预览：损失 = (ceil(怪HP/(我攻-敌防))-1) × max(敌攻-我防, 0)；
 --     相邻巫师魔法伤害计入损失；十字架对兽人/吸血鬼、屠龙匕对魔龙攻击加倍；
---     我攻≤敌防或损失超过当前生命则禁止战斗。
+--     我攻至多敌防或损失超过当前生命则禁止战斗。
 --   ・ 怪物格必须战斗才可通过；门需对应钥匙；楼梯换层；楼层拾取/开门/
 --     杀怪状态整局持久；商店按购买次数涨价。
--- 操作：⬅⬆⬇➡移动（按住连续）　Ⓐ确认/战斗　Ⓑ取消　Start 菜单
---       （存档×3/读档/怪物手册/道具使用/音效开关/返回标题）　Select BGM 开关
+-- 操作：←↑↓→移动（按住连续）　Ⓐ确认/战斗　Ⓑ取消　Menu 菜单
+--       （存档×3/读档/怪物手册/道具使用/音效开关/返回标题）　View BGM 开关
 -- 存档：dset 三槽（25001 头校验），fflush 落盘。
 -- 精灵图块来自原版 SWF 位图提取（convert_art.py 生成，标记区间见下）；
 -- SFX/BGM 由 _init 按 SPEC §5.2 poke 写入（compose_music.py 生成编曲数据）。
@@ -1531,7 +1531,7 @@ local function move50(nx, ny)
       else pickup_txt(nm .. " 防御+" .. add) end
       took = true
     end
-    if ic == 81 then G.fl.help = true pickup_txt("怪物手册（Start 菜单可用）") took = true end
+    if ic == 81 then G.fl.help = true pickup_txt("怪物手册（Menu 菜单可用）") took = true end
     if ic == 82 then G.fl.note = true pickup_txt("留言簿（自动记录对话）") took = true end
     if ic == 83 then G.fl.fly = true pickup_txt("魔杖：可在菜单飞往去过的楼层") took = true end
     if ic == 84 then G.fl.ice = true pickup_txt("冰魔法（冻结熔岩之力）") took = true end
@@ -1727,7 +1727,7 @@ local function manual_list()
   return list
 end
 
--- ================================================================ 菜单（Start）
+-- ================================================================ 菜单（Menu）
 
 local function open_menu()
   local items = {
@@ -1902,9 +1902,9 @@ local function draw_bottom()
   if MSG.t > 0 then
     printw(MSG.txt, 8, 196, C_WHITE, 240)
   else
-    local hint = "Ⓐ确认/战斗　Start 菜单"
+    local hint = "Ⓐ确认/战斗　Menu 菜单"
     print(hint, 8, 196, C_GRAY)
-    local st = "Select 音乐:" .. (bgm_on and "开" or "关")
+    local st = "View 音乐:" .. (bgm_on and "开" or "关")
     print(st, 8, 212, C_GRAY)
   end
 end
@@ -1951,7 +1951,7 @@ local function draw_shop()
     yy = yy + 16
   end
   print("金币 " .. G.money, 52, yy + 4, C_GOLD_D)
-  local s = "⬆⬇选择　Ⓐ购买　Ⓑ离开"
+  local s = "↑↓选择　Ⓐ购买　Ⓑ离开"
   print(s, (256 - tw(s)) / 2, 188, C_GRAY)
 end
 
@@ -1999,7 +1999,7 @@ local function draw_manual()
   end
   local pg = #MANUAL.list > 0 and (flr((MANUAL.top - 1) / 8) + 1) or 1
   local pgs = max(1, flr((#MANUAL.list - 1) / 8) + 1)
-  local t2 = "⬆⬇ 翻页 " .. pg .. "/" .. pgs .. "　Ⓑ 关闭"
+  local t2 = "↑↓ 翻页 " .. pg .. "/" .. pgs .. "　Ⓑ 关闭"
   print(t2, (256 - tw(t2)) / 2, 242, C_GRAY)
 end
 
@@ -2019,12 +2019,12 @@ local function draw_fly()
     shown = shown + 1
     f = f + 1
   end
-  local t2 = "⬆⬇ 选择　Ⓐ 前往　Ⓑ 取消"
+  local t2 = "↑↓ 选择　Ⓐ 前往　Ⓑ 取消"
   print(t2, (256 - tw(t2)) / 2, 240, C_GRAY)
 end
 
 local function draw_title()
-  -- 原版标题干净帧全屏烘焙（瓦片 256..511，FFDec 渲染 1100 帧，
+  -- 原版标题干净幀全屏烘焙（瓦片 256..511，FFDec 渲染 1100 幀，
   -- 原版位图菜单已擦除，convert_art.py 生成）
   for j = 0, 15 do
     for i = 0, 15 do
@@ -2044,7 +2044,7 @@ local function draw_title()
   if slot_used(0) or slot_used(1) or slot_used(2) then
     print("有存档", 196, 138 + (TITLE.cur - 1) * 29, C_DGREEN)
   end
-  local s3 = "⬆⬇ 选择　Ⓐ 确定　Start 读档"
+  local s3 = "↑↓ 选择　Ⓐ 确定　Menu 读档"
   print(s3, (256 - tw(s3)) / 2, 244, C_GRAY)
 end
 
@@ -2063,7 +2063,7 @@ local function draw_win()
   }
   local idx = min(flr(G.t / 180) + 1, #pages)
   printw(pages[idx], 16, 60, C_WHITE, 224)
-  local s = "感谢游玩 ・ 按 Start 回到标题"
+  local s = "感谢游玩 ・ 按 Menu 回到标题"
   if flr(G.t / 20) % 2 == 0 then
     print(s, 128 - tw(s) / 2, 220, C_GOLD)
   end
@@ -2108,7 +2108,7 @@ function _update()
   if float_t > 0 then float_t = float_t - 1 end
   if flash_t > 0 then flash_t = flash_t - 1 end
   if G.state == "title" then
-    if btnp(2) or btnp(3) then
+    if dirp(2) or dirp(3) then
       TITLE.cur = 3 - TITLE.cur sfx(S_MENU)
     end
     if btnp(4) then
@@ -2118,7 +2118,7 @@ function _update()
       else
         dialog({
           "【游戏使用帮助】方向键移动（按住连续走）。Ⓐ 确认／对话翻页／战斗确认，Ⓑ 取消／关闭面板。",
-          "Start 打开存档·读档·怪物手册·道具菜单，Select 切换背景音乐。撞向怪物弹出战斗预览，攻击足以击杀时才会出手。",
+          "Menu 打开存档·读档·怪物手册·道具菜单，View 切换背景音乐。撞向怪物弹出战斗预览，攻击足以击杀时才会出手。",
         }, function() G.state = "title" end)
         G.state = "dialog"
       end
@@ -2137,10 +2137,10 @@ function _update()
       sfx(S_DENY)
     end
   elseif G.state == "play" then
-    -- 方向：btnp 单步 + 按住重复（每 8 帧）
+    -- 方向：btnp 单步 + 按住重复（每 8 幀）
     local dx, dy = 0, 0
-    if btn(0) then dx = -1 elseif btn(1) then dx = 1 end
-    if btn(2) then dy = -1 elseif btn(3) then dy = 1 end
+    if dir(0) then dx = -1 elseif dir(1) then dx = 1 end
+    if dir(2) then dy = -1 elseif dir(3) then dy = 1 end
     if dx ~= 0 or dy ~= 0 then
       if dx ~= 0 and dy ~= 0 then dy = 0 end -- 优先横向
       rep_t = rep_t + 1
@@ -2151,7 +2151,7 @@ function _update()
     else
       rep_t = 0
     end
-    if btnp(10) then -- Select：BGM
+    if btnp(10) then -- View：BGM
       bgm_on = not bgm_on
       if bgm_on then
         cur_bgm = -1 play_floor_bgm()
@@ -2179,9 +2179,9 @@ function _update()
       G.state = "play"
     end
   elseif G.state == "shop" then
-    if btnp(2) then
+    if dirp(2) then
       SHOP.cur = max(1, SHOP.cur - 1) sfx(S_MENU)
-    elseif btnp(3) then
+    elseif dirp(3) then
       SHOP.cur = min(#SHOP.items, SHOP.cur + 1) sfx(S_MENU)
     elseif btnp(4) then
       local it = SHOP.items[SHOP.cur]
@@ -2213,8 +2213,8 @@ function _update()
       G.state = "play"
     end
   elseif G.state == "menu" then
-    if btnp(2) then MENU.cur = max(1, MENU.cur - 1) sfx(S_MENU)
-    elseif btnp(3) then MENU.cur = min(#MENU.items, MENU.cur + 1) sfx(S_MENU)
+    if dirp(2) then MENU.cur = max(1, MENU.cur - 1) sfx(S_MENU)
+    elseif dirp(3) then MENU.cur = min(#MENU.items, MENU.cur + 1) sfx(S_MENU)
     elseif btnp(4) then
       G.state = "play"
       MENU.items[MENU.cur][2]()
@@ -2222,14 +2222,14 @@ function _update()
       G.state = "play"
     end
   elseif G.state == "manual" then
-    if btnp(2) then MANUAL.top = max(1, MANUAL.top - 8)
-    elseif btnp(3) then MANUAL.top = min(max(1, #MANUAL.list - 7), MANUAL.top + 8)
+    if dirp(2) then MANUAL.top = max(1, MANUAL.top - 8)
+    elseif dirp(3) then MANUAL.top = min(max(1, #MANUAL.list - 7), MANUAL.top + 8)
     elseif btnp(5) then G.state = "play"
     end
   elseif G.state == "fly" then
     if FLY.cur == nil then FLY.cur = 0 end
-    if btnp(2) then FLY.cur = max(0, FLY.cur - 1) sfx(S_MENU)
-    elseif btnp(3) then FLY.cur = min(G.maxfloor, FLY.cur + 1) sfx(S_MENU)
+    if dirp(2) then FLY.cur = max(0, FLY.cur - 1) sfx(S_MENU)
+    elseif dirp(3) then FLY.cur = min(G.maxfloor, FLY.cur + 1) sfx(S_MENU)
     elseif btnp(4) then
       -- 落在该层的上楼梯旁（102 位置）或下楼梯旁
       local target = FLY.cur
