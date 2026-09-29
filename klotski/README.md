@@ -76,9 +76,9 @@ sspr 3× 绘制）、SFX 与五声 BGM 按 SPEC §5.2 位写入，卡带不携�
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "华容道" --author "FrostMiKu" \
-  --version 1 --save-id klotski --code demo/klotski/klotski.lua --cover 90 \
-  --out demo/klotski/klotski.fc16 --png demo/klotski/klotski.fc16.png
-cargo run -p fc16-host -- demo/klotski/klotski.fc16
+  --version 1 --save-id klotski --code klotski/klotski.lua --cover 30 \
+  --out klotski/klotski.fc16 --png carts/klotski.fc16.png
+cargo run -p fc16-host -- klotski/klotski.fc16
 ```
 
 封面取 headless 第 90 帧标题画面。存档槽：0-9 各关最佳步数、
@@ -94,4 +94,4 @@ cargo run -p fc16-host -- demo/klotski/klotski.fc16
 - **无效推 / 悔棋 / 重开 / 前后关卡切换**：均以 `--script` 输入脚本
   headless 验证（悔棋步数回退、空栈无效音、关卡重载正确）；
 - **字集**：源码全部非 ASCII 字符均在固件字集（spec/charset.txt）内；
-- **headless**：400 帧零 Lua 错误、无超预算提示。
+- **headless**：400 帧零 Lua 错误。

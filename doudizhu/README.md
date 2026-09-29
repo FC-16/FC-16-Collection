@@ -57,14 +57,18 @@
 叫分阶段：⬅➡ 在「不叫 / 1分 / 2分 / 3分」间选择（低于当前最高分的选项变灰），
 Ⓐ 确认。要不起时画面会提示「要不起，Ⓨ不要」。
 
+> 牌面使用 balatro 扑克精灵表（`tools/cards.bin`，52 张牌面 + 6 张牌背，
+> 瓦片 0..255；程序化绘制的仅剩大小王）。发布封面统一输出到 `carts/`。
+
 ## 构建与运行
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "斗地主" --author "FrostMiKu" \
-  --version 1 --save-id doudizhu --code demo/doudizhu/doudizhu.lua --cover 80 \
-  --out demo/doudizhu/doudizhu.fc16 --png demo/doudizhu/doudizhu.fc16.png
-cargo run -p fc16-host -- demo/doudizhu/doudizhu.fc16
+  --version 1 --save-id doudizhu --code doudizhu/doudizhu.lua \
+  --sprites tools/cards.bin --cover 30 \
+  --out doudizhu/doudizhu.fc16 --png carts/doudizhu.fc16.png
+cargo run -p fc16-host -- doudizhu/doudizhu.fc16
 ```
 
 开发期验证参考：`--frames 400 --screenshot` 走查标题/牌桌；用 `--script` 注入
-「B 清选 → A 抬牌 → X 出牌 → Y 过」的周期输入即可让三家 AI 长跑完整对局并结算。
+「Ⓑ 清选 → Ⓐ 抬牌 → Ⓧ 出牌 → Ⓨ 过」的周期输入即可让三家 AI 长跑完整对局并结算。

@@ -4,7 +4,7 @@
 --
 -- 分层：常量/迷宫数据 → 精灵烘焙 → 音频 → 网格移动 → 鬼 AI → 流程 → 绘制/UI → 幀循环
 --
--- 操作：方向键（WASD）移动；Menu 暂停；View(Tab) 音乐开关；标题画面 Ⓐ/Menu 开始
+-- 操作：方向键移动；Menu 暂停；View 音乐开关；标题画面 A/Menu 开始（提示均为 btnicon 图标）
 
 -- ============================================================ 常量与迷宫数据
 
@@ -76,22 +76,13 @@ local MODE_T = { 420, 1200, 420, 1200, 300, 1200, 300, 1e9 }
 local FRIGHT_T = { 360, 300, 240, 180, 120, 300, 120, 60, 60 }
 local POW2 = { 1, 2, 4, 8 }
 
--- 标题轮播角色
-local SHOW = {
-  { kind = 0, name = "吃豆人", trait = "大口吃遍迷宫" },
-  { kind = 1, name = "布林奇", trait = "直追不止" },
-  { kind = 2, name = "平琪",   trait = "前路设伏" },
-  { kind = 3, name = "印琪",   trait = "侧翼包抄" },
-  { kind = 4, name = "克莱德", trait = "近了就跑" },
-}
-
 -- 音效通道：0 吃豆 1 惊恐循环 2 事件 3 死亡 4 旋律/眼睛循环；5-7 归 BGM
 local CHOMP_CH, FRIGHT_CH, EVT_CH, DIE_CH, JING_CH = 0, 1, 2, 3, 4
 
 -- ============================================================ 全局状态（文件局部）
 
 local t = 0                     -- 幀计数
-local state = "title"           -- title/ready/play/dying/clear/gameover
+local state = "splash"          -- splash/title/ready/play/dying/clear/gameover
 local score, hi, lives, level = 0, 0, 3, 1
 local extra_given, bgm_on = false, true
 
@@ -286,31 +277,72 @@ end
 
 -- ============================================================ 音频（SPEC §5.2 布局）
 
--- 写一条 SFX：notes 为音高表（0 休止），wave 波形，vol 音量，speed 每步幀数
+local function u8(a, v) poke(a, v % 256) end
+
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+-- 写一条 SFX：notes 为音高表（0 休止，旧固件值 1-96 = C0-B7），wave 波形，vol 音量，
+-- speed 旧每步帧数（写卡带前换算 SPD = speed*4）
 local function init_sfx(id, notes, wave, vol, speed, o)
   o = o or {}
-  local base = 0x060000 + id * 112
-  poke(base, speed)
-  poke(base + 1, #notes)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
   if o.loop then
-    poke(base + 2, o.loop)
-    poke(base + 3, #notes)
-    poke(base + 4, 1)
+    u8(base + 3, o.loop)
+    u8(base + 4, #notes - 1)  -- 新循环尾为包含值
+    u8(base + 5, 1)
   end
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      poke(a, notes[i + 1])
-      poke(a + 1, wave * 16 + vol)
-      poke(a + 2, o.fx or 0)
+    local a = base + 16 + i * 4
+    if i < #notes and (notes[i + 1] or 0) > 0 then
+      u8(a, notes[i + 1] - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, o.fx or 0)
     else
-      poke(a, 0)
-      poke(a + 1, 0)
+      u8(a, 0)
+      u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
 
 local function init_all_sfx()
+  init_waveforms()
   init_sfx(0, { 45, 52 }, 2, 8, 1)                      -- 吃豆上滑
   init_sfx(1, { 52, 45 }, 2, 8, 1)                      -- 吃豆下滑
   init_sfx(2, { 38, 44, 47, 44 }, 3, 6, 3, { loop = 1 }) -- 惊恐警报（循环）
@@ -329,6 +361,7 @@ end
 
 -- BGM（原创）：A 小调四小节行进 Am-F-G-E，旋律/贝斯/琶音三声部
 -- 每小节一条 32 步 SFX（speed 4），八分音符展开 4 步
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 local function expand8(eighths)
   local out = {}
   for i = 1, 8 do
@@ -368,13 +401,17 @@ local function init_bgm()
     init_sfx(16 + b, expand8(mel[b + 1]), 3, 8, 4)     -- 旋律
     init_sfx(20 + b, expand4(bass[b + 1]), 11, 10, 4)  -- 贝斯
     init_sfx(24 + b, expand8(arp[b + 1]), 0, 5, 4)     -- 琶音垫
-    -- Pattern：ch5 旋律 ch6 贝斯 ch7 琶音；首段 BEGIN 末段 END 回环
-    local pb = 0x063800 + b * 16
-    poke(pb + 5, 17 + b)  -- SFX 引用 = id + 1
-    poke(pb + 6, 21 + b)
-    poke(pb + 7, 25 + b)
-    poke(pb + 8, (b == 0 and 1 or 0) + (b == 3 and 2 or 0))
+    -- MUSIC 行（SPEC §5.2：八个 SFX ID，0xFF 为空；LOOP_START/LOOP_BACK 控制回环）
+    -- ch5 旋律 ch6 贝斯 ch7 琶音；首段 LOOP_START 末段 LOOP_BACK 回环
+    local mb = MUSIC_BASE + 32 + b * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end
+    u8(mb + 5, 16 + b)
+    u8(mb + 6, 20 + b)
+    u8(mb + 7, 24 + b)
+    if b == 0 then u8(mb + 16, 1) end
+    if b == 3 then u8(mb + 17, 1) end
   end
+  u8(MUSIC_BASE, 4)  -- 全表 LEN = 4 行
 end
 
 -- ============================================================ 迷宫解析与重置
@@ -1114,49 +1151,82 @@ end
 -- ============================================================ 绘制：标题
 
 local function draw_title()
+  -- 迷宫轮廓 + 豆点作标题底纹（弱化配色，_init 已建好迷宫，frame 0 即完整）
+  pal(41, 5)
+  for i = 1, #wv do
+    sspr(wv[i] * 16, 0, 8, 8, wx[i], wy[i])
+  end
+  pal()
+  for y = 0, MH - 1 do
+    local rowbase = y * MW
+    for x = 0, MW - 1 do
+      local c = cell[rowbase + x + 1]
+      if c == C_DOT then
+        rectfill(OX + x * TS + 3, OY + y * TS + 3, 2, 2, 18)
+      elseif c == C_ENER then
+        circfill(OX + x * TS + 4, OY + y * TS + 4, 2, 18)
+      end
+    end
+  end
+
   -- 标题字
   local s = "吃豆人"
-  print(s, 105, 7, 62)
-  print(s, 104, 6, 30)
+  print(s, 106, 15, 62)
+  print(s, 105, 14, 30)
   local sub = "迷宫追逐"
-  print(sub, 128 - tw(sub) / 2, 26, 6)
-  draw_pac(74, 14, 0.5, 0.14, 6, 30)
-  draw_pac(182, 14, 0, 0.14, 6, 30)
+  print(sub, 128 - tw(sub) / 2, 34, 6)
 
-  -- 巡游队伍：四鬼追帕
-  local mx = (t * 1.1) % 620 - 160
-  draw_pac(mx, 58, 0, 0.03 + abs(sin(t * 0.1)) * 0.2, 7, 30)
+  -- 巡游队伍：四鬼追帕（装饰可动，t=0 时已入场）
+  local mx = (t * 1.1 + 310) % 620 - 160
+  draw_pac(mx, 60, 0, 0.03 + abs(sin(t * 0.1)) * 0.2, 7, 30)
   for i = 1, 4 do
     local d = GHOST_DEF[i]
-    draw_ghost(mx - 24 * i, 58, d.main, d.shade, 1, 0, 7)
+    draw_ghost(mx - 24 * i, 60, d.main, d.shade, 1, 0, 7)
   end
 
-  -- 角色轮播
-  local idx = flr(t / 150) % 5 + 1
-  local show = SHOW[idx]
-  if show.kind == 0 then
-    draw_pac(128, 108, 0, 0.03 + abs(sin(t * 0.06)) * 0.2, 13, 30)
-    rectfill(133, 98, 2, 2, 0)
-  else
-    local d = GHOST_DEF[show.kind]
-    draw_ghost(128, 108, d.main, d.shade, 1, 0, 13)
-  end
-  local s2 = show.name .. "・" .. show.trait
-  print(s2, 128 - tw(s2) / 2, 138, 7)
+  -- 中央：大口吃豆的静态构图（嘴部动画可动）
+  for i = 0, 8 do circfill(44 + i * 16, 104, 2, 23) end
+  draw_pac(196, 104, 0, 0.04 + abs(sin(t * 0.06)) * 0.18, 13, 30)
+  rectfill(199, 97, 3, 3, 0)
 
-  -- 分隔点阵
-  for i = 0, 6 do circfill(72 + i * 16, 168, 1, 23) end
+  -- 开始提示（稳定不闪烁）
+  local st = "按 " .. btnicon("a") .. " 开始"
+  print(st, 128 - tw(st) / 2 + 1, 151, 0)
+  print(st, 128 - tw(st) / 2, 150, 30)
 
+  -- 最高分（一行小字）
   local hs = "最高分 " .. hi
-  print(hs, 128 - tw(hs) / 2, 178, 23)
-  if flr(t / 25) % 2 == 0 then
-    local st = "按 Ⓐ 或 Menu 开始"
-    print(st, 128 - tw(st) / 2, 200, 30)
+  print(hs, 128 - tw(hs) / 2, 174, 23)
+
+  -- 底部一行图标化按键提示
+  local cr = btnicon("dpad") .. " 移动　" .. btnicon("menu") .. " 暂停　" .. btnicon("view") .. " 音乐"
+  print(cr, 128 - tw(cr) / 2, 244, 5)
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——大吃豆人张嘴追逐四鬼的特写构图，
+-- 大 logo 放下方；零菜单零提示零最高分（Ⓐ/Menu 可跳过，90 帧后进交互菜单）
+local function draw_splash()
+  cls(0)
+  -- 豆径一列（追逐线下方的豆点路径 + 颗能量豆）
+  for i = 0, 9 do
+    circfill(20 + i * 24, 134, 2, 23)
   end
-  local mu = "Tab 音乐：" .. (bgm_on and "开" or "关")
-  print(mu, 128 - tw(mu) / 2, 220, 6)
-  local cr = "方向键移动・Menu 暂停"
-  print(cr, 128 - tw(cr) / 2, 238, 5)
+  circfill(20, 134, 4, 7)
+  -- 四鬼逃窜（放大 2.3 倍，朝左，上下轻浮动）
+  for i = 1, 4 do
+    local d = GHOST_DEF[i]
+    local gy = 92 + sin(t * 0.1 + i * 1.7) * 2
+    draw_ghost(34 + (i - 1) * 38, gy, d.main, d.shade, 3, 0, 14)
+  end
+  -- 大吃豆人（r=30）张嘴追击（朝左）
+  draw_pac(198, 92, 0.5, 0.4 + abs(sin(t * 0.08)) * 0.12, 30, 30)
+  rectfill(174, 74, 6, 6, 0)  -- 眼
+  -- 大 logo（scale 4，深影 + 金色）
+  local s = "吃豆人"
+  print(s, 128 - tw(s) * 4 / 2 + 3, 171, 62, 4)
+  print(s, 128 - tw(s) * 4 / 2, 168, 30, 4)
+  s = "迷宫追逐"
+  print(s, (256 - tw(s)) / 2, 228, 6)
 end
 
 -- ============================================================ 幀循环
@@ -1172,7 +1242,7 @@ function _init()
   bgm_on = dget(1) == 0
 
   t = 0
-  state = "title"
+  state = "splash"
   score, lives, level = 0, 3, 1
   reset_level()
   reset_positions()
@@ -1180,7 +1250,9 @@ end
 
 function _update()
   t = t + 1
-  if state == "title" then
+  if state == "splash" then
+    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+  elseif state == "title" then
     update_title()
   elseif state == "ready" then
     for b = 0, 3 do
@@ -1205,6 +1277,10 @@ end
 
 function _draw()
   cls(0)
+  if state == "splash" then
+    draw_splash()
+    return
+  end
   if state == "title" then
     draw_title()
     return
@@ -1223,7 +1299,7 @@ function _draw()
     fillp()
     local s = "已暂停"
     print(s, 128 - tw(s) / 2, 112, 7)
-    local s2 = "Menu 继续"
+    local s2 = btnicon("menu") .. " 继续　" .. btnicon("view") .. " 音乐"
     print(s2, 128 - tw(s2) / 2, 136, 6)
   end
 end

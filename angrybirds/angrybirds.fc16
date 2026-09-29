@@ -6,12 +6,23 @@ version: 1
 flags: 0
 icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
 @sprites 0
-@map 0
+@maps 0
 @sfx 0
-@patterns 0
+@waveforms 0
+@instruments 0
+@music 2080
+0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
-@free 0
-@code 42580
+@custom 0
+@code 48896
 -- 愤怒的小鸟（FC-16 demo 卡带）
 -- 弹弓物理破坏：拉弓发射小鸟，用撞击冲量拆毁木/石/冰结构，消灭所有猪即可过关。
 -- 美术与音乐均为原创致敬风格；物理使用 SPEC §10 内置确定性 2D 物理（AABB+圆）。
@@ -19,7 +30,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 -- 操作：
 --   Ⓐ 按住拉弓，方向键调角度与力度，松开 Ⓐ 发射；Ⓑ 取消拉弓
 --   Menu 菜单（继续/重开/选关）　View 音乐开关
---   结算画面：Ⓐ 下一关（失败时重试），Menu 返回选关
+--   标题 Ⓨ 操作说明；结算画面 Ⓐ 下一关（失败时重试），Menu 返回选关
 --
 -- 伤害模型：撞击冲量 = 接近速度 × 有效质量（动碰静取自身质量，动碰动取约化质量）；
 -- 超过材料耐久即破坏。速度快照在物理步进前采集（回调读到的是求解后速度）。
@@ -126,29 +137,56 @@ local LV = {
 
 local NLEVEL = #LV
 
-local HINTS = {
-  "Ⓐ 按住拉弓　方向键调角度与力度",
-  "松开 Ⓐ 发射　Ⓑ 取消",
-  "Menu 菜单　View 音乐开关",
-}
+-- 进行中常驻提示：一行图标（开局拉弓提示，详细操作见标题 Ⓨ 帮助页）
+local HINT_PLAY = btnicon("a") .. " 按住拉弓　" .. btnicon("dpad") .. " 调整　"
+  .. btnicon("menu") .. " 菜单"
 
 -- ================================================================ 音频（SPEC §5.2）
 
 local function u8(a, val) poke(a, val % 256) end
 
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+local WAVEFORM_DATA = {
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+-- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）
+-- notes 为逐步音高（0=休止，写卡带前换算为新 0-95 并用音量 0 表休止）
 local function init_sfx(id, notes, wave, vol, spd, lps)
-  local base = 0x060000 + id * 112
-  u8(base, spd or 2)
-  u8(base + 1, #notes)
-  if lps then u8(base + 2, lps) u8(base + 3, #notes) u8(base + 4, 1) end
+  local base = 0x0C0000 + id * 144
+  poke2(base, (spd == 0 and 1 or spd or 2) * 4) -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
+  if lps then u8(base + 3, lps) u8(base + 4, #notes - 1) u8(base + 5, 1) end
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      u8(a, notes[i + 1])
-      u8(a + 1, wave * 16 + vol)
-      u8(a + 2, 0)
+    local a = base + 16 + i * 4
+    local p = notes[i + 1]
+    if p and p > 0 then
+      u8(a, p - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, 0)
     else
-      u8(a, 0) u8(a + 1, 0)
+      u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0)
     end
   end
 end
@@ -163,6 +201,7 @@ local function expand(notes, n)
 end
 
 local function init_audio()
+  init_waveforms()
   -- 0 拉弓吱呀 1 发射嗖 2/3/4 木石冰撞击 5/6/7 木石冰破碎
   -- 8 猪 popped 9 爆炸 10 过关 11 失败 12 界面 13 星星 14 小鸟就位
   init_sfx(0, { 49, 52 }, 3, 6, 1)
@@ -199,13 +238,38 @@ local function init_audio()
     init_sfx(39 + bar, expand(bass[bar], 16), 11, 10, 4)
   end
   for bar = 1, 4 do
-    local mb = 0x063800 + (bar - 1) * 16
-    u8(mb + 4, 20 + bar)
-    u8(mb + 5, 30 + bar)
-    u8(mb + 6, 40 + bar)
-    u8(mb + 8, bar == 1 and 1 or (bar == 4 and 2 or 0))
+    -- MUSIC 行（SPEC §5.2：八个 SFX ID，0xFF 为空；+16 LOOP_START/+17 LOOP_BACK）
+    local mb = 0x0C5380 + 32 + (bar - 1) * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end
+    u8(mb + 4, 19 + bar)
+    u8(mb + 5, 29 + bar)
+    u8(mb + 6, 39 + bar)
+    if bar == 1 then u8(mb + 16, 1) end
+    if bar == 4 then u8(mb + 17, 1) end
   end
+  u8(0x0C5380, 4)  -- MUSIC LEN = 4 行
 end
+
+-- ================================================================ 物理/向量适配（SPEC §9/§10，v0.177）
+
+-- 旧 vec2 构造器 v(x,y) 与 v.len/v.norm 的兼容层；分量只读，改动需重建向量
+local v = setmetatable({
+  len  = vector.magnitude,
+  norm = vector.normalize,
+}, { __call = function(_, x, y) return vector.create(x, y) end })
+
+-- 速度读取/写入：pstate(id) → position, velocity；写入走 pmove 保留位置
+local function body_vel(id) return select(2, pstate(id)) end
+local function set_vel(id, vel)
+  local pos = pstate(id)
+  pmove(id, pos, vel)
+end
+
+-- 接触回调注册（旧 b:hit(cb) → phit(id, cb)）
+local function body_hit(id, cb) phit(id, cb) end
+
+-- 旧质量模型保留用于伤害结算：面积/256 × 系数（新引擎按固定出厂手感求解）
+local function circle_mass(r) return r * r * 3.14159265 / 256 end
 
 -- ================================================================ 精灵烘焙
 
@@ -310,7 +374,7 @@ end
 
 -- ================================================================ 全局状态
 
-local state = "title" -- title | select | play | pause | settle
+local state = "splash" -- splash | title | help | select | play | pause | settle
 local t = 0           -- 全局幀
 local gt = 0          -- 本关幀
 local cur_lv = 1      -- 当前关卡
@@ -320,6 +384,7 @@ local music_on = true
 
 -- 对局状态
 local phase = "ready" -- ready | aim | fly | load | drain
+local aim_lock = false -- 开始对局时按住的 Ⓐ 需先松开，防止标题按键穿透拉弓
 local aim_ang, aim_pow = DEF_ANG, DEF_POW
 local birds_left = 0
 local pigs_left = 0
@@ -458,8 +523,8 @@ local take_damage -- 前向声明
 
 -- 从实体表中移除并删除物理体
 local function detach(e)
-  local bid = e.b.id
-  phy_del(e.b)
+  local bid = e.b
+  pdel(e.b)
   by_id[bid] = nil
   if e.kind == "pig" then del(pigs, e)
   elseif e.kind == "tnt" then del(tnts, e)
@@ -468,7 +533,7 @@ end
 
 -- 炸药桶爆炸：径向冲量 + 范围伤害 + 演出
 local function explode_tnt(e)
-  local p = e.b.pos
+  local p = pstate(e.b)
   local cx, cy = p.x, p.y
   detach(e)
   sfx(9)
@@ -486,7 +551,7 @@ local function explode_tnt(e)
   for i = 1, #victims do
     local ent = victims[i] -- 勿名 v：会遮蔽全局 vec2 构造器 v()
     if not ent.dead then
-      local vp = ent.b.pos
+      local vp = pstate(ent.b)
       local dx, dy = vp.x - cx, vp.y - cy - 4
       local d = sqrt(dx * dx + dy * dy)
       if d < TNT_R then
@@ -494,7 +559,7 @@ local function explode_tnt(e)
         local nx, ny = dx / dd, dy / dd
         if d < 1 then nx, ny = 0, -1 end
         local k = 1 - dd / TNT_R
-        ent.b.vel = ent.b.vel + v(nx * 430 * k, ny * 430 * k - 60 * k)
+        set_vel(ent.b, body_vel(ent.b) + v(nx * 430 * k, ny * 430 * k - 60 * k))
         if ent.kind ~= "bird" then
           ent.cd = 0
           take_damage(ent, 320 * k)
@@ -504,13 +569,13 @@ local function explode_tnt(e)
   end
 end
 
--- 标记破坏：碰撞回调可能成对触发，若一方回调立即 phy_del 自己，
+-- 标记破坏：碰撞回调可能成对触发，若一方回调立即 pdel 自己，
 -- 另一方的回调再读 other.id 就会踩到已删除的 body。
 -- 因此回调内只做标记与演出，物理体统一延迟到下一幀 update 删除。
 local function mark_destroy(e)
   if e.dead then return end
   e.dead = true
-  local p = e.b.pos
+  local p = pstate(e.b)
   if e.kind == "pig" then
     pigs_left = pigs_left - 1
     add_score(PIG_SCORE, p.x, p.y - 8, 30)
@@ -559,7 +624,7 @@ take_damage = function(e, j)
   if gt < (e.cd or 0) then return end
   e.cd = gt + 5
   e.hp = e.hp - j
-  local p = e.b.pos
+  local p = pstate(e.b)
   if j > 25 then
     puff(p.x, p.y, 3, 6, 1.0, 16, 0.02)
   end
@@ -575,20 +640,20 @@ end
 local function make_hit_cb(e)
   return function(other, n)
     if state ~= "play" or e.dead then return end
-    local sv = prevel[e.b.id]
+    local sv = prevel[e.b]
     if not sv then return end
     local ovx, ovy = 0, 0
-    local oent = by_id[other.id]
+    local oent = by_id[other]
     if oent then
-      local ov = prevel[other.id]
+      local ov = prevel[other]
       if ov then ovx, ovy = ov[1], ov[2] end
     end
     -- 接近速度：对方沿 n（指向自己）逼近自己的分量；n 为作用在自己上的推开方向
     local closing = (ovx - sv[1]) * n.x + (ovy - sv[2]) * n.y
     if closing < IMPACT_MIN then return end
-    local m = e.b.mass
+    local m = e.mass
     if oent then
-      local mo = other.mass
+      local mo = oent.mass
       m = m * mo / (m + mo)
     end
     take_damage(e, closing * m)
@@ -601,8 +666,8 @@ local function snap_list(list)
   for i = 1, #list do
     local e = list[i]
     if not e.dead then
-      local vel = e.b.vel
-      prevel[e.b.id] = { vel.x, vel.y }
+      local vel = body_vel(e.b)
+      prevel[e.b] = { vel.x, vel.y }
     end
   end
 end
@@ -613,17 +678,17 @@ local function snap_vels()
   snap_list(pigs)
   snap_list(tnts)
   if bird then
-    local vel = bird.b.vel
-    prevel[bird.b.id] = { vel.x, vel.y }
+    local vel = body_vel(bird.b)
+    prevel[bird.b] = { vel.x, vel.y }
   end
 end
 
 local function teardown()
   for _, list in ipairs({ blocks, pigs, tnts }) do
-    for i = #list, 1, -1 do phy_del(list[i].b) end
+    for i = #list, 1, -1 do pdel(list[i].b) end
   end
-  if bird then phy_del(bird.b) bird = nil end
-  if ground_b then phy_del(ground_b) ground_b = nil end
+  if bird then pdel(bird.b) bird = nil end
+  if ground_b then pdel(ground_b) ground_b = nil end
   blocks, pigs, tnts, by_id, prevel = {}, {}, {}, {}, {}
   parts, floats = {}, {}
 end
@@ -633,50 +698,45 @@ local function start_level(n)
   cur_lv = n
   local lv = LV[n]
   -- 地面（宽出屏，防侧漏）
-  ground_b = body(140, GROUND_Y + 12, 440, 24, "stat")
-  ground_b.friction = 6
+  ground_b = pbox(v(140, GROUND_Y + 12), v(440, 24), "wall")
   -- 方块
   for i = 1, #lv.bl do
     local d = lv.bl[i]
     local md = MAT[d[5]]
-    local b = body(d[1], d[2], d[3], d[4], "dyn")
-    b.mass = d[3] * d[4] / 256 * md.mf
-    b.friction = md.fric
-    b.restitution = md.rest
+    local b = pbox(v(d[1], d[2]), v(d[3], d[4]), "move")
     local e = { b = b, kind = "block", mat = d[5], w = d[3], h = d[4],
+                mass = d[3] * d[4] / 256 * md.mf,
                 hp = md.hp, hp0 = md.hp, dead = false }
-    e.b:hit(make_hit_cb(e))
+    body_hit(b, make_hit_cb(e))
     blocks[#blocks + 1] = e
-    by_id[b.id] = e
+    by_id[b] = e
   end
   -- 猪
   for i = 1, #lv.pg do
     local d = lv.pg[i]
-    local b = cbody(d[1], d[2], PIG_R, "dyn")
-    b.restitution = 0.15
-    b.friction = 4
-    local e = { b = b, kind = "pig", hp = 30, hp0 = 30, dead = false }
-    e.b:hit(make_hit_cb(e))
+    local b = pcirc(v(d[1], d[2]), PIG_R, "move")
+    local e = { b = b, kind = "pig", mass = circle_mass(PIG_R),
+                hp = 30, hp0 = 30, dead = false }
+    body_hit(b, make_hit_cb(e))
     pigs[#pigs + 1] = e
-    by_id[b.id] = e
+    by_id[b] = e
   end
   -- 炸药桶
   for i = 1, #lv.tn do
     local d = lv.tn[i]
-    local b = body(d[1], d[2], 16, 16, "dyn")
-    b.mass = 0.8
-    b.friction = 5
-    b.restitution = 0.05
-    local e = { b = b, kind = "tnt", hp = 22, hp0 = 22, dead = false, fuse = 0 }
-    e.b:hit(make_hit_cb(e))
+    local b = pbox(v(d[1], d[2]), v(16, 16), "move")
+    local e = { b = b, kind = "tnt", mass = 0.8,
+                hp = 22, hp0 = 22, dead = false, fuse = 0 }
+    body_hit(b, make_hit_cb(e))
     tnts[#tnts + 1] = e
-    by_id[b.id] = e
+    by_id[b] = e
   end
   birds_left = lv.birds
   pigs_left = #lv.pg
   score = 0
   gt = 0
   phase = "ready"
+  aim_lock = true
   aim_ang, aim_pow = DEF_ANG, DEF_POW
   win_t, load_t, drain_t, slow_t = 0, 0, 0, 0
   state = "play"
@@ -701,13 +761,10 @@ end
 local function fire()
   local px, py = pouch_pos()
   local d = aim_dir()
-  local b = cbody(px, py, BIRD_R, "dyn")
-  b.mass = 0.45
-  b.restitution = 0.15 -- 低弹性：撞击后更倾向砸穿而非弹开
-  b.friction = 3
-  b.vel = d * launch_speed()
-  bird = { b = b, kind = "bird", trail = {}, fly_t = 0, still = 0, dead = false }
-  by_id[b.id] = bird
+  local b = pcirc(v(px, py), BIRD_R, "move")
+  set_vel(b, d * launch_speed())
+  bird = { b = b, kind = "bird", mass = 0.45, trail = {}, fly_t = 0, still = 0, dead = false }
+  by_id[b] = bird
   birds_left = birds_left - 1
   phase = "fly"
   sfx(1)
@@ -733,21 +790,21 @@ end
 
 local function update_bird()
   local bd = bird.b
-  local p = bd.pos
+  local p = pstate(bd)
   bird.fly_t = bird.fly_t + 1
   if bird.fly_t % 3 == 0 then
     bird.trail[#bird.trail + 1] = { x = p.x, y = p.y }
     if #bird.trail > 42 then deli(bird.trail, 1) end
   end
-  local sp = v.len(bd.vel)
+  local sp = v.len(body_vel(bd))
   if sp < 14 then bird.still = bird.still + 1 else bird.still = 0 end
   if bird.fly_t > 330 or bird.still > 42
     or p.x > 340 or p.x < -60 or p.y > 300 then
     if p.y <= 300 and p.x >= -60 and p.x <= 340 then
       puff(p.x, p.y, 8, 6, 1.2, 22, 0.02)
     end
-    local bid = bd.id -- 先取 id：phy_del 后再访问字段会报“已删除”
-    phy_del(bd)
+    local bid = bd -- id 即句柄：pdel 后再访问会报“已删除”
+    pdel(bd)
     by_id[bid] = nil
     after_bird()
   end
@@ -758,7 +815,7 @@ local function scene_calm()
   for _, list in ipairs({ blocks, pigs, tnts }) do
     for i = 1, #list do
       local e = list[i]
-      if not e.dead and v.len(e.b.vel) > 18 then return false end
+      if not e.dead and v.len(body_vel(e.b)) > 18 then return false end
     end
   end
   return true
@@ -798,8 +855,9 @@ local function freeze_list(list)
   for i = 1, #list do
     local e = list[i]
     if not e.dead then
-      frozen[#frozen + 1] = { e.b, e.b.vel.x, e.b.vel.y }
-      e.b.vel = v(0, 0)
+      local pv = body_vel(e.b)
+      frozen[#frozen + 1] = { e.b, pv.x, pv.y }
+      set_vel(e.b, v(0, 0))
     end
   end
 end
@@ -810,19 +868,20 @@ local function pause_freeze()
   freeze_list(pigs)
   freeze_list(tnts)
   if bird then
-    frozen[#frozen + 1] = { bird.b, bird.b.vel.x, bird.b.vel.y }
-    bird.b.vel = v(0, 0)
+    local pv = body_vel(bird.b)
+    frozen[#frozen + 1] = { bird.b, pv.x, pv.y }
+    set_vel(bird.b, v(0, 0))
   end
-  phy_gravity(v(0, 0))
+  pgrav(v(0, 0))
 end
 
 local function pause_unfreeze()
   for i = 1, #frozen do
     local f = frozen[i]
-    f[1].vel = v(f[2], f[3])
+    set_vel(f[1], v(f[2], f[3]))
   end
   frozen = nil
-  phy_gravity(v(0, 900))
+  pgrav(v(0, 900))
 end
 
 -- ================================================================ 更新
@@ -898,31 +957,24 @@ local function update_play()
     local function slow_list(list)
       for i = 1, #list do
         local e = list[i]
-        if not e.dead then
-          e.b.vel = e.b.vel * 0.55
-          e.b.gravity_scale = 0.35
-        end
+        if not e.dead then set_vel(e.b, body_vel(e.b) * 0.55) end
       end
     end
     slow_list(blocks)
     slow_list(pigs)
     slow_list(tnts)
-    if bird then bird.b.vel = bird.b.vel * 0.55 bird.b.gravity_scale = 0.35 end
-    if slow_t == 0 then
-      local function wake(list)
-        for i = 1, #list do
-          local e = list[i]
-          if not e.dead then e.b.gravity_scale = 1 end
-        end
-      end
-      wake(blocks) wake(pigs) wake(tnts)
-      if bird then bird.b.gravity_scale = 1 end
-    end
+    if bird then set_vel(bird.b, body_vel(bird.b) * 0.55) end
+    pgrav(v(0, 900 * 0.35))  -- 旧 gravity_scale=0.35 对全部体等效
+    if slow_t == 0 then pgrav(v(0, 900)) end
   end
 
   -- 阶段机
   if phase == "ready" then
-    if btn(4) then phase = "aim" end
+    if aim_lock then
+      if not btn(4) then aim_lock = false end
+    elseif btn(4) then
+      phase = "aim"
+    end
   elseif phase == "aim" then
     local changed = false
     if dir(0) then aim_ang = max(10, aim_ang - 0.55) changed = true end
@@ -967,7 +1019,7 @@ local function update_play()
     for i = #list, 1, -1 do
       local e = list[i]
       if not e.dead then
-        local p = e.b.pos
+        local p = pstate(e.b)
         if p.y > 300 or p.x < -60 or p.x > 360 then
           if e.kind == "pig" then
             e.dead = true
@@ -977,8 +1029,8 @@ local function update_play()
               slow_t = 26
             end
           end
-          local bid = e.b.id
-          phy_del(e.b)
+          local bid = e.b
+          pdel(e.b)
           by_id[bid] = nil
           deli(list, i)
         end
@@ -1003,8 +1055,13 @@ function _update()
     dset(40, music_on and 0 or 1)
     if music_on then music(0, 500, 0x70) else music(-1, 200) end
   end
-  if state == "title" then
+  if state == "splash" then
+    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+  elseif state == "title" then
     if btnp(4) or btnp(11) then state = "select" sfx(12) end
+    if btnp(7) then state = "help" sfx(12) end
+  elseif state == "help" then
+    if btnp(5) or btnp(7) then state = "title" sfx(12) end
   elseif state == "select" then
     update_select()
   elseif state == "play" then
@@ -1084,7 +1141,7 @@ end
 -- ================================================================ 绘制：实体
 
 local function draw_block(e)
-  local p = e.b.pos
+  local p = pstate(e.b)
   local x0 = p.x - e.w / 2
   local y0 = p.y - e.h / 2
   local ratio = e.hp / e.hp0
@@ -1123,7 +1180,7 @@ local function draw_block(e)
   end
   -- 裂纹（受损表现）
   if ratio < 0.99 then
-    local seed = e.b.id * 37
+    local seed = e.b * 37
     local n = ratio < 0.34 and 3 or (ratio < 0.67 and 2 or 1)
     for i = 1, n do
       local cx = x0 + ((seed + i * 53) % max(e.w - 4, 1)) + 2
@@ -1135,7 +1192,7 @@ local function draw_block(e)
 end
 
 local function draw_tnt(e)
-  local p = e.b.pos
+  local p = pstate(e.b)
   local x0, y0 = p.x - 8, p.y - 8
   rectfill(x0, y0, 16, 16, 59)
   rect(x0, y0, 16, 16, 61)
@@ -1152,7 +1209,7 @@ local function draw_tnt(e)
 end
 
 local function draw_pig(e)
-  local p = e.b.pos
+  local p = pstate(e.b)
   spr(2, p.x - 8, p.y - 8)
   -- 受伤表情：血量过半画裂纹状皱眉
   if e.hp < e.hp0 * 0.5 then
@@ -1218,12 +1275,12 @@ local function draw_hud()
   -- 剩余猪（右上）
   sspr(32, 0, 16, 16, 238, 2, 12, 12)
   shadow_print("×" .. pigs_left, 222, 3, 7)
-  -- 底部提示
+  -- 底部提示（拉弓时显示角度力度，其余时刻一行图标）
   local hs
   if phase == "aim" then
-    hs = "角度 " .. flr(aim_ang) .. "　力度 " .. flr(aim_pow * 100)
+    hs = btnicon("dpad") .. " 角度 " .. flr(aim_ang) .. "　力度 " .. flr(aim_pow * 100)
   else
-    hs = HINTS[flr(t / 150) % #HINTS + 1]
+    hs = HINT_PLAY
   end
   fillp(0xa5a5)
   rectfill(0, 240, 256, 16, 0 * 256 + 15)
@@ -1276,7 +1333,7 @@ local function draw_settle()
         shadow_print(bs, 128 - tw(bs) / 2, py + 94, 22)
       end
     end
-    local nxt = cur_lv < NLEVEL and "Ⓐ 下一关" or "Ⓐ 再玩一次"
+    local nxt = cur_lv < NLEVEL and (btnicon("a") .. " 下一关") or (btnicon("a") .. " 再玩一次")
     shadow_print(nxt, 128 - tw(nxt) / 2, py + 112, 6)
   else
     shadow_print("失败…", 128 - tw("失败…") / 2, py + 10, 59)
@@ -1284,11 +1341,29 @@ local function draw_settle()
     shadow_print(ps, 128 - tw(ps) / 2, py + 48, 7)
     local ss3 = "分数 " .. score
     shadow_print(ss3, 128 - tw(ss3) / 2, py + 70, 7)
-    local rs = "Ⓐ 重试"
+    local rs = btnicon("a") .. " 重试"
     shadow_print(rs, 128 - tw(rs) / 2, py + 112, 6)
   end
-  local ss = "Menu 选关"
+  local ss = btnicon("menu") .. " 选关"
   shadow_print(ss, 128 - tw(ss) / 2, py + 112 + 16 - 2, 9)
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——弹弓大鸟 + 猪 + 大 logo，零菜单零提示
+local function draw_splash()
+  draw_bg()
+  draw_sling_back()
+  draw_sling_front()
+  sspr(16, 0, 16, 16, 28, 118, 48, 48)
+  sspr(32, 0, 16, 16, 170, 196, 28, 28)
+  sspr(32, 0, 16, 16, 202, 200, 20, 20)
+  local s = "愤怒的小鸟"
+  for _, o in ipairs({ { 2, 2 }, { -2, 2 }, { 2, -2 }, { -2, -2 }, { 3, 0 }, { -3, 0 }, { 0, 3 }, { 0, -3 } }) do
+    print(s, 38 + o[1], 36 + o[2], 1)
+  end
+  print(s, 38, 36, 63)
+  local s2 = "FC-16・弹弓物理破坏"
+  shadow_print(s2, 128 - tw(s2) / 2, 84, 7)
+  draw_parts()
 end
 
 local function draw_title()
@@ -1300,21 +1375,50 @@ local function draw_title()
   -- 地面上的猪（瓦片 2 源坐标 (32,0)）
   sspr(32, 0, 16, 16, 170, 196, 28, 28)
   sspr(32, 0, 16, 16, 202, 200, 20, 20)
-  -- 标题
+  -- 大标题（scale 3，frame 0 即完整呈现；黑描边保证云上可读）
   local s = "愤怒的小鸟"
-  print(s, 89, 43, 1)
-  print(s, 88, 42, 63)
-  local s2 = "FC-16・弹弓物理破坏"
-  shadow_print(s2, 128 - tw(s2) / 2, 66, 7)
-  local s3 = "拉弓发射　拆塔砸猪"
-  shadow_print(s3, 128 - tw(s3) / 2, 86, 22)
-  if flr(t / 20) % 2 == 0 then
-    local s4 = "按 Ⓐ 开始"
-    shadow_print(s4, 128 - tw(s4) / 2, 158, 30)
+  for _, o in ipairs({ { 2, 2 }, { -2, 2 }, { 2, -2 }, { -2, -2 }, { 3, 0 }, { -3, 0 }, { 0, 3 }, { 0, -3 } }) do
+    print(s, 38 + o[1], 36 + o[2], 1)
   end
+  print(s, 38, 36, 63)
+  local s3 = "拉弓发射　拆塔砸猪"
+  shadow_print(s3, 128 - tw(s3) / 2, 102, 22)
+  -- 开始提示（稳定不闪烁；y 避开弹弓上的大鸟）
+  local s4 = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
+  shadow_print(s4, 128 - tw(s4) / 2 + 1, 173, 0)
+  shadow_print(s4, 128 - tw(s4) / 2, 172, 30)
   local s5 = "共获 ★ " .. total_stars()
   shadow_print(s5, 128 - tw(s5) / 2, 236, 6)
   draw_parts()
+end
+
+-- 帮助页：完整操作表（标题 Ⓨ 进入，Ⓑ 返回）
+local function draw_help()
+  draw_bg()
+  fillp(0x5a5a)
+  rectfill(0, 0, 256, 256, 1 * 256 + 15)
+  fillp()
+  local px, py, pw, ph = 36, 34, 184, 188
+  rectfill(px, py, pw, ph, 15)
+  rect(px, py, pw, ph, 30)
+  shadow_print("操作说明", 128 - tw("操作说明") / 2, py + 10, 30)
+  local rows = {
+    { btnicon("a"), "按住拉弓・松开发射" },
+    { btnicon("left") .. btnicon("right"), "调整角度" },
+    { btnicon("up") .. btnicon("down"), "调整力度" },
+    { btnicon("b"), "取消拉弓" },
+    { btnicon("menu"), "菜单（继续/重开/选关）" },
+    { btnicon("view"), "音乐开关" },
+  }
+  for i, r in ipairs(rows) do
+    local y = py + 36 + (i - 1) * 20
+    print(r[1], px + 18, y, 22)
+    print(r[2], px + 52, y, 7)
+  end
+  local s = "用撞击冲量拆毁结构，消灭所有小猪即过关"
+  shadow_print(s, 128 - tw(s) / 2, py + ph - 30, 22)
+  s = btnicon("b") .. " 返回"
+  shadow_print(s, 128 - tw(s) / 2, py + ph - 16, 6)
 end
 
 local function draw_select()
@@ -1348,7 +1452,7 @@ local function draw_select()
     and ("第" .. sel .. "关・" .. LV[sel].name .. "　鸟 ×" .. LV[sel].birds)
     or "先通过前一关解锁"
   shadow_print(info, 128 - tw(info) / 2, 202, 22)
-  local h = "Ⓐ 选择　Menu 返回"
+  local h = btnicon("a") .. " 选择　" .. btnicon("menu") .. " 返回"
   shadow_print(h, 128 - tw(h) / 2, 224, 6)
 end
 
@@ -1381,7 +1485,7 @@ local function draw_play()
       local tr = bird.trail[i]
       circfill(tr.x, tr.y, i > 30 and 1 or 2, 7)
     end
-    local p = bird.b.pos
+    local p = pstate(bird.b)
     draw_bird_at(p.x, p.y)
   end
   -- 待发射的鸟
@@ -1427,8 +1531,14 @@ function _draw()
   else
     camera(0, 0)
   end
+  if state == "splash" then
+    draw_splash()
+    return
+  end
   if state == "title" then
     draw_title()
+  elseif state == "help" then
+    draw_help()
   elseif state == "select" then
     draw_select()
   else
@@ -1448,6 +1558,6 @@ function _init()
     best[i] = flr(dget(NLEVEL + i))
   end
   if music_on then music(0, 500, 0x70) end -- ch4-6 交给音乐
-  state = "title"
+  state = "splash"
   t = 0
 end

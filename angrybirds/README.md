@@ -64,10 +64,10 @@ TNT 爆炸、过关/失败旋律、星星音 — 全部由 `_init` 程序化写�
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "愤怒的小鸟" --author "FrostMiKu" \
-  --version 1 --save-id angrybirds --code demo/angrybirds/angrybirds.lua \
-  --cover 95 --out demo/angrybirds/angrybirds.fc16 \
-  --png demo/angrybirds/angrybirds.fc16.png
-cargo run -p fc16-host -- demo/angrybirds/angrybirds.fc16
+  --version 1 --save-id angrybirds --code angrybirds/angrybirds.lua \
+  --cover 30 --out angrybirds/angrybirds.fc16 \
+  --png carts/angrybirds.fc16.png
+cargo run -p fc16-host -- angrybirds/angrybirds.fc16
 ```
 
 存档槽位：`dset(i)` 第 i 关星级（1–10）、`dset(10+i)` 最佳分、`dset(40)` 音乐开关。

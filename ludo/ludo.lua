@@ -176,24 +176,68 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+
+-- init_sfx(id, notes, wave, vol, speed, eff)
+-- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function init_sfx(id, notes, wave, vol, speed, eff)
-  local base = 0x060000 + id * 112
-  u8(base, speed or 2)
-  u8(base + 1, #notes)
+  local sp = speed or 2
+  local base = 0x0C0000 + id * 144
+  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      u8(a, notes[i + 1])
-      u8(a + 1, wave * 16 + vol)
-      u8(a + 2, eff or 0)
+    local a = base + 16 + i * 4
+    local p = notes[i + 1]
+    if p and p > 0 then
+      u8(a, p - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, eff or 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
 
 local function init_all_sfx()
+  init_waveforms()
   init_sfx(0, {38, 0, 42, 0}, 15, 7, 1)                 -- 掷骰哗啦
   init_sfx(1, {44, 31, 25}, 11, 11, 2)                  -- 骰子定格
   init_sfx(2, {26, 38, 50, 62}, 5, 8, 2)                -- 起飞爬升
@@ -208,7 +252,7 @@ local function init_all_sfx()
   init_sfx(11, {76, 83}, 10, 8, 2)                      -- 奖励再掷
   init_sfx(12, {35, 0, 35, 0, 35, 35, 35, 35}, 13, 9, 2) -- 三连六警告
 
-  -- BGM：C 大调轻快回旋（C・Am・F・G），八小节两段 Pattern 循环
+  -- BGM：C 大调轻快回旋（C・Am・F・G），八小节两段 MUSIC 行循环
   -- 旋律（ORGAN）／贝斯（BASS）／琶音垫（TRIANGLE）各 2 条 32 步 SFX，speed 4 同步
   local mel_a = {
     53, 0, 56, 58, 61, 0, 58, 56,  58, 0, 56, 53, 49, 0, 53, 56,
@@ -239,16 +283,21 @@ local function init_all_sfx()
   init_sfx(23, bass_b, 11, 11, 4)
   init_sfx(24, arp_a, 0, 5, 4)
   init_sfx(25, arp_b, 0, 5, 4)
-  -- Pattern 0（BEGIN）／1（END）循环；ch4-6 为音乐通道
-  local p0, p1 = 0x063800, 0x063810
-  u8(p0 + 4, 21) u8(p0 + 5, 23) u8(p0 + 6, 25) u8(p0 + 8, 1)
-  u8(p1 + 4, 22) u8(p1 + 5, 24) u8(p1 + 6, 26) u8(p1 + 8, 2)
+  -- MUSIC 行 0（LOOP_START）／1（LOOP_BACK）循环；ch4-6 为音乐通道
+  -- （SPEC §5.2：八个 SFX ID，0xFF 为空；+0 处 LEN = 2）
+  local p0, p1 = MUSIC_BASE + 32, MUSIC_BASE + 64
+  for c = 0, 7 do u8(p0 + c, 0xFF) u8(p1 + c, 0xFF) end
+  u8(p0 + 4, 20) u8(p0 + 5, 22) u8(p0 + 6, 24)
+  u8(p1 + 4, 21) u8(p1 + 5, 23) u8(p1 + 6, 25)
+  u8(p0 + 16, 1)   -- LOOP_START：循环起点
+  u8(p1 + 17, 1)   -- LOOP_BACK：回到 LOOP_START
+  u8(MUSIC_BASE, 2)  -- 全表 LEN = 2 行
 end
 
 -- ================================================================ 全局状态
 
 local G = {
-  mode = "title", t = 0,
+  mode = "splash", t = 0,
   humans = 1,
   stars = {},
   P = {},                 -- P[p] = {pos, face, slot, human}
@@ -879,7 +928,9 @@ function _update()
   for i = #ANIMS, 1, -1 do
     if ANIMS[i]:up(ANIMS[i]) then table.remove(ANIMS, i) end
   end
-  if G.mode == "title" then
+  if G.mode == "splash" then
+    if G.t > 90 or btnp(4) or btnp(11) then G.mode = "title" end
+  elseif G.mode == "title" then
     update_title()
   elseif G.mode == "play" then
     update_play()
@@ -1142,10 +1193,10 @@ local function prompt_text()
   local nm = NAME[G.cur] .. "方"
   if not p.human then return nm .. "（电脑）行动中" end
   if G.phase == "roll" then
-    if G.extra then return "奖励再掷！" .. nm .. " Ⓐ 掷骰" end
-    return nm .. " Ⓐ 掷骰"
+    if G.extra then return "奖励再掷！" .. nm .. " " .. btnicon("a") .. " 掷骰" end
+    return nm .. " " .. btnicon("a") .. " 掷骰"
   elseif G.phase == "select" then
-    return "←→↑↓ 选机 Ⓐ 确认 Ⓑ 弃权"
+    return btnicon("dpad") .. " 选机 " .. btnicon("a") .. " 确认 " .. btnicon("b") .. " 弃权"
   elseif G.phase == "rollanim" then
     return nm .. " 掷骰中"
   end
@@ -1186,6 +1237,52 @@ end
 
 -- ================================================================ 标题与结算
 
+-- Splash：纯主视觉封面（0-90 帧）——掷出 6 的大骰子特写 + 起飞小飞机，
+-- 零菜单零提示零统计（封面帧 --cover 30 落在本段）
+local function draw_splash()
+  cls(51)
+  fillp(0x1041)
+  rectfill(0, 0, 256, 256, 52 * 256 + 51)
+  fillp()
+  for i = 1, #G.stars do
+    local st = G.stars[i]
+    local twk = (flr(G.t / 20) + i) % 7 == 0
+    pset(st[1], st[2], twk and 7 or st[3])
+  end
+  -- 大 logo（scale 4：黑影 + 红/黄/蓝三色，呼应四色棋）
+  local chars, cols = { "飞", "行", "棋" }, { 58, 30, 41 }
+  local cw = tw("飞") * 4
+  for i = 1, 3 do
+    local x = flr(128 - cw * 1.5) + (i - 1) * (cw + 6)
+    print(chars[i], x + 3, 25, 1, 4)
+    print(chars[i], x, 21, cols[i], 4)
+  end
+  print("FC-16 LUDO", (256 - tw("FC-16 LUDO")) / 2, 78, 10)
+  -- 跑道（底部装饰）
+  rectfill(0, 238, 256, 18, 52)
+  line(0, 238, 255, 238, 12)
+  for x = 6, 250, 14 do
+    rectfill(x, 246, 7, 2, 7)
+  end
+  -- 主视觉：掷出 6 的大骰子特写（红色骰座 + 白面大点数）
+  local dx, dy, ds = 128, 160, 84
+  rrectfill(dx - ds / 2 - 6, dy - ds / 2 - 6, ds + 12, ds + 12, 8, 61)
+  rrect(dx - ds / 2 - 6, dy - ds / 2 - 6, ds + 12, ds + 12, 8, 58)
+  rrectfill(dx - ds / 2, dy - ds / 2, ds, ds, 6, 7)
+  rrect(dx - ds / 2, dy - ds / 2, ds, ds, 6, 1)
+  local h = ds / 2 - 17
+  for _, qx in ipairs({ -h, h }) do
+    for _, qy in ipairs({ -h, 0, h }) do
+      circfill(dx + qx, dy + qy, 6, 1)
+    end
+  end
+  -- 起飞的小飞机（红方爬升）+ 虚线尾迹
+  draw_plane(1, 3, 44, 116, 40)
+  for i = 0, 6 do
+    pset(44 - i, 140 + i * 7, 58)
+  end
+end
+
 local function draw_title()
   cls(51)
   fillp(0x1041)
@@ -1196,45 +1293,51 @@ local function draw_title()
     local twk = (flr(G.t / 20) + i) % 7 == 0
     pset(st[1], st[2], twk and 7 or st[3])
   end
-  -- 环绕标题的四色机群（放大 26px）
+  -- 棋盘四角机场 + 顶视飞机（封面构图）
+  local CARDS = { { 10, 16 }, { 184, 16 }, { 184, 178 }, { 10, 178 } }
   for p = 1, 4 do
-    local a = G.t * 0.006 + (p - 1) * 0.25
-    local x = 128 + cos(a) * 86
-    local y = 88 + sin(a) * 44
-    local x2 = 128 + cos(a + 0.04) * 86
-    local y2 = 88 + sin(a + 0.04) * 44
-    draw_plane(p, dir4(x2 - x, y2 - y), x, y, 26)
-    if G.t % 4 == 0 then add_part(x, y, 0, 0, 0, 14, PC[p][4]) end
+    local x, y = CARDS[p][1], CARDS[p][2]
+    local cp = PC[p]
+    rrect(x, y, 62, 62, 8, cp[2])
+    rrectfill(x + 2, y + 2, 58, 58, 8, cp[3])
+    circfill(x + 31, y + 34, 13, 51)
+    circ(x + 31, y + 34, 13, cp[2])
+    line(x + 25, y + 34, x + 37, y + 34, cp[2])
+    line(x + 31, y + 28, x + 31, y + 40, cp[2])
+    draw_plane(p, LDIR[p], x + 31, y + 34, 20)
+    print(NAME[p], x + 6, y + 5, cp[4])
   end
-  big_text("飞行棋", 128 - tw("飞行棋") / 2, 50, 31)
-  print("FC-16 LUDO", 128 - tw("FC-16 LUDO") / 2, 70, 10)
+  big_text("飞行棋", 128 - tw("飞行棋") / 2, 36, 31)
+  print("FC-16 LUDO", 128 - tw("FC-16 LUDO") / 2, 62, 10)
 
   -- 玩家数选择
-  local py = 118
-  rrectfill(38, py, 180, 76, 6, 13)
-  rrect(38, py, 180, 76, 6, 12)
-  print("←→ 玩家数", 128 - tw("←→ 玩家数") / 2, py + 6, 7)
-  big_text(tostring(G.humans), 76, py + 24, 31)
-  print("人", 92, py + 28, 7)
+  local py = 86
+  rrectfill(66, py, 124, 74, 6, 13)
+  rrect(66, py, 124, 74, 6, 12)
+  local ls = btnicon("left") .. btnicon("right") .. " 玩家数"
+  print(ls, 128 - tw(ls) / 2, py + 5, 7)
+  big_text(tostring(G.humans), 80, py + 26, 31)
+  print("人", 97, py + 30, 7)
   for p = 1, 4 do
-    local x = 118 + (p - 1) * 24
+    local x = 122 + (p - 1) * 18
     local cp = PC[p]
-    rectfill(x - 9, py + 24, 18, 18, cp[3])
-    rect(x - 9, py + 24, 18, 18, cp[2])
-    draw_plane(p, LDIR[p], x, py + 33, 13)
+    rectfill(x - 7, py + 24, 14, 14, cp[3])
+    rect(x - 7, py + 24, 14, 14, cp[2])
+    draw_plane(p, LDIR[p], x, py + 31, 11)
     local lab = p <= G.humans and "人" or "机"
-    print(lab, x - 4, py + 44, p <= G.humans and 7 or 10)
+    print(lab, x - 4, py + 42, p <= G.humans and 7 or 10)
   end
   local gs = "战绩 " .. G.games .. " 局"
-  print(gs, 128 - tw(gs) / 2, py + 60, 10)
+  print(gs, 128 - tw(gs) / 2, py + 58, 10)
 
-  if flr(G.t / 20) % 2 == 0 then
-    print("Ⓐ 开始游戏", 128 - tw("Ⓐ 开始游戏") / 2, 202, 31)
-  end
-  local ms = "View 音乐：" .. (G.music_on and "开" or "关")
-  print(ms, 128 - tw(ms) / 2, 220, 10)
-  local rs = "掷6起飞・跳跃・飞跃・撞机"
-  print(rs, 128 - tw(rs) / 2, 240, 10)
+  -- 开始提示（常亮稳定）与音乐开关
+  local s = "按 " .. btnicon("a") .. " 开始"
+  print(s, 128 - tw(s) / 2 + 1, 177, 1)
+  print(s, 128 - tw(s) / 2, 176, 31)
+  s = btnicon("view") .. " 音乐：" .. (G.music_on and "开" or "关")
+  print(s, 128 - tw(s) / 2, 196, 10)
+  print("掷 6 起飞", 128 - tw("掷 6 起飞") / 2, 214, 48)
+  print("FrostMiKu", 128 - tw("FrostMiKu") / 2, 236, 10)
 end
 
 local function draw_end()
@@ -1282,13 +1385,18 @@ local function draw_end()
     print(NAME[p] .. "方 " .. g .. "/4", 132, y, PC[p][4])
   end
   if flr(G.t / 20) % 2 == 0 then
-    print("Ⓐ 回到标题", 128 - tw("Ⓐ 回到标题") / 2, 176, 31)
+    print(btnicon("a") .. " 回到标题", 128 - tw(btnicon("a") .. " 回到标题") / 2, 176, 31)
   end
   local gs = "累计 " .. G.games .. " 局"
   print(gs, 128 - tw(gs) / 2, 196, 10)
 end
 
 function _draw()
+  if G.mode == "splash" then
+    draw_splash()
+    draw_parts()
+    return
+  end
   if G.mode == "title" then
     draw_title()
     draw_parts()
@@ -1320,9 +1428,9 @@ function _init()
   for i = 1, 46 do
     G.stars[i] = {flr(rnd(4, 252)), flr(rnd(4, 250)), scols[i % 4 + 1]}
   end
-  -- dget 恒为 Lua 浮点（Q16.16 解包），| 0 转回整数，拼接显示才不会变成 "0.0"
-  G.games = flr(dget(0)) | 0
-  for p = 1, 4 do G.wins[p] = flr(dget(p)) | 0 end
+  -- dget 恒为 Lua 浮点（Q16.16 解包）；v0.177 起 flr 对数学整数保留整数显示，拼接不会变成 "0.0"
+  G.games = flr(dget(0))
+  for p = 1, 4 do G.wins[p] = flr(dget(p)) end
   G.music_on = dget(5) == 0
   if G.music_on then music(0, 500, 0x70) end
 end

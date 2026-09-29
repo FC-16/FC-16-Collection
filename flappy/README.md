@@ -35,7 +35,7 @@ SPEC §2.2 固定色表）。
 ## 音频
 
 8 声部芯片配器：旋律 PULSE 25、琶音 TRIANGLE、贝斯 BASS、鼓组（长/短噪声），
-PATTERN 0-7 以 BEGIN/END 回环，占 ch4-7；游戏音效走 ch0-2。BGM 为原创
+MUSIC 行 0-7 以 LOOP_START/LOOP_BACK 回环，占 ch4-7；游戏音效走 ch0-2。BGM 为原创
 C 大调 8 小节轻快循环。过管音高随分数渐升，撞击为方波 + 噪声脆响，
 坠落为下坠滑音，奖牌 / 新纪录各有独立号角。
 
@@ -43,16 +43,16 @@ C 大调 8 小节轻快循环。过管音高随分数渐升，撞击为方波 + 
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "弹跳鸟" --author "FrostMiKu" \
-  --version 1 --code demo/flappy/flappy.lua --cover 120 \
-  --out demo/flappy/flappy.fc16 --png demo/flappy/flappy.fc16.png
-cargo run -p fc16-host -- demo/flappy/flappy.fc16
+  --version 1 --code flappy/flappy.lua --cover 30 \
+  --out flappy/flappy.fc16 --png carts/flappy.fc16.png
+cargo run -p fc16-host -- flappy/flappy.fc16
 ```
 
 headless 验证（标题 300 帧 + 输入脚本开局打管道）：
 
 ```bash
-cargo run -p fc16-host -- demo/flappy/flappy.fc16 --frames 300 --screenshot out.png
+cargo run -p fc16-host -- flappy/flappy.fc16 --frames 300 --screenshot out.png
 printf '100 key 4\n102 key -\n110 key 4\n112 key -\n' > script.txt
-cargo run -p fc16-host -- demo/flappy/flappy.fc16 --frames 600 \
+cargo run -p fc16-host -- flappy/flappy.fc16 --frames 600 \
   --script script.txt --screenshot out.png
 ```

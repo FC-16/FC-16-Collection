@@ -1,6 +1,6 @@
-# 魔塔素材工作区（demo/magetower）
+# 魔塔素材工作区（magetower）
 
-本目录是 **demo/mota24**（24 层魔塔）与 **demo/mota50**（50 层魔塔）两张
+本目录是 **mota24**（24 层魔塔）与 **mota50**（50 层魔塔）两张
 独立卡带的素材提取与生成工作区，本身不含卡带。原始 SWF、原曲音频等素材只留
 在本地 `_source/`（已 gitignore，不入库）。
 
@@ -14,7 +14,7 @@
 | `midi_arrange.py` | 50F 原版 MIDI → 芯片谱面（声部分类 + 16 分网格量化，被转录入口调用） |
 | `transcribe_music.py` | 转录入口：mota50 走 MIDI 精确转录；mota24 走 B 站音频转录（速度双估计 + 宿主渲染选优） |
 | `verify_music.py` | 渲染验收环：每曲生成测试卡带 → 真实 fc16-host 渲染 → 与源音频色度相似度 |
-| `compose_music.py` | 写谱库：SFX/Pattern 布局（SPEC §5.2，内容寻址去重），被上面三者调用 |
+| `compose_music.py` | 写谱库：SFX/MUSIC 行布局（SPEC §5.2，内容寻址去重），被上面三者调用 |
 
 50F 音源为 Tower of the Sorcerer 1.2r1 自带 MIDI 与 tswKai 整合包
 （[tswBGM](https://github.com/Z-H-Sun/tswBGM) 的 BGM.zip，MIT 授权；
@@ -40,26 +40,26 @@ MIDI 在 [TSW_all_in_one.zip](https://github.com/Z-H-Sun/tswKai/releases)
 
 ```bash
 # 1) 提取数据（数据已入库生成，仅原始数据复现时需要）
-python demo/magetower/extract_swf.py "24层魔塔.swf" "50层魔塔.swf" \
+python magetower/extract_swf.py "24层魔塔.swf" "50层魔塔.swf" \
   --ffdec ffdec-cli.jar --out data.json --check
 
 # 2) 提取美术与音频留档
-python demo/magetower/extract_art.py "24层魔塔.swf" "50层魔塔.swf" --outdir _source
-demo/magetower/_source/ffdec/ffdec-cli.exe -export frame \
-  demo/magetower/_source/title_render "24层魔塔.swf" -select 900-1300
+python magetower/extract_art.py "24层魔塔.swf" "50层魔塔.swf" --outdir _source
+magetower/_source/ffdec/ffdec-cli.exe -export frame \
+  magetower/_source/title_render "24层魔塔.swf" -select 900-1300
 
-# 3) 生成美术块（写回 demo/mota24/mota24.lua 与 demo/mota50/mota50.lua）
-python demo/magetower/convert_art.py
+# 3) 生成美术块（写回 mota24/mota24.lua 与 mota50/mota50.lua）
+python magetower/convert_art.py
 
 # 4) 转录音乐（分别写回两个卡带源）
-python demo/magetower/transcribe_music.py mota24
-python demo/magetower/transcribe_music.py mota50
+python magetower/transcribe_music.py mota24
+python magetower/transcribe_music.py mota50
 
 # 5) 渲染验收（mota24 需先跑第 4 步；相似度均值参考 0.75 上下）
-python demo/magetower/verify_music.py mota24
-python demo/magetower/verify_music.py mota50
+python magetower/verify_music.py mota24
+python magetower/verify_music.py mota50
 
-# 6) 打包（见 demo/mota24 / demo/mota50 各自 README）
+# 6) 打包（见 mota24 / mota50 各自 README）
 ```
 
 B 站音频下载方式：playurl API（`fnval=16` 取 dash 音频流，需带 Referer）+

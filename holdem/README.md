@@ -71,10 +71,14 @@ AI 补位；庄家钮轮转、小盲/大盲、四轮下注（翻牌前 → 翻�
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "德州扑克" --author "FrostMiKu" \
-  --version 1 --save-id holdem --code demo/holdem/holdem.lua --cover 70 \
-  --out demo/holdem/holdem.fc16 --png demo/holdem/holdem.fc16.png
-cargo run -p fc16-host -- demo/holdem/holdem.fc16
+  --version 1 --save-id holdem --code holdem/holdem.lua \
+  --sprites tools/cards.bin --cover 30 \
+  --out holdem/holdem.fc16 --png carts/holdem.fc16.png
+cargo run -p fc16-host -- holdem/holdem.fc16
 ```
+
+`--sprites tools/cards.bin` 载入 balatro 扑克精灵表（瓦片 0-255：52 张 32×32
+牌面 + 6 张牌背），牌面经 `card_tile`（花色/点数映射）以 `spr` 绘制。
 
 开发期验证参考：`--frames 400 --screenshot` 走查标题/牌桌；用 `--script`
 注入周期性「← + Ⓐ」（弃牌/继续）并按住 Ⓧ 即可让 AI 长跑完整对局、淘汰与

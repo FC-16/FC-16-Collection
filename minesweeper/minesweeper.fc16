@@ -6,12 +6,23 @@ version: 1
 flags: 0
 icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
 @sprites 0
-@map 0
+@maps 0
 @sfx 0
-@patterns 0
+@waveforms 0
+@instruments 0
+@music 2080
+0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
-@free 0
-@code 30466
+@custom 0
+@code 36422
 -- =====================================================================
 -- FC-16 扫雷演示卡带（demo/minesweeper）
 --
@@ -99,20 +110,21 @@ local SHK = { { -3, 2 }, { 3, -2 }, { -2, -3 }, { 2, 3 },
 
 -- 底栏提示轮播
 local HINTS = {
-  "←→↑↓移动 Ⓐ翻开 Ⓑ插旗",
-  "Ⓑ再按出问号 Ⓧ和弦齐开",
+  btnicon("dpad") .. " 移动　" .. btnicon("a") .. " 翻开　" .. btnicon("b") .. " 插旗",
+  btnicon("b") .. " 再按出问号　" .. btnicon("x") .. " 和弦齐开",
   "首击必定安全 放心开局",
 }
 
--- 标题装饰格（字符对应状态）
+-- 标题装饰格（字符对应状态）：旗・问号・钢雷・数字格拼出对局剪影
 local TSTRIP = {
-  "ccfcqc3cccc1ccmc",
-  "c2c1cc1cfcqcc3cc",
+  "cc2f1cc1cc2ccfcc",
+  "c1f2c1cc1cf2c1c1",
+  "cc1c1ccm1c1cc1cq",
 }
 
 -- ---------------------------------------------------------------- 状态
 
-local mode = "title"     -- title / play
+local mode = "splash"    -- splash / title / play
 local di = 1             -- 当前难度
 local W, H, M            -- 当前期宽/高/雷数
 local x0, y0             -- 棋盘世界原点（像素）
@@ -417,26 +429,69 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- 按 SPEC §5.2 写一条 SFX；vol 可为单值或逐步表；fx 为逐步效果码
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+
+-- 按 SPEC §5.2 写一条 SFX（144B = 头 16B + 32 步 × 4B）；vol 可为单值或逐步表；fx 为逐步效果码
+-- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function init_sfx(id, notes, wave, vol, speed, fx)
-  local base = 0x060000 + id * 112
-  u8(base, speed or 1)
-  u8(base + 1, #notes)
+  local base = 0x0C0000 + id * 144
+  local spd = speed or 1
+  poke2(base, (spd == 0 and 1 or spd) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
+    local a = base + 16 + i * 4
+    local n = notes[i + 1]
+    if n and n > 0 then
       local v = type(vol) == "table" and vol[i + 1] or vol
-      u8(a, notes[i + 1])
-      u8(a + 1, wave * 16 + v)
-      u8(a + 2, fx or 0)
+      u8(a, n - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, v)
+      u8(a + 3, fx or 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
 
 local function init_audio()
+  init_waveforms()
   init_sfx(S_OPEN, { 50, 55 }, 0, 6, 1)            -- 翻格：轻双跳
   init_sfx(S_FLAG, { 69, 76 }, 4, 9, 1)            -- 插旗：上扬
   init_sfx(S_UNFLAG, { 76, 69 }, 4, 7, 1)          -- 拔旗 / 问号
@@ -464,18 +519,23 @@ local function init_audio()
     end
     return out
   end
+  for r = 0, 3 do
+    for c = 0, 7 do u8(MUSIC_BASE + 32 + r * 32 + c, 0xFF) end  -- 空轨写 0xFF（0 是合法 SFX 号）
+  end
   for bar = 1, 4 do
     init_sfx(8 + bar, expand(melody[bar], 4), 8, 9, 5)   -- ROUND 旋律
     local h = {}
     for i = 1, 8 do h[i] = harmony[bar][i % 2 + 1] end
     init_sfx(12 + bar, expand(h, 4), 0, 5, 5)            -- TRIANGLE 和声
     init_sfx(16 + bar, expand({ bass[bar] }, 32), 11, 10, 5) -- BASS
-    local pb = 0x063800 + (bar - 1) * 16
-    u8(pb + 5, 9 + bar)   -- ch5 旋律
-    u8(pb + 6, 13 + bar)  -- ch6 和声
-    u8(pb + 7, 17 + bar)  -- ch7 贝斯
-    u8(pb + 8, (bar == 1 and 1 or 0) + (bar == 4 and 2 or 0)) -- BEGIN/END
+    local mb = MUSIC_BASE + 32 + (bar - 1) * 32
+    u8(mb + 5, 8 + bar)   -- ch5 旋律
+    u8(mb + 6, 12 + bar)  -- ch6 和声
+    u8(mb + 7, 16 + bar)  -- ch7 贝斯
+    if bar == 1 then u8(mb + 16, 1) end    -- LOOP_START：循环起点
+    if bar == 4 then u8(mb + 17, 1) end    -- LOOP_BACK：回到 LOOP_START
   end
+  u8(MUSIC_BASE, 4)  -- 全表 LEN = 4 行
 end
 
 -- ---------------------------------------------------------------- 精灵烘焙
@@ -544,8 +604,8 @@ local function bake_cells()
       if row:sub(c + 1, c + 1) == "1" then return C_GOLD end
     end
   end)
-  bake(5, function(x, y)                   -- 已开格 + 钢雷
-    return open_px(x, y) or mine_px(x, y, 6, 5, 7)
+  bake(5, function(x, y)                   -- 已开格 + 钢雷（雷优先，open_px 全域非 nil）
+    return mine_px(x, y, 6, 5, 7) or open_px(x, y)
   end)
   bake(6, function(x, y)                   -- 爆炸格：红底 + 黑雷
     if x >= 14 or y >= 14 then return nil end
@@ -553,11 +613,11 @@ local function bake_cells()
     if y == 13 or x == 13 then return C_EXPL_L end
     return mine_px(x, y, 14, 14, nil) or C_EXPL
   end)
-  bake(7, function(x, y)                   -- 错旗：已开格 + 暗雷 + 红叉
+  bake(7, function(x, y)                   -- 错旗：已开格 + 暗雷 + 红叉（雷优先）
     if abs(x - y) <= 1 or abs(x + y - 13) <= 1 then
       if x >= 2 and x <= 11 and y >= 2 and y <= 11 then return C_EXPL_L end
     end
-    return open_px(x, y) or mine_px(x, y, 4, 4, nil)
+    return mine_px(x, y, 4, 4, nil) or open_px(x, y)
   end)
   -- 数字 1-8：已开格 + 3×5 点阵 ×2 放大（居中 6×10）
   for d = 1, 8 do
@@ -803,17 +863,17 @@ local function draw_over_panel()
       cprint("再接再厉", 128, C_TEXT)
     end
   end
-  cprint("Ⓐ再来一局 Start回标题", 146, C_GRAY)
+  cprint(btnicon("a") .. " 再来一局　" .. btnicon("menu") .. " 回标题", 146, C_GRAY)
 end
 
--- 标题装饰格条（用真实瓦片拼一排局面剪影）
+-- 标题装饰格条（用真实瓦片拼三排对局剪影：旗 / 问号 / 钢雷 / 数字）
 local function draw_title_strip()
-  local yy = 204
-  for r = 1, 2 do
+  local yy = 196
+  for r = 1, 3 do
     local row = TSTRIP[r]
     for c = 0, #row - 1 do
       local ch = row:sub(c + 1, c + 1)
-      local x = 2 + c * CS
+      local x = 16 + c * CS
       local y = yy + (r - 1) * CS
       if ch == "c" then
         blit(1, x, y)
@@ -832,6 +892,47 @@ local function draw_title_strip()
   end
 end
 
+-- Splash：纯主视觉封面（0-90 帧）——大地雷特写 + 旗帜 + 掀开的数字格，
+-- 零菜单零提示零统计（封面帧 --cover 30 落在本段）
+local function draw_splash()
+  cls(C_BG)
+  -- 大 logo（scale 4：暗影 + 金/旗红）
+  local cw = tw("扫") * 4
+  local xs = { 128 - cw - 10, 128 + 10 }
+  local chars, cols = { "扫", "雷" }, { C_GOLD_L, C_FLAG }
+  for i = 1, 2 do
+    print(chars[i], xs[i] + 4, 24, C_BARLINE, 4)
+    print(chars[i], xs[i], 20, cols[i], 4)
+  end
+  cprint("MINESWEEPER ・ FC-16", 78, C_GRAY)
+  -- 主视觉：大地雷（钢雷高光，scale 7）居中 + 金色角括号对焦
+  sspr(0, 16, 16, 16, 72, 96, 112, 112)
+  local function brackets(x, y, w, h)
+    local c = flr(t / 6) % 2 == 0 and C_GOLD_L or C_GOLD
+    line(x, y, x + 12, y, c) line(x, y, x, y + 12, c)
+    line(x + w - 1, y, x + w - 13, y, c) line(x + w - 1, y, x + w - 1, y + 12, c)
+    line(x, y + h - 1, x + 12, y + h - 1, c) line(x, y + h - 1, x, y + h - 13, c)
+    line(x + w - 1, y + h - 1, x + w - 13, y + h - 1, c)
+    line(x + w - 1, y + h - 1, x + w - 1, y + h - 13, c)
+  end
+  brackets(66, 90, 124, 124)
+  -- 旗帜格（未开钢面 + 旗，scale 4）与掀开的数字 3 格（scale 4）
+  local cx1, cy1 = tile_src(1)
+  local fx, fy = tile_src(3)
+  local nx, ny = tile_src(10)
+  sspr(cx1, cy1, 14, 14, 194, 160, 56, 56)
+  sspr(fx, fy, 14, 14, 194, 160, 56, 56)
+  sspr(nx, ny, 14, 14, 8, 162, 56, 56)
+  -- 底部雷区地表：两排未开格 + 零星旗/数字（纯装饰）
+  for c = 0, 18 do
+    blit(1, c * 14 + c % 2, 228)
+    blit(1, c * 14 + (c + 1) % 2, 242)
+  end
+  blit(1, 40, 228) blit(3, 40, 228)   -- 旗
+  blit(9, 112, 242)                    -- 数字 2
+  blit(11, 190, 242)                   -- 数字 4
+end
+
 local function draw_title()
   -- 匾额
   rrectfill(44, 22, 168, 42, 6, 16)
@@ -840,14 +941,14 @@ local function draw_title()
   cprint("FC-16 MINESWEEPER", 47, C_GRAY)
   -- 两侧大雷 / 大旗（2× 最近邻放大）
   sspr(0, 16, 16, 16, 8, 26, 32, 32)
-  blit(1, 216, 26) blit(3, 216, 26)
-  blit(1, 230, 26) blit(3, 230, 26)
+  sspr(16, 0, 14, 14, 214, 26, 28, 28)
+  sspr(48, 0, 14, 14, 214, 26, 28, 28)
   -- 难度菜单
   for i = 1, 3 do
     local dd = DIFF[i]
     local y = 92 + (i - 1) * 26
     local sel = title_sel == i
-    if sel and flr(t / 8) % 2 == 0 then print("▶", 28, y, C_GOLD_L) end
+    if sel then print("▶", 28, y, C_GOLD_L) end
     local nm = dd.name
     print(nm, 48, y, sel and C_GOLD_L or C_TEXT)
     local spec = dd.w .. "×" .. dd.h .. "・" .. dd.m .. "雷"
@@ -856,13 +957,21 @@ local function draw_title()
     local bs = best > 0 and best .. "秒" or "无"
     print(bs, 232 - tw(bs), y, best > 0 and C_GOLD or C_GRAY)
   end
+  -- 操作 / 开始提示（图标、稳定不闪烁；Ⓑ 插旗・Ⓧ 和弦在此写明）
+  local h1 = btnicon("a") .. " 翻开　" .. btnicon("b") .. " 插旗　" .. btnicon("x") .. " 和弦"
+  cprint(h1, 168, C_GRAY)
+  local h2 = btnicon("up") .. btnicon("down") .. " 选难度　" .. btnicon("a") .. " 开始　"
+    .. btnicon("view") .. " 音乐" .. (music_on and "开" or "关")
+  cprint(h2, 184, C_GRAY)
   draw_title_strip()
-  cprint("↑↓选难度 Ⓐ/Menu 开始", 186, C_GRAY)
-  cprint("View 音乐" .. (music_on and "开" or "关"), 238, C_GRAY)
 end
 
 function _draw()
   cls(C_BG)
+  if mode == "splash" then
+    draw_splash()
+    return
+  end
   if mode == "title" then
     draw_title()
     return
@@ -934,6 +1043,10 @@ end
 
 function _update()
   t = t + 1
+  if mode == "splash" then
+    if t > 90 or btnp(4) or btnp(11) then mode = "title" end
+    return
+  end
   if mode == "title" then
     update_title()
     return
@@ -988,7 +1101,7 @@ function _init()
   camx, chord_flash = 0, nil
   x0, y0 = flr((256 - W * CS) / 2), BOARD_TOP + flr((BOARD_H - H * CS) / 2)
   title_sel = 1
-  mode = "title"
+  mode = "splash"
   t = 0
   if music_on then music(0, 500, 0xE0) end
 end

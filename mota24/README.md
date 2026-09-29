@@ -41,13 +41,13 @@ Player_C，FL Studio FC 音色重制）六曲，音频仅存本地
 ## 重建
 
 ```bash
-python demo/magetower/convert_art.py             # 生成美术块写入两张卡带源
-python demo/magetower/transcribe_music.py mota24 # 音频转录写入本卡带源
-python demo/magetower/verify_music.py mota24     # 渲染验收（相似度应 ≥0.55）
+python magetower/convert_art.py             # 生成美术块写入两张卡带源
+python magetower/transcribe_music.py mota24 # 音频转录写入本卡带源
+python magetower/verify_music.py mota24     # 渲染验收（相似度应 ≥0.55）
 cargo run -p fc16-tools --bin fc16mk -- --name "24层魔塔" --author "FrostMiKu" \
-  --version 1 --save-id mota24 --code demo/mota24/mota24.lua \
-  --out demo/mota24/mota24.fc16 --png demo/mota24/mota24.fc16.png --cover 120
-cargo run -p fc16-host -- demo/mota24/mota24.fc16
+  --version 1 --save-id mota24 --code mota24/mota24.lua \
+  --out mota24/mota24.fc16 --png carts/mota24.fc16.png --cover 30
+cargo run -p fc16-host -- mota24/mota24.fc16
 ```
 
 B 站音频下载方式见 `../magetower/README.md`。

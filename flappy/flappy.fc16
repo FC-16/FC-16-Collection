@@ -1,17 +1,28 @@
 fc16
-name: 弹跳鸟
+name: flappy
 author: FrostMiKu
 save_id: 
 version: 1
 flags: 0
 icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
 @sprites 0
-@map 0
+@maps 0
 @sfx 0
-@patterns 0
+@waveforms 0
+@instruments 0
+@music 2080
+0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
-@free 0
-@code 27751
+@custom 0
+@code 34623
 -- 弹跳鸟 ・ FC-16 演示卡带
 -- 玩法：Ⓐ/Ⓑ/方向键拍翅上飞，穿过管道缺口 +1 分；撞管 / 落地即亡，顶边只挡不死
 -- 难度：分数越高卷速越快、缺口越窄（均有上限）；每局随机 白天 / 黄昏 / 夜晚 三种天色
@@ -65,20 +76,58 @@ local THEMES = {
 -- ---------------------------------------------------------------- 音频（SPEC §5.2）
 
 local function u8(a, v) poke(a, v % 256) end
--- 写一条 SFX：steps[i] = {音高, 波形, 音量[, 效果]}，nil 步为休止（len 显式给全步数）
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+-- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）
+-- steps[i] = {音高, 音色, 音量[, 效果]}，nil 步与音高 0 均为休止（len 显式给全步数）
+-- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function write_sfx(id, speed, steps, len)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, len or #steps)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, len or #steps)
   for i = 0, 31 do
-    local a, s = base + 16 + i * 3, steps[i + 1]
-    if s then u8(a, s[1] or 0) u8(a + 1, (s[2] or 0) * 16 + (s[3] or 0)) u8(a + 2, s[4] or 0)
-    else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) end
+    local a, s = base + 16 + i * 4, steps[i + 1]
+    if s and (s[1] or 0) > 0 then
+      u8(a, s[1] - 1) u8(a + 1, WMAP[s[2] or 0]) u8(a + 2, s[3] or 0) u8(a + 3, s[4] or 0)
+    else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end
   end
 end
 -- 原创循环 BGM（C 大调，8 小节，轻快雀跃）：每小节 = 一条 32 步 SFX（speed 4，
 -- 八分音符展开 4 步）；四声部旋律 20-27 / 琶音 32-39 / 贝斯 44-51 / 鼓 56-63，
--- PATTERN 0-7 顺序相连并 BEGIN/END 回环，占 ch4-7（music mask 0xF0）
+-- MUSIC 0-7 行顺序相连并 LOOP_START/LOOP_BACK 回环，占 ch4-7（music mask 0xF0）
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 local MEL = {
   {61, 0, 65, 68, 70, 0, 68, 65}, -- C C E G A・G E
   {70, 0, 68, 65, 63, 0, 61, 0},  -- Am A G E D・C
@@ -95,6 +144,7 @@ local ARP = {
 }
 local BASS_ROOT = {25, 34, 30, 32, 25, 34, 30, 32}
 local function init_audio()
+  init_waveforms()
   -- 游戏音效（显式走 ch0-2，ch4-7 留给音乐）
   write_sfx(0, 1, {{44, 2, 5}, {54, 2, 7}})          -- 拍翅
   write_sfx(1, 1, {{40, 3, 13}, {33, 3, 12}, {26, 14, 11}}) -- 撞击
@@ -131,14 +181,15 @@ local function init_audio()
     write_sfx(32 + bar, 4, arp, 32)
     write_sfx(44 + bar, 4, bass, 32)
     write_sfx(56 + bar, 4, dr, 32)
-    local pb = 0x063800 + bar * 16
-    u8(pb + 4, 21 + bar) u8(pb + 5, 33 + bar)
-    u8(pb + 6, 45 + bar) u8(pb + 7, 57 + bar)
-    local fl = 0
-    if bar == 0 then fl = 1 end       -- BEGIN：循环起点
-    if bar == 7 then fl = fl + 2 end  -- END：回到 BEGIN
-    u8(pb + 8, fl)
+    -- MUSIC 行（SPEC §5.2：八个 SFX ID，0xFF 为空；LOOP_START/LOOP_BACK 控制回环）
+    local mb = MUSIC_BASE + 32 + bar * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end
+    u8(mb + 4, 20 + bar) u8(mb + 5, 32 + bar)
+    u8(mb + 6, 44 + bar) u8(mb + 7, 56 + bar)
+    if bar == 0 then u8(mb + 16, 1) end  -- LOOP_START：循环起点
+    if bar == 7 then u8(mb + 17, 1) end  -- LOOP_BACK：回到 LOOP_START
   end
+  u8(MUSIC_BASE, 8)  -- 全表 LEN = 8 行
 end
 
 -- ---------------------------------------------------------------- 精灵烘焙
@@ -177,7 +228,7 @@ local function bake_sprites()
     {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C},
   }
   local function dpx(d, gx, gy)
-    return DIG[d + 1][gy + 1] & (1 << (4 - gx)) ~= 0
+    return bit32.band(DIG[d + 1][gy + 1], bit32.lshift(1, 4 - gx)) ~= 0
   end
   for d = 0, 9 do
     bake(16 + d, function(x, y)
@@ -194,7 +245,7 @@ end
 
 -- ---------------------------------------------------------------- 状态
 
-local state, t = "title", 0 -- title | ready | play | dying | over
+local state, t = "splash", 0 -- splash | title | ready | play | dying | over
 local dist = 0              -- 世界卷动距离（像素）
 local theme = 1             -- 1 白天 / 2 黄昏 / 3 夜晚
 local bird = {y = 150, vy = 0, rot = 0, wph = 0, flap_t = 0}
@@ -504,7 +555,7 @@ local function draw_clouds()
   pal(8, g.cloudsh)
   for i = 1, #CLOUDS do
     local c = CLOUDS[i]
-    local sx = (c.x - flr(dist * 0.3)) % 480 - 48
+    local sx = (c.x - flr(dist * 0.2)) % 480 - 48 -- 远层云：0.2 系数最慢
     sspr(16, 0, 16, 16, sx, c.y, 16 * c.s, 16 * c.s)
   end
   pal()
@@ -512,7 +563,7 @@ end
 
 local function draw_city()
   local g = THEMES[theme]
-  local off = flr(dist * 0.25) % CITY_W
+  local off = flr(dist * 0.35) % CITY_W -- 中景城市：0.35 系数，慢于灌木快于云
   local x, i = -off, 1
   while x < 256 do
     local b = CITY[(i - 1) % #CITY + 1]
@@ -535,7 +586,7 @@ end
 
 local function draw_bushes()
   local g = THEMES[theme]
-  local off = flr(dist * 0.5) % BUSH_W
+  local off = flr(dist * 0.55) % BUSH_W -- 近层丘陵：0.55 系数，视差最快的一层
   local x, i = -off, 1
   while x < 286 do -- 后排高丘
     local b = BUSH[(i - 1) % #BUSH + 1]
@@ -691,18 +742,81 @@ local function draw_title()
   end
   cp("FLAPPY BIRD", 66, 12)
   cp("最高纪录 " .. best, 150, 31)
-  if flr(t / 20) % 2 == 0 then cp("按 Ⓐ 开始", 181, 7) end
-  cp("Ⓐ Ⓑ 方向键 拍翅", 208, 7)
-  cp("View 音乐开关", 224, 7)
+  -- 开始提示稳定不闪烁（封面取第 30 帧），操作说明不上标题
+  cp("按 " .. btnicon("a") .. " 开始", 200, 7)
   cp("FrostMiKu ・ FC-16", 239, 7, 17)
+end
+
+-- 大号小鸟（draw_bird 的 0 旋角放大版，s 为倍率，扇翅随 wph 摆动）
+local function big_bird(bx, by, s, wph)
+  local lift = sin(wph) * 4.2 * s / 6
+  circfill(bx, by, 6.8 * s, 25) -- 描边
+  circfill(bx, by, 6 * s, 29)   -- 身体
+  ovalfill(bx - 1.2 * s, by + 2.6 * s, 3.6 * s, 2.4 * s, 31) -- 腹部
+  ovalfill(bx + 0.8 * s, by - 3.4 * s, 3 * s, 1.4 * s, 30)   -- 顶部高光
+  trifill(bx - 1 * s, by - 0.5 * s, bx - 7 * s, by + 1 * s,
+    bx - 3.6 * s, by - 0.5 * s - lift, 28)                   -- 翅膀
+  circfill(bx + 2.8 * s, by - 2.6 * s, 2.3 * s, 7)           -- 眼白
+  circfill(bx + 3.7 * s, by - 2.7 * s, 1.1 * s, 1)           -- 瞳孔
+  trifill(bx + 3.6 * s, by - 1.4 * s, bx + 9.6 * s, by - 0.6 * s,
+    bx + 3.8 * s, by + 2.8 * s, 26)                          -- 嘴描边
+  trifill(bx + 4 * s, by - 0.8 * s, bx + 9 * s, by - 0.6 * s,
+    bx + 4.2 * s, by + 0.8 * s, 27)                          -- 上喙
+  trifill(bx + 4 * s, by + 0.4 * s, bx + 8.4 * s, by + 0.9 * s,
+    bx + 4.2 * s, by + 2 * s, 24)                            -- 下喙
+end
+
+-- 放大管道对（k 为倍率：管身 / 亮暗棱 / 管口同比例缩放）
+local function draw_pipe_big(sx, topH, botY, k)
+  local w, rh = flr(PIPE_W * k), flr(11 * k)
+  rectfill(sx, -4, w, topH + 4, 35)
+  rectfill(sx + flr(3 * k), -4, flr(5 * k), topH + 4, 33)
+  rectfill(sx + w - flr(7 * k), -4, flr(4 * k), topH + 4, 36)
+  rect(sx, -4, w, topH + 4, 13)
+  rectfill(sx - flr(3 * k), topH - rh, w + flr(6 * k), rh, 34)
+  rectfill(sx - flr(3 * k), topH - rh, w + flr(6 * k), 2, 32)
+  rect(sx - flr(3 * k), topH - rh, w + flr(6 * k), rh, 13)
+  rectfill(sx, botY, w, GROUND_Y - botY + 4, 35)
+  rectfill(sx + flr(3 * k), botY, flr(5 * k), GROUND_Y - botY + 4, 33)
+  rectfill(sx + w - flr(7 * k), botY, flr(4 * k), GROUND_Y - botY + 4, 36)
+  rect(sx, botY, w, GROUND_Y - botY + 4, 13)
+  rectfill(sx - flr(3 * k), botY, w + flr(6 * k), rh, 34)
+  rectfill(sx - flr(3 * k), botY, w + flr(6 * k), 2, 32)
+  rect(sx - flr(3 * k), botY, w + flr(6 * k), rh, 13)
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——大鸟穿过两根管道间隙的特写构图，
+-- 大 logo 挂匾放下方；零菜单零提示零纪录（Ⓐ/Menu 可跳过，90 帧后进交互菜单）
+local function draw_splash()
+  draw_world()
+  -- 放大管道对：缺口居中偏上，大鸟正穿行其间
+  draw_pipe_big(88, 88, 152, 2.5)
+  -- 掠过的风线（装饰可动）
+  for i = 0, 2 do
+    local ly = 112 + i * 14
+    line(34 + (i % 2) * 8, ly, 62 + (i % 2) * 10, ly, 7)
+  end
+  big_bird(122, 120, 3.2, t * 0.15)
+  -- 大 logo 匾额（沿用标题匾样式）
+  rrectfill(44, 172, 168, 60, 8, 8)
+  rectfill(50, 175, 156, 2, 7)
+  rectfill(50, 227, 156, 2, 10)
+  rrect(44, 172, 168, 60, 8, 12)
+  local chars, cols = { "弹", "跳", "鸟" }, { 31, 30, 29 }
+  for i = 1, 3 do
+    local x = 66 + (i - 1) * 44
+    print(chars[i], x + 3, 181, 12, 4)
+    print(chars[i], x, 178, cols[i], 4)
+  end
+  cp("FLAPPY BIRD", 236, 7)
 end
 
 local function draw_ready_ui()
   local g = THEMES[theme]
   sp(g.name, 4, 3, 7)
   draw_music_mark()
-  if flr(t / 18) % 2 == 0 then cp("按 Ⓐ 起飞", 161, 7) end
-  cp("Ⓐ Ⓑ 方向键 拍翅", 188, 7)
+  if flr(t / 18) % 2 == 0 then cp("按 " .. btnicon("a") .. " 起飞", 161, 7) end
+  cp(btnicon("a") .. btnicon("b") .. " " .. btnicon("dpad") .. " 拍翅", 188, 7)
   cp("最高 " .. best, 213, 31)
 end
 
@@ -740,8 +854,8 @@ local function draw_over_ui()
   print("最高", 144, py + 62, 17)
   draw_digits(best, flr(160 - digits_w(best) / 2), py + 80)
   if over_t > 48 then
-    if flr(t / 16) % 2 == 0 then cp("Ⓐ 再来一局", 208, 7) end
-    cp("Menu 回标题", 225, 6)
+    if flr(t / 16) % 2 == 0 then cp(btnicon("a") .. " 再来一局", 208, 7) end
+    cp(btnicon("menu") .. " 回标题", 225, 6)
   end
 end
 
@@ -754,6 +868,7 @@ function _init()
   music_on = dget(1) == 0 -- 槽位 1：0 = 开（默认）
   best = flr(dget(0)) -- dget 为 32 位定点，取整保证显示与数字精灵索引正确
   to_title()
+  state = "splash" -- 开机封面段：90 帧后回落交互菜单
 end
 
 function _update()
@@ -762,7 +877,9 @@ function _update()
   update_pops()
   if shake > 0 then shake = shake - 1 end
   if btnp(10) then toggle_music() end
-  if state == "title" then update_title()
+  if state == "splash" then
+    if t > 90 or btnp(4) or btnp(5) or btnp(11) then state = "title" end
+  elseif state == "title" then update_title()
   elseif state == "ready" then update_ready()
   elseif state == "play" then update_play()
   elseif state == "dying" then update_dying()
@@ -774,6 +891,11 @@ function _draw()
   cls(0)
   if shake > 0 then -- 撞击震屏（与幀号绑定，确定性）
     camera(flr(sin(t * 0.9) * min(3, shake * 0.5)), flr(cos(t * 1.3) * min(2, shake * 0.4)))
+  end
+  if state == "splash" then
+    draw_splash()
+    camera(0, 0)
+    return
   end
   draw_world()
   if state == "title" then

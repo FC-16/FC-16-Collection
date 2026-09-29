@@ -35,14 +35,14 @@
 
 PICO-8 音频时钟实测 120Hz（每 tick = 1/120s = 0.5 个 FC-16 帧），转换以此为准：
 
-- **SFX**：68B 记录逐音符解码后写入 112B（16B 头 + 32×3B）。速度 = PICO speed/2 帧；
+- **SFX**：68B 记录逐音符解码后写入 144B（头 16B + 32 步 × 4B）。速度 = PICO speed/2 帧；
   PICO tracker 的 C0=65.4Hz 对应 FC 科学音高 C2，故整体上移 24 半音
   （`note = pitch + 25`，0 保留为休止）；
   音量 ×2；PICO 的逐音效果直接映射到 FC 的 Effect 码。SFX 127
   为全休止占位，见下。
-- **音乐**：PICO 的 64 行乐谱逐行重建为 64 个 FC Pattern；每段在通道 0/3/5/7
-  直接引用对应 SFX，各声部保留自身速度；最左非循环声部控制 Pattern 时长。通道 OFF 引用全休止的 SFX 127。
-  原 loop-start 5 / loop-end 16 映射为 Pattern 5 的 BEGIN 与 Pattern 16 的 END。
+- **音乐**：PICO 的 64 行乐谱逐行重建为 64 行 MUSIC；每行在通道 0/3/5/7
+  直接引用对应 SFX，各声部保留自身速度；最左非循环声部控制该行时长。通道 OFF 引用全休止的 SFX 127。
+  原 loop-start 5 / loop-end 16 映射为行 5 的 LOOP_START 与行 16 的 LOOP_BACK。
 - **通道路由**：`music(0, 0, 169)`——通道 0/3/5/7 交给音乐，1/2/4/6 留给音效。
   若不传 mask，music 默认占用全部 8 通道；显式通道音效仍可抢占音乐声部。枪声 1 / 拾取 2 / 升级 4，
   其余自动路由。
@@ -55,27 +55,29 @@ PICO-8 音频时钟实测 120Hz（每 tick = 1/120s = 0.5 个 FC-16 帧），转
 
 ## 构建
 
+卡带资产已由 `tools/convert_assets.py` 转换为 v0.177 格式：`sprites.bin` 直接沿用，
+`maps_new.bin` / `sfx_new.bin` / `music_new.bin` / `sflags_new.bin` 分别由旧格式
+`map.bin` / `sfx_fc16.bin` / `patterns_fc16.bin` / `sflags.bin` 转换生成（历史解码
+管线 `decode_p8png.py` 与 `third_party/skills/pico8-to-fc16/convert_assets.py`
+仅在复现旧格式原始资产时需要）。
+
 ```bash
-python3 third_party/crimson_night/decode_p8png.py \
-  third_party/crimson_night-5.p8.png third_party/crimson_night
-python3 third_party/skills/pico8-to-fc16/convert_assets.py \
-  third_party/crimson_night demo/crimson_night
 cargo run -p fc16-tools --bin fc16mk -- \
   --name "赤色之夜" --author "Fictionity" --version 1 \
-  --code demo/crimson_night/crimson_night.lua \
-  --sprites demo/crimson_night/sprites.bin --map demo/crimson_night/map.bin \
-  --sfx demo/crimson_night/sfx_fc16.bin --patterns demo/crimson_night/patterns_fc16.bin \
-  --sflags demo/crimson_night/sflags.bin \
-  --out demo/crimson_night/crimson_night.fc16 \
-  --png demo/crimson_night/crimson_night.fc16.png
+  --code crimson_night/crimson_night.lua \
+  --sprites crimson_night/sprites.bin --maps crimson_night/maps_new.bin \
+  --sfx crimson_night/sfx_new.bin --music crimson_night/music_new.bin \
+  --sflags crimson_night/sflags_new.bin \
+  --out crimson_night/crimson_night.fc16 \
+  --png carts/crimson_night.fc16.png
 ```
 
 ## 验证
 
 ```bash
-cargo run -p fc16-host -- demo/crimson_night/crimson_night.fc16 --frames 4900 \
+cargo run -p fc16-host -- crimson_night/crimson_night.fc16 --frames 4900 \
   --wav /tmp/cn.wav          # 82s：0–26s 前奏、其后循环段；低音 RMS 周期 40 帧
-cargo run -p fc16-host -- demo/crimson_night/crimson_night.fc16 --seed 1 \
+cargo run -p fc16-host -- crimson_night/crimson_night.fc16 --seed 1 \
   --frames 700 --script <(printf '10 key 11\n20 key -\n130 key 11\n140 key -\n') \
   --screenshot /tmp/cn.png   # 站桩挨打：帧 376/496/616 受击（闪红 + 无敌闪烁 + rumble）
 ```

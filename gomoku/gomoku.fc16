@@ -6,12 +6,23 @@ version: 1
 flags: 0
 icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
 @sprites 0
-@map 0
+@maps 0
 @sfx 0
-@patterns 0
+@waveforms 0
+@instruments 0
+@music 2080
+0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
-@free 0
-@code 24233
+@custom 0
+@code 29654
 -- FC-16 五子棋演示卡带
 -- ============================================================
 -- 15×15 标准五子棋：双人同屏 / 人机对战（玩家执黑先行，AI 执白）。
@@ -26,7 +37,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 --   ・存档：dset 战绩统计（各模式胜/负/和）与 BGM 开关，fflush 落盘
 --
 -- 操作：方向键移动光标（按住自动重复），Ⓐ 落子，Ⓑ 悔棋，
---       Menu 确认/回标题，View 音乐开关。
+--       Menu 开始/回标题，View 音乐开关（提示文案一律 btnicon 图标）。
 
 -- ---------------------------------------------------------------- 常量
 
@@ -58,9 +69,9 @@ local C_RED_D   = 59  -- 深红 #EA323C
 -- 木纹棋盘烘焙到精灵表像素区 (0,256) 起 212×212
 local BOARD_U, BOARD_V = 0, 256
 
--- 输入 id（SPEC §6.1）
+-- 输入 id（SPEC §6.1）：10 = View、11 = Menu
 local BTN_L, BTN_R, BTN_U, BTN_D = 0, 1, 2, 3
-local BTN_A, BTN_B, BTN_SEL, BTN_STA = 4, 5, 10, 11
+local BTN_A, BTN_B, BTN_VIEW, BTN_MENU = 4, 5, 10, 11
 
 -- 音效通道：BGM 独占 ch4/5（music mask 0x70），游戏音效走 ch0-2
 local CH_STONE, CH_UI, CH_JINGLE = 0, 1, 2
@@ -205,25 +216,67 @@ end
 
 local function u8(a, val) poke(a, val % 256) end
 
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
 -- init_sfx(id, notes, wave, vol, speed)：按连续步写音符
+-- 音高为旧固件值（1-96 = C0-B7，0 = 休止），写卡带前换算为新 0-95 并用音量 0 表休止
 local function init_sfx(id, notes, wave, vol, speed)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, #notes)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4) -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      u8(a, notes[i + 1])
-      u8(a + 1, wave * 16 + vol)
-      u8(a + 2, 0)
+    local a = base + 16 + i * 4
+    local p = i < #notes and notes[i + 1] or 0
+    if p > 0 then
+      u8(a, p - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
 
+local MUSIC_BASE = 0x0C5380 -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+
 local function init_all_sfx()
+  init_waveforms()
   init_sfx(0, { 40, 35 }, 8, 12, 1)        -- 黑落子：圆润低叩
   init_sfx(1, { 55, 49 }, 10, 10, 1)       -- 白落子：清脆高叩
   init_sfx(2, { 56, 49 }, 6, 9, 2)         -- 悔棋：下行双音
@@ -234,7 +287,7 @@ local function init_all_sfx()
   init_sfx(7, { 61, 68 }, 3, 8, 2)         -- 确认/开始
   init_sfx(8, { 24, 24 }, 14, 7, 1)        -- 非法落子：噪声 buzz
 
-  -- BGM：C 大调五声音阶小品，四小节回环（每小节一条 32 步 Pattern）。
+  -- BGM：C 大调五声音阶小品，四小节回环（每小节一条 32 步 SFX）。
   -- 旋律 ch4（ROUND，SFX 20-23），贝斯 ch5（BASS，SFX 30-33）；
   -- speed 6：每小节 192 幀，全曲 12.8 秒。
   local melody = {
@@ -257,20 +310,23 @@ local function init_all_sfx()
   end
 end
 
--- Pattern 0-3：ch4 旋律 / ch5 贝斯；首段 BEGIN、末段 END 回环
+-- MUSIC 行 0-3：ch4 旋律 / ch5 贝斯；首段 LOOP_START、末段 LOOP_BACK 回环
 local function init_music()
+  u8(MUSIC_BASE, 4) -- 全表 LEN = 4 行
   for bar = 1, 4 do
-    local mb = 0x063800 + (bar - 1) * 16
-    u8(mb + 4, 20 + bar)   -- 旋律 SFX id+1
-    u8(mb + 5, 30 + bar)   -- 贝斯 SFX id+1
-    u8(mb + 8, bar == 1 and 1 or (bar == 4 and 2 or 0))
+    local mb = MUSIC_BASE + 32 + (bar - 1) * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end -- 空轨写 0xFF（0 是合法 SFX 号）
+    u8(mb + 4, 19 + bar)   -- 旋律 SFX id
+    u8(mb + 5, 29 + bar)   -- 贝斯 SFX id
+    if bar == 1 then u8(mb + 16, 1) end -- LOOP_START：循环起点
+    if bar == 4 then u8(mb + 17, 1) end -- LOOP_BACK：回到 LOOP_START
   end
 end
 
 -- ---------------------------------------------------------------- 状态
 
 local t = 0                 -- 全局幀计数（本地自增）
-local state = "title"       -- title / play
+local state = "splash"      -- splash / title / play
 local menu_i = 1            -- 标题菜单：1 双人 / 2 人机
 local mode = 1              -- 对局模式：1 双人 / 2 人机
 local board                 -- board[y+1][x+1]：0 空 / 1 黑 / 2 白
@@ -287,12 +343,11 @@ local ai_x, ai_y = 7, 7     -- 预选落点
 local stats = { 0, 0, 0, 0, 0, 0 } -- 双人黑白和 / 人机胜负和
 local music_on = true
 
--- 标题背景装饰局（黑白交错的中盘形势）
+-- 标题装饰局：黑棋五连珠横贯 + 白子两端封堵（封面向，frame 0 即完整）
 local TITLE_POS = {
-  { 7, 7, 1 }, { 8, 8, 2 }, { 6, 7, 1 }, { 9, 9, 2 },
-  { 6, 9, 1 }, { 8, 10, 2 }, { 7, 10, 1 }, { 10, 8, 2 },
-  { 5, 8, 1 }, { 9, 6, 2 }, { 8, 5, 1 }, { 10, 10, 2 },
-  { 11, 7, 1 }, { 4, 10, 2 }, { 5, 11, 1 },
+  { 4, 4, 1 }, { 5, 4, 1 }, { 6, 4, 1 }, { 7, 4, 1 }, { 8, 4, 1 }, -- 五连
+  { 3, 4, 2 }, { 9, 4, 2 },                                        -- 两端白子
+  { 5, 3, 2 }, { 7, 3, 2 },                                        -- 上方白子呼应
 }
 
 local function gx(i) return GRID_OX + i * CELL end
@@ -534,17 +589,17 @@ local function update_title()
     menu_i = 3 - menu_i
     sfx(6, CH_UI)
   end
-  if btnp(BTN_A) or btnp(BTN_STA) then
+  if btnp(BTN_A) or btnp(BTN_MENU) then
     new_game(menu_i)
     state = "play"
     sfx(7, CH_UI)
-  elseif btnp(BTN_SEL) then
+  elseif btnp(BTN_VIEW) then
     toggle_music()
   end
 end
 
 local function update_play()
-  if btnp(BTN_SEL) then toggle_music() end
+  if btnp(BTN_VIEW) then toggle_music() end
 
   if winner ~= nil then
     -- 终局：Ⓐ 再来一局，Menu 回标题
@@ -552,7 +607,7 @@ local function update_play()
     if btnp(BTN_A) then
       sfx(7, CH_UI)
       new_game(mode)
-    elseif btnp(BTN_STA) then
+    elseif btnp(BTN_MENU) then
       state = "title"
       menu_i = mode
       sfx(7, CH_UI)
@@ -588,7 +643,7 @@ local function update_play()
     end
   elseif btnp(BTN_B) then
     undo()
-  elseif btnp(BTN_STA) then
+  elseif btnp(BTN_MENU) then
     state = "title"
     menu_i = mode
   end
@@ -596,7 +651,10 @@ end
 
 function _update()
   t = t + 1
-  if state == "title" then
+  if state == "splash" then
+    -- 开机封面：90 帧后（或 Ⓐ / Menu）进交互菜单
+    if t > 90 or btnp(BTN_A) or btnp(BTN_MENU) then state = "title" end
+  elseif state == "title" then
     update_title()
   else
     update_play()
@@ -705,7 +763,7 @@ local function draw_win()
     rrect(x0, by, bw, bh, 6, flr(t / 4) % 2 == 0 and C_RED or C_YEL)
     if u >= 1 then
       ctext(msg, by + 10, mc)
-      ctext("Ⓐ 再来一局　Menu 回标题", by + 36, C_TXT)
+      ctext(btnicon("a") .. " 再来一局　" .. btnicon("menu") .. " 回标题", by + 36, C_TXT)
     end
   end
 end
@@ -730,8 +788,46 @@ local function draw_play()
   elseif not ai_think then
     draw_cursor()
   end
-  draw_bottom({ "Ⓐ 落子　Ⓑ 悔棋　Menu 标题",
-                "View 音乐 " .. (music_on and "开" or "关") })
+  draw_bottom({ btnicon("a") .. " 落子　" .. btnicon("b") .. " 悔棋　"
+    .. btnicon("menu") .. " 标题",
+    btnicon("view") .. " 音乐 " .. (music_on and "开" or "关") })
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——五连珠巨子特写 + 制胜红线，零菜单零提示
+local function draw_splash()
+  -- 深底 + 暗棋盘格暗示
+  cls(C_BG)
+  fillp(0x0055)
+  rectfill(0, 0, 256, 256, C_BG_L * 256 + C_BG)
+  fillp()
+  for i = 0, 18 do
+    local p = 8 + i * CELL
+    line(p, 0, p, 256, C_BG_D)
+    line(0, p, 256, p, C_BG_D)
+  end
+  -- 大 logo（scale 3，厚描边 + 投影）
+  local s = "五子棋"
+  local tx = flr((256 - tw(s, 3)) / 2)
+  print(s, tx + 4, 28, C_EDGE, 3)
+  for k = 0, 7 do
+    local a = k * 0.125
+    print(s, tx + flr(cos(a) + 0.5), 25 + flr(sin(a) + 0.5), C_EDGE, 3)
+  end
+  print(s, tx, 25, C_YEL_L, 3)
+  -- 英雄画面：五颗连珠巨子（32px 精灵 ×2 放大）斜贯 + 制胜红线，白子两端封堵
+  local seq = { { 56, 192 }, { 100, 170 }, { 144, 148 }, { 188, 126 }, { 226, 106 } }
+  line(30, 208, 244, 100, C_RED)
+  line(30, 209, 244, 101, C_RED)
+  for k = 1, 5 do
+    ovalfill(seq[k][1] - 30, seq[k][2] + 28, 60, 9, C_BG_D)  -- 落影
+    sspr(64, 0, 32, 32, seq[k][1] - 32, seq[k][2] - 32, 64, 64)  -- 大黑子
+  end
+  line(30, 208, 244, 100, C_RED)     -- 制胜线压在连珠上
+  line(30, 209, 244, 101, C_RED)
+  ovalfill(24, 220, 40, 7, C_BG_D)
+  sspr(96, 0, 32, 32, 4, 192, 44, 44)   -- 左端白子
+  ovalfill(246, 98, 36, 6, C_BG_D)
+  sspr(96, 0, 32, 32, 228, 74, 40, 40)  -- 右端白子
 end
 
 local function draw_title()
@@ -748,11 +844,12 @@ local function draw_title()
   pal(C_LINE, C_EDGE, 1)
   rectfill(PANEL_X + 3, PANEL_Y + 4, PANEL_S, PANEL_S, C_BG_D)
   sspr(BOARD_U, BOARD_V, PANEL_S, PANEL_S, PANEL_X, PANEL_Y)
-  -- 背景装饰局 + 最后一手标记
+  -- 背景装饰局：五连制胜红线（压在连珠之下）+ 最后一手标记
+  line(gx(TITLE_POS[1][1]) - CELL, gy(4), gx(TITLE_POS[5][1]) + CELL, gy(4), C_RED)
   for _, m in ipairs(TITLE_POS) do
     spr(m[3], gx(m[1]) - 8, gy(m[2]) - 8)
   end
-  local lm = TITLE_POS[#TITLE_POS]
+  local lm = TITLE_POS[5]
   circfill(gx(lm[1]), gy(lm[2]), 2, C_RED)
   -- 标题：大棋子 + 厚描边大字
   spr(4, 44, 36, 2, 2)
@@ -773,9 +870,7 @@ local function draw_title()
     local y = i == 1 and 120 or 146
     local sel = (menu_i == i)
     if sel then
-      if flr(t / 10) % 2 == 0 then
-        print("▶", 74, y, C_YEL_L)
-      end
+      print("▶", 74, y, C_YEL_L)
       rrect(92, y - 2, 72, 20, 4, C_YEL)
     end
     print(i == 1 and "双人对弈" or "人机对战", 96, y, sel and C_WHITE or 10)
@@ -787,11 +882,16 @@ local function draw_title()
   local l2 = string.format("人机　胜 %d　负 %d　和 %d", stats[4], stats[5], stats[6])
   ctext(l1, 190, C_TXT)
   ctext(l2, 210, 10)
-  draw_bottom({ "↑↓选择　Ⓐ开始　Select音乐" })
+  draw_bottom({ btnicon("up") .. btnicon("down") .. " 选择　" .. btnicon("a") .. " 开始　"
+    .. btnicon("view") .. " 音乐" })
 end
 
 function _draw()
   pal()  -- 复位两级映射（标题压暗只在本幀标题分支内重新设置）
+  if state == "splash" then
+    draw_splash()
+    return
+  end
   if state == "title" then
     draw_title()
   else
@@ -818,7 +918,7 @@ function _init()
     music(0, 400, 0x70)  -- ch4-6 交给音乐
   end
   t = 0
-  state = "title"
+  state = "splash"
   menu_i = 1
   new_game(1)
 end

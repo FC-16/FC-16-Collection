@@ -1,11 +1,11 @@
 -- =====================================================================
 -- FC-16 打砖块（Breakout / Arkanoid 风格）演示卡带
 --
--- 玩法：←→ 移动挡板（带惯性微加速），Ⓐ 发射小球 / 发射激光，
---       Menu 暂停，View 音乐开关，标题画面 Ⓐ 开始。
+-- 玩法：←→ 移动挡板（带惯性微加速），A 发射小球 / 发射激光，
+--       Menu 暂停，View 音乐开关，标题画面 A 开始（按键提示均以 btnicon 图标呈现）。
 -- 砖阵：8 关字符画编码；1-3 击多耐久砖（破损渐变外观）、不可毁钢砖、
 --       含道具砖；清光全部可破坏砖过关。
--- 道具（Ⓐ 接住胶囊生效）：E 加宽 / L 激光 / M 三倍球 / N 减速 / + 加命。
+-- 道具（A 接住胶囊生效）：E 加宽 / L 激光 / M 三倍球 / N 减速 / + 加命。
 -- 演出：砖碎四溅粒子、球拖尾、挡板受击闪光、胶囊飘落旋转、
 --       过关清屏波、掉球失败演出（挡板爆碎 + 全屏调光）。
 -- 音频：SFX 音高随砖耐久变化；A 小调四声部循环 BGM（View 开关）。
@@ -370,41 +370,77 @@ end
 -- ---------------------------------------------------------------- 音频
 
 local function u8(a, val) poke(a, val % 256) end
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- init_sfx(id, notes, wave, vol, speed, o)：o 可含 loop 与逐步 effect
+-- notes 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function init_sfx(id, notes, wave, vol, speed, o)
   o = o or {}
-  local base = 0x060000 + id * 112
-  u8(base, speed or 2)
-  u8(base + 1, #notes)
-  if o.loop then u8(base + 2, o.loop) u8(base + 3, #notes) u8(base + 4, 1) end
+  local base = 0x0C0000 + id * 144
+  local sp = speed or 2
+  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
+  if o.loop then u8(base + 3, o.loop) u8(base + 4, #notes - 1) u8(base + 5, 1) end
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      u8(a, notes[i + 1])
-      u8(a + 1, wave * 16 + vol)
-      u8(a + 2, o.effect or 0)
+    local a = base + 16 + i * 4
+    if i < #notes and (notes[i + 1] or 0) > 0 then
+      u8(a, notes[i + 1] - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, o.effect or 0)
     else
-      u8(a, 0)
-      u8(a + 1, 0)
+      u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0)
     end
   end
 end
 
 -- 逐步音效（打击乐等需要每步独立波形 / 音量的场合）
 local function sfx_steps(id, speed, steps)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, #steps)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #steps)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
+    local a = base + 16 + i * 4
     local st = steps[i + 1]
-    if st then
-      u8(a, st[1] or 0)
-      u8(a + 1, (st[2] or 3) * 16 + (st[3] or 8))
+    if st and (st[1] or 0) > 0 then
+      u8(a, st[1] - 1)
+      u8(a + 1, WMAP[st[2] or 3])
+      u8(a + 2, st[3] or 8)
+      u8(a + 3, 0)
     else
-      u8(a, 0)
-      u8(a + 1, 0)
+      u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0)
     end
   end
 end
@@ -418,9 +454,10 @@ local function expand(notes, n)
   return out
 end
 
--- BGM：A 小调四声部循环（Am-F-C-G），速度 4（每步 4 幀，每小节 32 步）
+-- BGM：A 小调四声部循环（Am-F-C-G），速度 4（旧每步 4 幀 → SPD 16，每小节 32 步）
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 local function init_bgm()
-  -- 音名辅助：P(八度, 半音) → SFX 音高（C0=1）
+  -- 音名辅助：P(八度, 半音) → 旧固件 SFX 音高（C0=1，写入时换算新 0-95）
   local function P(oct, semi) return oct * 12 + semi + 1 end
   local bars = {
     { root = P(2, 9), fifth = P(3, 4), arp = { P(3, 9), P(4, 0), P(4, 4), P(4, 9) },
@@ -468,18 +505,22 @@ local function init_bgm()
     for i = 1, 32 do flat[i] = dr[i] end
     sfx_steps(31 + b, 4, flat)
   end
-  -- Pattern 0-3：ch4 低音 / ch5 主旋律 / ch6 琶音 / ch7 打击
+  -- MUSIC 行 0-3（SPEC §5.2：八个 SFX ID，0xFF 为空）：ch4 低音 / ch5 主旋律 / ch6 琶音 / ch7 打击
   for p = 0, 3 do
-    local mb = 0x063800 + p * 16
-    u8(mb + 4, 20 + p)
-    u8(mb + 5, 24 + p)
-    u8(mb + 6, 28 + p)
-    u8(mb + 7, 32 + p)
-    u8(mb + 8, (p == 0 and 1 or 0) + (p == 3 and 2 or 0)) -- BEGIN / END 回环
+    local mb = MUSIC_BASE + 32 + p * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end
+    u8(mb + 4, 20 + p)  -- SFX ID 直写：低音 20-23
+    u8(mb + 5, 24 + p)  -- 主旋律 24-27
+    u8(mb + 6, 28 + p)  -- 琶音 28-31
+    u8(mb + 7, 32 + p)  -- 打击 32-35
+    if p == 0 then u8(mb + 16, 1) end  -- LOOP_START：循环起点
+    if p == 3 then u8(mb + 17, 1) end  -- LOOP_BACK：回到 LOOP_START
   end
+  u8(MUSIC_BASE, 4)  -- 全表 LEN = 4 行
 end
 
 local function init_game_sfx()
+  init_waveforms()
   init_sfx(0, { 49, 54 }, 3, 11, 1)                 -- 挡板击球
   init_sfx(1, { 42 }, 3, 7, 1)                      -- 撞墙
   init_sfx(2, { 63 }, 3, 9, 1)                      -- 砖耐久剩 2
@@ -504,7 +545,7 @@ end
 -- ---------------------------------------------------------------- 状态
 
 local t = 0                -- 全局幀计数
-local state = "title"      -- title / ready / play / clear / dying / over
+local state = "splash"      -- splash / title / ready / play / clear / dying / over
 local state_t = 0
 local paused = false
 local won = false
@@ -1022,9 +1063,10 @@ end
 -- ---------------------------------------------------------------- 标题演示
 
 local function init_demo()
-  demo = { x = 128, y = 100, vx = 1.6, vy = 1.1, px = 108 }
+  demo = { x = 128, y = 80, vx = 1.6, vy = 1.1, px = 108 }
 end
 
+-- 标题演示球在彩条砖与演示挡板之间弹跳（装饰可动，frame 0 即在场）
 local function update_demo()
   demo.x = demo.x + demo.vx
   demo.y = demo.y + demo.vy
@@ -1040,18 +1082,18 @@ local function update_demo()
     demo.vx = -abs(demo.vx)
     spark(demo.x, demo.y, 2)
   end
-  if demo.y < 68 then
-    demo.y = 68
+  if demo.y < 64 then
+    demo.y = 64
     demo.vy = abs(demo.vy)
     spark(demo.x, demo.y, 2)
   end
-  if demo.vy > 0 and demo.y >= 140 then
-    demo.y = 140
+  if demo.vy > 0 and demo.y >= 92 then
+    demo.y = 92
     local off = mid(-1, (demo.x - (demo.px + 20)) / 20, 1)
     local ang = off * 0.15
     demo.vx = sin(ang) * 2.2
     demo.vy = -cos(ang) * 2.2
-    spark(demo.x, 140, 3)
+    spark(demo.x, 92, 3)
   end
 end
 
@@ -1077,6 +1119,7 @@ function _init()
   end
   init_demo()
   to_title()
+  state = "splash" -- 开机封面段：90 帧后回落交互菜单
   if music_on then music(0, 400, 0xF0) end
 end
 
@@ -1112,6 +1155,11 @@ function _update()
 
   -- View：任意时刻音乐开关
   if btnp(10) then toggle_music() end
+
+  if state == "splash" then
+    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+    return
+  end
 
   if state == "title" then
     state_t = state_t + 1
@@ -1323,13 +1371,8 @@ end
 local function draw_bottom()
   rectfill(0, 237, 256, 19, 1)
   line(0, 237, 255, 237, 3)
-  local hints = {
-    "←→ 移动 Ⓐ 发射・激光",
-    "Menu 暂停・View 音乐",
-    "接住道具胶囊强化挡板",
-    "打碎全部可破坏砖块过关",
-  }
-  cprint(hints[flr(t / 150) % 4 + 1], 244, 6)
+  cprint(btnicon("left") .. btnicon("right") .. " 移动　" .. btnicon("a") .. " 发射　"
+    .. btnicon("menu") .. " 暂停", 244, 6)
 end
 
 -- 大字标题：深色投影 + 描边 + 主色
@@ -1343,35 +1386,76 @@ local function big_text(s, x, y, c)
 end
 
 local function draw_title()
-  -- 装饰砖金字塔
-  local rows = { { 9, 4 }, { 7, 2 }, { 5, 1 } }
-  for ri, rr in ipairs(rows) do
-    local n, tile = rr[1], rr[2]
-    local x0 = 128 - n * 8
-    for k = 0, n - 1 do
-      spr(tile, x0 + k * 16, 30 + (ri - 1) * 10)
+  -- 彩条砖块：顶部四行彩虹砖阵（绿→橙→蓝→金，frame 0 即完整）
+  local canopy = { 1, 2, 4, 8 }
+  for r = 0, 3 do
+    local off = (r % 2 == 0) and 0 or 8 -- 错缝排列
+    for k = 0, 15 do
+      spr(canopy[r + 1], off - 4 + k * 16, 12 + r * 10)
     end
   end
-  -- 演示球与挡板
-  draw_paddle_at(demo.px, 40, false, 0, 140)
+  -- 演示球与挡板（在彩条砖与标题之间弹跳）
+  draw_paddle_at(demo.px, 40, false, 0, 92)
   circfill(demo.x - demo.vx * 2, demo.y - demo.vy * 2, 2, 41)
   spr(10, flr(demo.x) - 8, flr(demo.y) - 8)
   draw_parts()
   -- 标题
   local s = "打砖块"
   local x = flr((256 - tw(s)) / 2)
-  big_text(s, x, 160, 30)
-  if flr(t / 20) % 2 == 0 then
-    spr(32, x - 12, 160)
-    spr(32, x + tw(s) + 4, 160)
+  big_text(s, x, 112, 30)
+  spr(32, x - 12, 112)              -- 两侧四芒星常亮，不闪
+  spr(32, x + tw(s) + 4, 112)
+  cprint("FC-16 街机经典", 140, 6)
+  -- 开始提示（稳定不闪烁）
+  local st = "按 " .. btnicon("a") .. " 开始"
+  print(st, (256 - tw(st)) / 2 + 1, 169, 26)
+  print(st, (256 - tw(st)) / 2, 168, 31)
+  cprint("最高 " .. hi .. "・最远 第 " .. far .. " 关", 196, 9)
+  cprint("FrostMiKu ・ FC-16", 240, 10)
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——彩条砖墙 + 大球撞击瞬间的特写构图，
+-- 大 logo 放下方；零菜单零提示零纪录（Ⓐ/Menu 可跳过，90 帧后进交互菜单）
+local function draw_splash()
+  cls(0)
+  for i, s in ipairs(stars) do
+    if (flr(t / 40) + i) % 3 ~= 0 then pset(s.x, s.y, 1) end
   end
-  cprint("FC-16 街机经典", 184, 6)
-  -- 开始提示
-  if flr(t / 24) % 2 == 0 then
-    cprint("Ⓐ 开始游戏", 204, 31)
+  -- 彩条砖墙（绿→橙→蓝→金→钢，错缝排列；底行中央是被击碎的缺口）
+  local canopy = { 1, 2, 4, 8, 7 }
+  for r = 0, 4 do
+    local off = (r % 2 == 0) and 0 or 8
+    for k = 0, 16 do
+      local bx = off - 4 + k * 16
+      if r == 4 and bx == 132 then
+        -- 缺口：大球刚击碎的砖
+      elseif r == 4 and bx == 116 then
+        spr(6, bx, 8 + r * 12)  -- 左邻砖已开裂
+      else
+        spr(canopy[r + 1], bx, 8 + r * 12)
+      end
+    end
   end
-  cprint("最高 " .. hi .. "・最远 第 " .. far .. " 关・♪ " .. (music_on and "开" or "关"), 224, 9)
-  cprint("E加宽 L激光 M多球 N减速 +加命", 238, 6)
+  -- 大球（4× 放大）顶在缺口上：撞击瞬间
+  sspr(160, 0, 16, 16, 109, 54, 64, 64)
+  -- 撞击四芒星光斑（1× + 2× 叠加）+ 放射火花（确定性，frame 0 即完整）
+  spr(32, 131, 56)
+  sspr(0, 32, 16, 16, 123, 48, 32, 32)
+  for _, d in ipairs({ { 22, 16 }, { -20, 22 }, { 32, 4 }, { -30, 10 }, { 10, 30 }, { -8, 34 } }) do
+    rectfill(137 + d[1], 62 + d[2], 3, 3, (d[1] > 0) and 43 or 37)
+  end
+  -- 一枚道具胶囊斜落（2× 放大）
+  sspr(192, 0, 16, 16, 44, 118, 32, 32)
+  -- 挡板在下方待命
+  draw_paddle_at(95, 88, false, 0, 142)
+  -- 大 logo（scale 4，深影 + 金色）
+  local s = "打砖块"
+  print(s, 128 - tw(s) * 4 / 2 + 3, 169, 26, 4)
+  print(s, 128 - tw(s) * 4 / 2, 166, 30, 4)
+  spr(32, 60, 182)
+  spr(32, 188, 182)
+  s = "FC-16 街机经典"
+  print(s, (256 - tw(s)) / 2, 224, 6)
 end
 
 -- 失败 / 结算调光：显示期调色映射把亮色压暗（幀缓冲不变）
@@ -1407,7 +1491,7 @@ local function draw_over_panel()
     cprint("★ 新纪录！ ★", 168, 63)
   end
   if state_t > 40 and flr(t / 20) % 2 == 0 then
-    cprint("Ⓐ 返回标题", 186, 31)
+    cprint(btnicon("a") .. " 返回标题", 186, 31)
   end
 end
 
@@ -1418,6 +1502,11 @@ function _draw()
     camera(flr(rnd(5)) - 2, flr(rnd(5)) - 2)
   end
   cls(0)
+
+  if state == "splash" then
+    draw_splash()
+    return
+  end
 
   if state == "title" then
     draw_title()
@@ -1461,9 +1550,7 @@ function _draw()
     rrectfill(58, 108, 140, 40, 6, 13)
     rrect(58, 108, 140, 40, 6, 26)
     cprint(lv, 116, 30)
-    if flr(t / 16) % 2 == 0 then
-      cprint("Ⓐ 发射", 132, 31)
-    end
+    cprint(btnicon("a") .. " 发射", 132, 31)
   end
 
   draw_hud()
@@ -1480,7 +1567,7 @@ function _draw()
     rrectfill(66, 104, 124, 48, 8, 13)
     rrect(66, 104, 124, 48, 8, 26)
     cprint("已暂停", 114, 30)
-    cprint("Menu 继续", 134, 6)
+    cprint(btnicon("menu") .. " 继续　" .. btnicon("view") .. " 音乐", 134, 6)
   end
 
   if state == "over" then

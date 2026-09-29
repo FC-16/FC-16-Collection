@@ -33,7 +33,7 @@ FC-16 幻想主机上的完整规则中国象棋。9×10 棋盘、红黑各 16 �
   帅以将死分兜底）+ 位置微调（兵推进奖励与底线老兵减值、马靠中、
   车炮中列加分、车炮四方向首格机动性计数）；
 - 根走法级**分帧搜索**（每帧限量处理 2 个根走法），思考期间顶栏显示
-  "思考中"，确保不超出每帧 20 万 VM 指令软预算；
+  "思考中"；
 - 同分取首个最佳，不使用随机数——同一局面永远走出同一手（确定性）；
 - 人机模式玩家执红先行，悔棋一次退回到玩家上一手前（AI 思考中按
   Ⓧ/Ⓨ 亦可取消思考并悔棋）。
@@ -67,9 +67,9 @@ FC-16 幻想主机上的完整规则中国象棋。9×10 棋盘、红黑各 16 �
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "中国象棋" --author "FrostMiKu" \
-  --version 1 --save-id xiangqi --code demo/xiangqi/xiangqi.lua --cover 48 \
-  --out demo/xiangqi/xiangqi.fc16 --png demo/xiangqi/xiangqi.fc16.png
-cargo run -p fc16-host -- demo/xiangqi/xiangqi.fc16
+  --version 1 --save-id xiangqi --code xiangqi/xiangqi.lua --cover 30 \
+  --out xiangqi/xiangqi.fc16 --png carts/xiangqi.fc16.png
+cargo run -p fc16-host -- xiangqi/xiangqi.fc16
 ```
 
 封面取 headless 第 48 帧标题画面（棋盘全貌 + 匾额 + 模式选项）。

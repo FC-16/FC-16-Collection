@@ -77,7 +77,7 @@ AI 决策为确定性规则（同分按固定顺序打破），不产生非法�
 
 ## 自测
 
-打包时向自由区首字节写入 `42`（`printf '*'` 一字节文件经 `--free` 注入）即进入
+打包时向自定义数据区首字节写入 `42`（`printf '*'` 一字节文件经 `--custom` 注入）即进入
 核心逻辑自测模式：71 项断言覆盖和牌判定、各役种（平和 / 断幺九 / 立直 + 宝牌 /
 七对子 / 混一色 / 对对和 + 三暗刻 / 国士无双 / 四暗刻 / 三色同顺 / 一气通贯 /
 混全带幺九 / 大三元 / 绿一色 / 字一色 / 九莲宝灯 / 四杠子 + 四暗刻双役满 /
@@ -91,9 +91,9 @@ AI 决策为确定性规则（同分按固定顺序打破），不产生非法�
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "日本麻将" --author "FrostMiKu" \
-  --version 1 --save-id riichi --code demo/riichi/riichi.lua --cover 50 \
-  --out demo/riichi/riichi.fc16 --png demo/riichi/riichi.fc16.png
-cargo run -p fc16-host -- demo/riichi/riichi.fc16
+  --version 1 --save-id riichi --code riichi/riichi.lua --cover 30 \
+  --out riichi/riichi.fc16 --png carts/riichi.fc16.png
+cargo run -p fc16-host -- riichi/riichi.fc16
 ```
 
 自测卡带（会先运行自测再进标题）：
@@ -101,7 +101,7 @@ cargo run -p fc16-host -- demo/riichi/riichi.fc16
 ```bash
 printf '*' > /tmp/t42.bin
 cargo run -p fc16-tools --bin fc16mk -- --name "日本麻将" --author "FrostMiKu" \
-  --version 1 --save-id riichi --code demo/riichi/riichi.lua --free /tmp/t42.bin \
+  --version 1 --save-id riichi --code riichi/riichi.lua --custom /tmp/t42.bin \
   --out /tmp/riichi-test.fc16 --png /tmp/riichi-test.fc16.png
 cargo run -p fc16-host -- /tmp/riichi-test.fc16 --frames 60
 ```

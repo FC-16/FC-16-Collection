@@ -54,36 +54,36 @@ FC-16 幻想主机上的横版平台跳跃致敬卡带。**World 1-1～1-4 全�
 
 三首主曲 + 全部 jingle 由 `convert_music.py` 从参考反汇编的音符数据表
 （`MusicHeaderData` / `FreqRegLookupTbl` / `MusicLengthLookupTbl`，NES 12bit
-周期表换算 MIDI）自动转写为 FC-16 tracker：SFX 110 条（15-127）+ Pattern 50 段
-（0-19 地上曲按原版段落表 BEGIN/END 循环；地下 20、城堡 29、无敌星 33、
+周期表换算 MIDI）自动转写为 FC-16 tracker：SFX 110 条（15-127）+ MUSIC 50 行
+（0-19 地上曲按原版段落表 LOOP_START/LOOP_BACK 循环；地下 20、城堡 29、无敌星 33、
 时间告急 36、死亡 38、过关号角 40、救出公主 44、游戏结束 47）。
 通道分配：ch4 主旋律（SQUARE）/ ch5 和声（PULSE25）/ ch6 贝斯（TRIANGLE，
 低八度）/ ch7 鼓（NOISE）；ch0-3 留给即时音效。生成段在 mario.lua 的
 `BEGIN/END GENERATED MUSIC` 标记之间，一键重建：
 
 ```bash
-python demo/mario/convert_music.py          # 重建并写回 mario.lua
-python demo/mario/convert_music.py --check  # 校验生成段是否最新
-python demo/mario/convert_music.py --report # 曲目 / Pattern / SFX 预算报告
+python mario/convert_music.py          # 重建并写回 mario.lua
+python mario/convert_music.py --check  # 校验生成段是否最新
+python mario/convert_music.py --report # 曲目 / MUSIC 行 / SFX 预算报告
 ```
 
 实现说明（规范未尽决定）：① 原版「时间告急」后主曲整体提速演奏，本作改为
-播放原版警号后恢复原速；② 地上曲完整段落表为 33 段，超出 64 Pattern 预算，
+播放原版警号后恢复原速；② 地上曲完整段落表为 33 段，超出 MUSIC 64 行容量，
 取前两轮 + 第四段一组共 20 段；③ 时间告急省三角贝斯、死亡省方波1持续音、
 过关号角省三角贝斯（SFX 110/110 槽位取舍）；④ 地下曲方波1与方波2为同度
 齐奏，只保留方波2。
 
 ### 图形提取管线（建好待用，当前不替换美术）
 
-`extract_chr.py` 读取 iNES 格式 ROM（放到 `demo/mario/_source/smb.nes`，
+`extract_chr.py` 读取 iNES 格式 ROM（放到 `mario/_source/smb.nes`，
 `_source/` 已 gitignore、ROM 不入库），定位 CHR bank（bank0 精灵 / bank1 背景），
 按《超级马里奥兄弟》PPU 调色板 → ENDESGA-64 最近色映射解码 2bpp 瓦片，
 生成 `BEGIN/END GENERATED CHR` 标记段（写入精灵表整表替换）。ROM 不存在时
 管线不生效、卡带使用现有致敬美术。管线含合成 CHR 自测：
 
 ```bash
-python demo/mario/extract_chr.py --selftest  # iNES 解析 / 2bpp 解码 / 映射断言
-python demo/mario/extract_chr.py             # ROM 存在时生成标记段写入 mario.lua
+python mario/extract_chr.py --selftest  # iNES 解析 / 2bpp 解码 / 映射断言
+python mario/extract_chr.py             # ROM 存在时生成标记段写入 mario.lua
 ```
 
 接入步骤：生成后确认 _init 调用 `chr_gen()`（生成段内有注释提示），再按画面
@@ -98,8 +98,8 @@ python demo/mario/extract_chr.py             # ROM 存在时生成标记段写�
 中的 LEVEL 表：
 
 ```bash
-python demo/mario/convert_level.py                  # 全部世界 1 关卡
-python demo/mario/convert_level.py L_CastleArea1    # 指定区域
+python mario/convert_level.py                  # 全部世界 1 关卡
+python mario/convert_level.py L_CastleArea1    # 指定区域
 ```
 
 ### 无头验证
@@ -119,7 +119,7 @@ python demo/mario/convert_level.py L_CastleArea1    # 指定区域
 | RUN_ACCEL | 0xe4/256 | 0.109375 按住 Ⓑ 同向加速 |
 | RELEASE_DECEL（高速） | 0xd0/256 | 0.1875 高速松键减速 / 空中快档加速 |
 | SKID_DECEL | 2×上述两档 | 0.8125 / 0.375 反向打滑 |
-| JUMP_V0 | 五档 | -4（慢速起跳）/ -5（快速起跳） |
+| JUMP_V0 | 五档 | -4.125（慢速起跳，离散积分 ≥4 格 +2px 余量）/ -5（快速起跳） |
 | RISE_GRAVITY | $20 $20 $1e $28 $28 | 0.125 / 0.125 / 0.1171875 / 0.15625 / 0.15625 |
 | FALL_GRAVITY | $70 $70 $60 $90 $90 | 0.4375 / 0.4375 / 0.375 / 0.5625 / 0.5625 |
 | MAX_FALL | 4 + frac<0x80 | ≈4.5 |
@@ -144,18 +144,18 @@ python demo/mario/convert_level.py L_CastleArea1    # 指定区域
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "超级马里奥" --author "FrostMiKu" \
-  --version 1 --save-id mario --code demo/mario/mario.lua --cover 90 \
-  --out demo/mario/mario.fc16 --png demo/mario/mario.fc16.png
-cargo run -p fc16-host -- demo/mario/mario.fc16
+  --version 1 --save-id mario --code mario/mario.lua --cover 30 \
+  --out mario/mario.fc16 --png carts/mario.fc16.png
+cargo run -p fc16-host -- mario/mario.fc16
 ```
 
-`--cover 90` 取标题画面第 90 帧作卡带封面。卡带体积约 133KB（1MiB 预算内：
+`--cover 30` 取标题画面第 90 帧作卡带封面。卡带体积约 133KB（1MiB 预算内：
 代码 384KiB、数据 640KiB）。
 
 重建步骤（改动音符表 / 关卡数据来源后）：
 
 ```bash
-python demo/mario/convert_music.py   # 音乐生成段（可选 --check 校验）
-python demo/mario/convert_level.py   # 关卡布局核对（人工转写参考，不直接写回）
-python demo/mario/verify.py          # 无头验证 + 截图（在仓库根目录运行）
+python mario/convert_music.py   # 音乐生成段（可选 --check 校验）
+python mario/convert_level.py   # 关卡布局核对（人工转写参考，不直接写回）
+python mario/verify.py          # 无头验证 + 截图（在仓库根目录运行）
 ```

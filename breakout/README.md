@@ -58,14 +58,14 @@ Breakout / Arkanoid 风格的街机打砖块。挡板带惯性微加速，反弹
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "打砖块" --author "FrostMiKu" \
-  --version 1 --save-id breakout --code demo/breakout/breakout.lua --cover 40 \
-  --out demo/breakout/breakout.fc16 --png demo/breakout/breakout.fc16.png
-cargo run -p fc16-host -- demo/breakout/breakout.fc16
+  --version 1 --save-id breakout --code breakout/breakout.lua --cover 30 \
+  --out breakout/breakout.fc16 --png carts/breakout.fc16.png
+cargo run -p fc16-host -- breakout/breakout.fc16
 ```
 
 headless 验证（`--script` 可按帧注入按键脚本，覆盖开始、发射、左右移动、
 掉球与重生路径）：
 
 ```bash
-cargo run -p fc16-host -- demo/breakout/breakout.fc16 --frames 400 --screenshot out.png
+cargo run -p fc16-host -- breakout/breakout.fc16 --frames 400 --screenshot out.png
 ```

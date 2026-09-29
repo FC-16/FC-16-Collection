@@ -17,7 +17,7 @@
 | 地面 | mode-7 透视纹理：逐扫描线求世界射线与地面交点，一条 `tline` 采样 4096×4096 地图纹理；海面按离岸距离渐入波浪推移 |
 | 命中 | 机枪为真实 3D 射线-球判定（士兵区分头部 / 躯干）+ 距离自适应弹道磁吸（约 ±0.7° 角容差，准星压上目标时变金色收紧）；反坦克炮为无下坠直射——炮弹沿准星射线匀速直飞，落点即准星所指位置，命中大爆炸 + 半径 11 溅射（中心伤害 16，可一发掀掉坦克）。受击时屏幕边缘红闪；来袭方向弧带仅在袭击者出屏时出现（前方半球按投影方位、背后按世界方位），随视角实时换算 |
 
-纹理、SFX、BGM、战鼓 Pattern 全部由 `_init` 程序化写入，卡带不携带二进制
+纹理、SFX、BGM、战鼓 MUSIC 行全部由 `_init` 程序化写入，卡带不携带二进制
 资产。BGM 为 A 小调战地进行曲（贝斯 / 主旋律 / 和声垫 / 鼓四声部），乐谱用
 一套 32 字符/小节的简易谱面记法编译生成。12 个小节素材按难度组成三套歌单：
 第 1–2 波「滩头守备」12 小节、第 3–5 波「抢滩」16 小节（加入副歌段）、
@@ -52,7 +52,7 @@
 | Ⓑ | 反坦克炮（范围溅射） |
 | Ⓧ | 手动更换弹链 |
 | Start | 暂停 |
-| Select | 调试：显示每帧 VM 指令预算占用 |
+| Select | 调试：显示 Lua 内存占用（v0.177 移除指令预算暴露，自适应降级已改为固定精细档） |
 
 受击 / 回复只在屏幕边缘显示一圈红 / 绿提示，不遮挡战场；红圈同时以
 弧带 + 内指箭头标示最近一次受击的来袭方位（随视角实时换算）；云固定于世界方位，
@@ -62,9 +62,9 @@
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "抢滩登陆战2002" --author "FrostMiKu" \
-  --version 1 --save-id beachhead2002 --code demo/beachhead/beachhead.lua \
-  --out demo/beachhead/beachhead.fc16 --png demo/beachhead/beachhead.fc16.png --cover 110
-cargo run -p fc16-host -- demo/beachhead/beachhead.fc16
+  --version 1 --save-id beachhead2002 --code beachhead/beachhead.lua \
+  --out beachhead/beachhead.fc16 --png carts/beachhead.fc16.png --cover 30
+cargo run -p fc16-host -- beachhead/beachhead.fc16
 ```
 
 `game.png` / `game.wav` 为一次 2600 帧无人工干预战斗的 headless 预览。

@@ -2,7 +2,7 @@
 
 经典扫雷的 FC-16 完整实现：三难度、首击安全、洪泛展开、和弦齐开、
 计时与最佳时间存档，配逐圈波纹展开、爆炸震屏、胜利彩带三套演出。
-美术与音乐全部程序化生成（精灵 poke 烘焙、SFX/PATTERN 按位写入），卡带不携带二进制资产。
+美术与音乐全部程序化生成（精灵 poke 烘焙、SFX/MUSIC 按位写入），卡带不携带二进制资产。
 
 ## 规则
 
@@ -48,17 +48,17 @@
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "扫雷" --author "FrostMiKu" \
-  --version 1 --save-id minesweeper --code demo/minesweeper/minesweeper.lua \
-  --cover 90 --out demo/minesweeper/minesweeper.fc16 \
-  --png demo/minesweeper/minesweeper.fc16.png
-cargo run -p fc16-host -- demo/minesweeper/minesweeper.fc16
+  --version 1 --save-id minesweeper --code minesweeper/minesweeper.lua \
+  --cover 30 --out minesweeper/minesweeper.fc16 \
+  --png carts/minesweeper.fc16.png
+cargo run -p fc16-host -- minesweeper/minesweeper.fc16
 ```
 
 headless 验证（固定 seed 可复现雷区）：
 
 ```bash
-cargo run -p fc16-host -- demo/minesweeper/minesweeper.fc16 \
+cargo run -p fc16-host -- minesweeper/minesweeper.fc16 \
   --frames 400 --screenshot out.png            # 标题 400 帧零错误
-cargo run -p fc16-host -- demo/minesweeper/minesweeper.fc16 \
+cargo run -p fc16-host -- minesweeper/minesweeper.fc16 \
   --seed 42 --frames 400 --script 脚本.txt --screenshot out.png
 ```

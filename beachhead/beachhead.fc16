@@ -6,12 +6,23 @@ version: 1
 flags: 0
 icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
 @sprites 0
-@map 0
+@maps 0
 @sfx 0
-@patterns 0
+@waveforms 0
+@instruments 0
+@music 2080
+0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
-@free 0
-@code 82395
+@custom 0
+@code 87507
 --=============================================================================
 -- 抢滩登陆战 2002 · FC-16 卡带
 --
@@ -33,7 +44,7 @@ local FAR = 780              -- 地面最大绘制距离
 local SHORE_Z = -140         -- 海岸线世界 z（北侧为海）
 local TS = 1.0               -- 世界单位 → 纹理像素 比例（1 格 = 16 单位）
 local TEXC = 2048            -- 纹理画布中心（像素），对应世界原点
-local MAPMEM, SFXMEM = 0x040000, 0x060000
+local MAPMEM, SFXMEM = 0x080000, 0x0C0000  -- MAP 0 / SFX（SPEC §4.2）
 
 -- 主机数值函数局部化（热路径省全局查找）
 local sin, cos, sqrt, flr, abs, min, max = sin, cos, sqrt, flr, abs, min, max
@@ -79,20 +90,51 @@ local function wrap(a) return a - flr(a + 0.5) end       -- 圈制归一 (-0.5,0
 local function heading(vx, vz) return atan2(-vz, vx) end
 
 -- 音频 -----------------------------------------------------------------------
--- SFX 布局：每条 112B = 头 16B + 32 步 × 3B（pitch / wave<<4|vol / fx）
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+local WAVEFORM_DATA = {
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local b = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do poke(b + 16 + i, t[i + 1] % 256) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+-- SFX 布局：每条 144B = 头 16B + 32 步 × 4B（pitch / source / vol / fx）
+-- steps[i] = {旧音高, 旧音色, 音量[, 效果]}；旧音高 0 为休止 → 新音量 0
 local function wr_sfx(id, speed, steps, ls, le, loop)
-  local b = SFXMEM + id * 112
-  poke(b, speed)
-  poke(b + 1, #steps)
-  poke(b + 2, ls or 0)
-  poke(b + 3, le or #steps)
-  poke(b + 4, loop and 1 or 0)
+  local b = SFXMEM + id * 144
+  poke2(b, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke(b + 2, #steps)
+  poke(b + 3, ls or 0)
+  poke(b + 4, (le or #steps) - 1)  -- 旧排他终点 → 新包含终点
+  poke(b + 5, loop and 1 or 0)
   for i = 1, #steps do
     local s = steps[i]
-    local o = b + 13 + i * 3
-    poke(o, s[1])
-    poke(o + 1, s[2] * 16 + s[3])
-    poke(o + 2, s[4] or 0)
+    local o = b + 12 + i * 4
+    if s[1] > 0 then
+      poke(o, s[1] - 1)
+      poke(o + 1, WMAP[s[2]])
+      poke(o + 2, s[3])
+      poke(o + 3, s[4] or 0)
+    else
+      poke(o, 0) poke(o + 1, 0) poke(o + 2, 0) poke(o + 3, 0)
+    end
   end
 end
 
@@ -103,6 +145,7 @@ local S_MG, S_CANNON, S_EXPL, S_HIT, S_RICO, S_RIFLE, S_RELOAD, S_EMPTY,
 local helo_channel_on = false
 
 local function init_audio()
+  init_waveforms()
   -- 机枪：短促噪声爆
   wr_sfx(S_MG, 1, { { 88, 15, 13 }, { 70, 15, 9 }, { 52, 15, 4 } })
   -- 反坦克炮：低频噪声下坠
@@ -257,18 +300,23 @@ local function init_audio()
     { 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7 },        -- 第 3-5 波 抢滩 16 小节
     { 8, 9, 10, 11, 8, 9, 10, 11, 4, 5, 6, 7, 8, 9, 10, 11 },  -- 第 6+ 波 总攻（提速）
   }
-  local pat = 0
+  local row = 0
   for _, song in ipairs(SONGS) do
     for si, bar in ipairs(song) do
       local base = 16 + bar * 4
-      local pb = 0x063800 + pat * 16
-      for c = 0, 3 do
-        poke(pb + c, base + c + 1)                 -- ch0-3 归音乐
+      local mb = 0x0C5380 + 32 + row * 32   -- MUSIC 行（SPEC §5.2）
+      for c = 0, 7 do
+        poke(mb + c, 0xFF)                         -- 空轨显式 0xFF
       end
-      poke(pb + 8, (si == 1 and 1 or 0) + (si == #song and 2 or 0))
-      pat = pat + 1
+      for c = 0, 3 do
+        poke(mb + c, base + c)                     -- ch0-3 归音乐（直接写 SFX ID）
+      end
+      if si == 1 then poke(mb + 16, 1) end         -- LOOP_START
+      if si == #song then poke(mb + 17, 1) end     -- LOOP_BACK：回最近 LOOP_START
+      row = row + 1
     end
   end
+  poke(0x0C5380, row)  -- MUSIC LEN = 44 行
 end
 
 -- 地面纹理与地图 -------------------------------------------------------------
@@ -413,7 +461,7 @@ local DRAW_COST = 0   -- 上一幀绘制期 VM 指令数（驱动自适应 LOD�
 local ENT, PART, PROJ = {}, {}, {}
 local WAVE, WAVE_T, SPAWNQ = 0, 0, {}
 local song_pat = 0    -- 当前难度歌单的起始 pattern（暂停恢复需要）
-local ST, STT = "title", 0   -- title/intro/play/clear/over/pause
+local ST, STT = "splash", 0   -- splash/title/help/intro/play/clear/over/pause
 local STT_BANNER = nil
 local DEBUG_BUDGET = false
 local AI = {}                -- 实体状态机表（在武器函数之后填充）
@@ -2260,6 +2308,16 @@ local function draw_scene()
 end
 
 -- 界面 -----------------------------------------------------------------------
+-- 开机 Splash：纯主视觉封面（0-90 帧）——3D 滩头战场即英雄画面，大 logo 压上方，
+-- 无开始提示 / 无纪录（这些都在随后的交互菜单 title 态）
+local function draw_splash()
+  draw_scene()
+  rectfill(0, 0, 256, 12, PAL.black)
+  rectfill(0, 12, 256, 2, 1)
+  sspr(0, 960, 128, 16, 0, 26, 256, 32)
+  sspr(0, 976, 32, 16, 160, 66, 64, 32)
+end
+
 local function draw_title()
   draw_scene()
   rectfill(0, 0, 256, 12, PAL.black)
@@ -2267,14 +2325,39 @@ local function draw_title()
   sspr(0, 960, 128, 16, 0, 42, 256, 32)
   sspr(0, 976, 32, 16, 96, 84, 64, 32)
   print("FC-16 战地特别版", CX - tw("FC-16 战地特别版") / 2, 122, PAL.sky1)
-  if flr(time() * 2) % 2 == 0 then
-    local s = "按 Ⓐ 开始"
-    print(s, CX - tw(s) / 2, 176, 7)
-  end
+  -- 开始提示稳定不闪烁；操作表移至 Ⓨ 帮助页
+  local s = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
+  print(s, CX - tw(s) / 2 + 1, 176, 0)
+  print(s, CX - tw(s) / 2, 175, 7)
   local hs = "最高纪录 " .. string.format("%06d", HI)
   print(hs, CX - tw(hs) / 2, 206, PAL.gold)
-  local ctl = "←→ 转向 ↑↓ 俯仰 Ⓐ 机枪 Ⓑ 火炮 Ⓧ 装填"
-  print(ctl, CX - tw(ctl) / 2, 228, PAL.palgray)
+end
+
+-- 帮助页：完整操作表（标题 Ⓨ 进入，Ⓑ 返回；View 仅调试画面开关，不列出）
+local function draw_help()
+  draw_scene()
+  fillp(0x5A5A)
+  rectfill(0, 0, 256, 256, PAL.black)
+  fillp()
+  rectfill(24, 26, 208, 204, PAL.black)
+  rect(24, 26, 208, 204, PAL.gold)
+  print("操作说明", CX - tw("操作说明") / 2, 36, PAL.gold)
+  local rows = {
+    { btnicon("left") .. btnicon("right"), "转向" },
+    { btnicon("up") .. btnicon("down"), "俯仰" },
+    { btnicon("lb") .. " / " .. btnicon("rb"), "快速左转 / 右转" },
+    { btnicon("a"), "机枪（按住连射）" },
+    { btnicon("b"), "火炮（按住发射）" },
+    { btnicon("x"), "装填弹链" },
+    { btnicon("menu"), "暂停" },
+  }
+  for i, r in ipairs(rows) do
+    local y = 60 + (i - 1) * 18
+    print(r[1], 56, y, 30)
+    print(r[2], 112, y, 7)
+  end
+  local s = btnicon("b") .. " 返回"
+  print(s, CX - tw(s) / 2, 208, PAL.palgray)
 end
 
 local function draw_banner()
@@ -2382,7 +2465,16 @@ end
 
 function _update()
   STT = STT + 1
-  if ST == "title" then
+  if ST == "splash" then
+    CAM.yaw = sin(time() * 0.031) * 0.12
+    CAM.elev = 0.02
+    update_entities()
+    update_particles()
+    if STT > 90 or btnp(4) or btnp(11) then
+      ST = "title"
+      STT = 0
+    end
+  elseif ST == "title" then
     CAM.yaw = sin(time() * 0.031) * 0.12
     CAM.elev = 0.02
     update_entities()
@@ -2392,6 +2484,9 @@ function _update()
       reset_game()
       start_wave(1)
     end
+    if btnp(7) then ST = "help" end
+  elseif ST == "help" then
+    if btnp(5) or btnp(7) then ST = "title" end
   elseif ST == "intro" then
     if STT > 130 then
       ST = "play"
@@ -2449,17 +2544,25 @@ end
 
 function _draw()
   cls(PAL.skytop)
-  if ST == "title" then
+  if ST == "splash" then
+    draw_splash()
+  elseif ST == "title" then
     draw_title()
+  elseif ST == "help" then
+    draw_help()
   elseif ST == "pause" then
     draw_scene()
     draw_hud()
     rectfill(48, 92, 160, 84, PAL.black)
     rect(48, 92, 160, 84, PAL.gold)
     print("暂停", CX - tw("暂停") / 2, 100, PAL.gold)
-    print("Ⓐ 继续战斗", 88, 124, 7)
-    print("Ⓧ 重新开始", 88, 144, 7)
-    print("Menu 返回战场", 76, 164, PAL.palgray)
+    local s
+    s = btnicon("a") .. " 继续战斗"
+    print(s, CX - tw(s) / 2, 124, 7)
+    s = btnicon("x") .. " 重新开始"
+    print(s, CX - tw(s) / 2, 144, 7)
+    s = btnicon("menu") .. " 返回战场"
+    print(s, CX - tw(s) / 2, 164, PAL.palgray)
   else
     draw_scene()
     if P.dmg_flash > 0 then
@@ -2511,8 +2614,8 @@ function _draw()
       print(s3, CX - tw(s3) / 2, 116, PAL.gold)
       local s4 = "击毁 " .. P.kill
       print(s4, CX - tw(s4) / 2, 134, PAL.palgray)
-      if STT > 120 and flr(time() * 2) % 2 == 0 then
-        local s5 = "按 Ⓐ 返回标题"
+      if STT > 120 then
+        local s5 = "按 " .. btnicon("a") .. " 返回标题"
         print(s5, CX - tw(s5) / 2, 164, 7)
       end
     else
@@ -2520,11 +2623,9 @@ function _draw()
     end
     draw_banner()
   end
-  DRAW_COST = peek4(0x0C1004)
+  DRAW_COST = 0  -- v0.114 移除指令预算：无机器状态读数，恒走精细档
   if DEBUG_BUDGET and ST == "play" then
-    local used = peek4(0x0C1004)
-    local lim = peek4(0x0C1008)
-    print(string.format("%d/%d", used, lim), 6, 220,
-          used > lim and PAL.red2 or PAL.lgray)
+    local used, limit = meminfo()
+    print(string.format("lua %d/%dK", used // 1024, limit // 1024), 6, 220, PAL.lgray)
   end
 end

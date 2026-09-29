@@ -20,7 +20,7 @@ local ACC_RUN    = 0.109375 -- 0xe4/256 跑动加速（按住 B 同向）
 local DEC_RUN    = 0.1875   -- 0xd0/256 高速段松键减速
 local SKID_WALK  = 0.8125   -- 2*0x98/256 低速反向打滑减速
 local SKID_RUN   = 0.375    -- 2*0xd0/256 高速反向打滑减速
-local JUMP_V0_S  = -4.0     -- 慢速起跳初速（组 0-2）
+local JUMP_V0_S  = -4.125   -- 慢速起跳初速：离散逐帧积分须 ≥64px（4 格）+2px 余量，才能登上 4 格砖堆/水管
 local JUMP_V0_F  = -5.0     -- 快速起跳初速（组 3-4）
 local GRAV_RISE  = { 0.125, 0.125, 0.1171875, 0.15625, 0.15625 }   -- 按住跳上升重力
 local GRAV_FALL  = { 0.4375, 0.4375, 0.375, 0.5625, 0.5625 }       -- 下落 / 松键重力
@@ -68,35 +68,71 @@ local S = { MS_STAND = 32, MS_W1 = 33, MS_W2 = 34, MS_W3 = 35,
   FIRE = 96, FIRE2 = 97, BOOM = 98, CHUNK = 99, FLAG = 104, COINICON = 105,
   PODO = 112, BFLAME = 113, AXE = 114, BOWSER = 116, PEACH = 124 }
 
--- 音效编号（即时音效占用 0-14；死亡/时间告急/过关号角改由音乐 Pattern 播放）
+-- 音效编号（即时音效占用 0-14；死亡/时间告急/过关号角改由 MUSIC 行播放）
 local FX = { JUMP = 0, JUMPB = 1, COIN = 2, STOMP = 3, BUMP = 4,
   BREAK = 5, RISE = 6, POWER = 7, KICK = 8, FIRE = 9,
   ONEUP = 10, FLAG = 11, PIPE = 12, TICK = 13, PAUSE = 14 }
--- 音乐 Pattern 编号（见下方生成段注释；mask=0xF0 占 ch4-7，ch0-3 留给即时音效）
+-- 音乐 MUSIC 行编号（见下方生成段注释；mask=0xF0 占 ch4-7，ch0-3 留给即时音效）
 local MUS = { GROUND = 0, UNDER = 20, CASTLE = 29, STAR = 33, WARN = 36,
   DIE = 38, WIN = 40, RESCUE = 44, OVER = 47 }
 
 local function u8(a, v) poke(a, v % 256) end
 
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
 -- ---------------------------------------------------------------- 音频
 
--- 写一条 SFX（SPEC §5.2：112B = 头 16B + 32 步 x 3B）
--- notes 为 MIDI 音符号数组（0 = 休止），自动换算为机器音高（1-96 = MIDI 12-107）
+-- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 x 4B）
+-- notes 为 MIDI 音符号数组（0 = 休止），自动换算：新音高 = MIDI - 12（0-95），休止步音量写 0
 local function init_sfx(id, notes, wave, vol, speed, o)
   o = o or {}
-  local base = 0x060000 + id * 112
-  u8(base, speed or 2)
-  u8(base + 1, #notes)
-  if o.loop then u8(base + 2, o.loop) u8(base + 3, #notes) u8(base + 4, 1) end
+  local sp = speed or 2
+  local base = 0x0C0000 + id * 144
+  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
+  if o.loop then u8(base + 3, o.loop) u8(base + 4, #notes - 1) u8(base + 5, 1) end
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      local m = notes[i + 1]
-      u8(a, m == 0 and 0 or m - 11)
-      u8(a + 1, wave * 16 + vol)
-      u8(a + 2, o.effect or 0)
+    local a = base + 16 + i * 4
+    local m = i < #notes and notes[i + 1] or 0
+    if m > 0 then
+      u8(a, m - 12)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, o.effect or 0)
     else
-      u8(a, 0) u8(a + 1, 0)
+      u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0)
     end
   end
 end
@@ -123,15 +159,19 @@ end
 -- BEGIN GENERATED MUSIC (from smbdis via convert_music.py)
 -- 原曲音符表转写（SuperMarioBros-C 反汇编 docs/smbdis.asm；由 convert_music.py 生成）
 -- 通道：ch4 主旋律 SQUARE / ch5 和声 PULSE25 / ch6 贝斯 TRIANGLE / ch7 鼓 NOISE
--- Pattern：0-19 地上(BEGIN/END 循环)；其余曲目（循环曲 BEGIN+END，一次性曲 STOP）：
+-- MUSIC 行：0-19 地上(LOOP_START/LOOP_BACK 回环)；其余曲目（循环曲 LOOP_START+LOOP_BACK，一次性曲 STOP）：
 --          under=20, castle=29, star=33, warn=36, die=38, win=40, rescue=44, over=47
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 local function drum_sfx(id, steps, speed)
-  local base = 0x060000 + id * 112
-  u8(base, speed) u8(base + 1, #steps)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #steps)
   for s = 0, 31 do
-    local a = base + 16 + s * 3
+    local a = base + 16 + s * 4
     local st = steps[s + 1]
-    if st then u8(a, st[1]) u8(a + 1, st[2] * 16 + st[3]) u8(a + 2, 0) else u8(a, 0) u8(a + 1, 0) end
+    if st and (st[1] or 0) > 0 then
+      u8(a, st[1] - 1) u8(a + 1, WMAP[st[2]]) u8(a + 2, st[3]) u8(a + 3, 0)
+    else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end
   end
 end
 local function music_gen()
@@ -245,10 +285,17 @@ local function music_gen()
   drum_sfx(122, {{48,12,2}, {48,12,2}, {36,13,3}, {36,13,3}, nil, nil, {36,13,3}, {36,13,3}, {24,15,12}, {24,15,12}, {24,15,12}, {24,15,12}, {24,15,12}, {24,15,12}, {36,13,3}, {36,13,3}, nil, nil, {36,13,3}, {36,13,3}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {36,13,3}, {36,13,3}, nil, nil, {36,13,3}, {36,13,3}}, 2)
   drum_sfx(123, {{36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}}, 3)
   drum_sfx(124, {{36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {48,12,2}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, {36,13,3}, nil, nil, nil, nil}, 3)
-  -- Pattern 表（0x063800 起，每段 16B；ch4-7 = 音乐通道）
+  -- MUSIC 行表（0x0C5380 起：+0 LEN，行 r 在 +32+r*32；八个 SFX ID，0xFF 为空；ch4-7 = 音乐通道）
   local function pat(n, m, h, b, d, f)
-    local a = 0x063800 + n * 16
-    u8(a + 4, m) u8(a + 5, h) u8(a + 6, b) u8(a + 7, d) u8(a + 8, f)
+    local a = MUSIC_BASE + 32 + n * 32
+    for c = 0, 7 do u8(a + c, 0xFF) end
+    if m > 0 then u8(a + 4, m - 1) end
+    if h > 0 then u8(a + 5, h - 1) end
+    if b > 0 then u8(a + 6, b - 1) end
+    if d > 0 then u8(a + 7, d - 1) end
+    if f % 2 >= 1 then u8(a + 16, 1) end  -- BEGIN → LOOP_START
+    if f % 4 >= 2 then u8(a + 17, 1) end  -- END → LOOP_BACK
+    if f >= 4 then u8(a + 18, 1) end      -- STOP
   end
   pat(0, 16, 46, 84, 115, 1) -- LeadIn
   pat(1, 17, 47, 85, 116, 0) -- P1
@@ -300,10 +347,12 @@ local function music_gen()
   pat(47, 42, 80, 111, 0, 1) -- over#0
   pat(48, 43, 81, 112, 0, 0) -- over#1
   pat(49, 44, 82, 113, 0, 4) -- over#2
+  u8(MUSIC_BASE, 50)  -- 全表 LEN = 50 行（行 0-49）
 end
 -- END GENERATED MUSIC
 
 local function init_all_audio()
+  init_waveforms()
   init_sfx(FX.JUMP,  { 62, 74 }, 3, 10, 1, { effect = 4 })        -- 小跳：上扫
   init_sfx(FX.JUMPB, { 55, 67 }, 3, 11, 1, { effect = 4 })        -- 大跳：更低
   init_sfx(FX.COIN,  { 83, 88 }, 3, 11, 1)                        -- 金币：双音上行
@@ -3216,6 +3265,13 @@ local function update_states()
   local m = game.mario
   game.st = game.st + 1
   local st = game.state
+  if st == "splash" then
+    -- 开机封面：Ⓐ/Menu 跳过，90 帧后进 title
+    if game.st > 90 or btnp(KEY.A) or btnp(KEY.STA) then
+      game.state = "title" game.st = 0
+    end
+    return
+  end
   if st == "play" then
     if btnp(KEY.STA) then
       game.state = "pause" sfx(FX.PAUSE) music(-1, 200)
@@ -3429,21 +3485,27 @@ local function hill(x, base, w, h)
   pset(x + w / 2 - 4, base - h + 16, C.GREEND)
 end
 
+-- 视差背景装饰（纯装饰，不参与碰撞）：相机生效前以屏幕坐标绘制，
+-- 远层云按相机 0.3 系数、近层山丘/灌木按 0.6 系数平移，
+-- 各自 % 768 周期无限平铺；玩法元素（地面/砖块/敌人）仍在世界坐标
 local function draw_scenery()
   local cam = game.cam
-  local cyc = 768
-  local c0 = flr(cam / cyc) - 1
-  for k = c0, c0 + 2 do
-    local bx = k * cyc -- 世界坐标（camera 生效）
+  local off = flr(cam * 0.3) % 768 -- 远层云
+  for k = -1, 1 do
+    local bx = k * 768 - off
+    cloud(bx + 96, 40, false)
+    cloud(bx + 272, 56, true)
+    cloud(bx + 560, 32, false)
+    cloud(bx + 660, 64, true)
+  end
+  off = flr(cam * 0.6) % 768 -- 近层山丘与灌木
+  for k = -1, 1 do
+    local bx = k * 768 - off
     hill(bx, 192, 80, 40)
     hill(bx + 384, 192, 48, 24)
     bush(bx + 176, 186, 3)
     bush(bx + 480, 186, 1)
     bush(bx + 656, 186, 2)
-    cloud(bx + 96, 40, false)
-    cloud(bx + 272, 56, true)
-    cloud(bx + 560, 32, false)
-    cloud(bx + 660, 64, true)
   end
 end
 
@@ -3629,12 +3691,13 @@ local function draw_world()
   else
     cls(C.SKY)
   end
+  -- 视差装饰层：相机生效前绘制（自带 0.3/0.6 系数平移）
+  if not (game.lv.under or game.lv.dungeon) then draw_scenery() end
   if game.shake > 0 then
     camera(flr(game.cam) + flr(rnd(5)) - 2, flr(rnd(3)) - 1)
   else
     camera(flr(game.cam), 0)
   end
-  if not (game.lv.under or game.lv.dungeon) then draw_scenery() end
   draw_map()
   draw_bumps()
   -- 旗杆旗
@@ -3690,31 +3753,61 @@ local function draw_title()
   bush(180, 186, 3)
   cloud(40, 40, true)
   cloud(200, 56, false)
-  -- 标题牌
-  rrectfill(28, 56, 200, 88, 10, C.RED)
-  rrect(28, 56, 200, 88, 10, C.REDD)
-  rrect(31, 59, 194, 82, 8, C.BLACK)
+  -- 标题牌（大标题 + 英文副题）
+  rrectfill(28, 48, 200, 88, 10, C.RED)
+  rrect(28, 48, 200, 88, 10, C.REDD)
+  rrect(31, 51, 194, 82, 8, C.BLACK)
   local t1 = "超级马里奥兄弟"
-  print(t1, flr((256 - tw(t1)) / 2), 64, C.WHITE)
+  print(t1, flr((256 - tw(t1)) / 2), 58, C.WHITE)
   local t2 = "SUPER MARIO TRIBUTE"
-  print(t2, flr((256 - tw(t2)) / 2), 150, C.COINL)
-  -- 大马里奥立像
+  print(t2, flr((256 - tw(t2)) / 2), 108, C.COINL)
+  -- 主题装饰：大马里奥立像与敌人（_init 烘焙，frame 0 完整呈现）
   spr(S.MB_TOP, 72, 144)
   spr(S.MB_BOT, 72, 160)
   spr(S.MB_TOP + 1, 96, 144, 1, 1, true)
   spr(S.MB_BOT + 1, 96, 160, 1, 1, true)
   spr(S.GOOMBA, 128, 178)
   spr(S.KOOPA_T, 150, 168) spr(S.KOOPA_B, 150, 184)
-  if flr(frame() / 30) % 2 == 0 then
-    local p = "按 Ⓐ 开始"
-    print(p, flr((256 - tw(p)) / 2), 220, C.WHITE)
+  -- 开始提示一行、稳定不闪烁（封面取第 30 帧）；操作说明不上标题
+  local p = "按 " .. btnicon("a") .. " 开始"
+  print(p, flr((256 - tw(p)) / 2) + 1, 221, C.BLACK)
+  print(p, flr((256 - tw(p)) / 2), 220, C.WHITE)
+  -- 底部一行弱化信息（纪录 + 关卡）
+  local b = "包含关卡 1-1～1-4 ・ 最高分 " .. game.best
+  print(b, flr((256 - tw(b)) / 2), 240, C.GRAY)
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——马里奥与 goomba 对峙特写 + logo 匾额，
+-- 零菜单零提示零统计
+local function draw_splash()
+  camera() pal()
+  cls(C.SKY)
+  -- 场景：四行地面 + 山丘 / 云 / 灌木
+  for i = 0, 16 do
+    spr(T.GROUND, i * 16, 200) spr(T.GROUND, i * 16, 216)
+    spr(T.GROUND, i * 16, 232) spr(T.GROUND, i * 16, 248)
   end
-  local lv = "包含关卡 1-1～1-4"
-  print(lv, flr((256 - tw(lv)) / 2), 238, C.WHITE)
-  local b = "最高分 " .. game.best .. "  最远 1-" .. game.bestlv
-  print(b, flr((256 - tw(b)) / 2), 8, C.WHITE)
-  local op = "View 音乐开关  Menu 暂停"
-  print(op, flr((256 - tw(op)) / 2), 164, C.COIND)
+  hill(-16, 200, 80, 40)
+  cloud(10, 106, true)
+  cloud(216, 118, false)
+  bush(196, 194, 2)
+  -- ? 方块悬停在两造中间
+  spr(T.QMARK, 120, 152)
+  -- 对峙特写：大马里奥（左，3×）vs 大 goomba（右，3×）
+  sspr((S.MB_TOP % 16) * 16, flr(S.MB_TOP / 16) * 16, 16, 16, 40, 120, 48, 48)
+  sspr((S.MB_BOT % 16) * 16, flr(S.MB_BOT / 16) * 16, 16, 16, 40, 168, 48, 48)
+  sspr((S.GOOMBA % 16) * 16, flr(S.GOOMBA / 16) * 16, 16, 16, 168, 168, 48, 48)
+  -- 大马里奥与 goomba 之间的对峙短线（脚边延伸）
+  line(96, 214, 160, 214, C.BLACK)
+  -- logo 匾额（红底金边，scale 3 + 黑影）
+  rrectfill(28, 26, 200, 76, 10, C.RED)
+  rrect(28, 26, 200, 76, 10, C.REDD)
+  rrect(31, 29, 194, 70, 8, C.BLACK)
+  local t1 = "超级马里奥"
+  print(t1, flr((256 - tw(t1, 3)) / 2) + 2, 40, 0, 3)
+  print(t1, flr((256 - tw(t1, 3)) / 2), 38, C.WHITE, 3)
+  local t2 = "SUPER MARIO TRIBUTE"
+  print(t2, flr((256 - tw(t2)) / 2), 82, C.COINL)
 end
 
 local function draw_inter()
@@ -3735,7 +3828,7 @@ local function draw_over()
   local t = "GAME OVER"
   print(t, flr((256 - tw(t)) / 2), 96, C.RED)
   if flr(frame() / 30) % 2 == 0 then
-    local p = "Ⓐ 续关   Ⓑ 返回标题"
+    local p = btnicon("a") .. " 续关　" .. btnicon("b") .. " 返回标题"
     print(p, flr((256 - tw(p)) / 2), 140, C.WHITE)
   end
 end
@@ -3772,14 +3865,16 @@ local function draw_clear()
   local s = "得分 " .. game.score .. "  金币 " .. game.coins
   print(s, flr((256 - tw(s)) / 2), 216, C.WHITE)
   if game.st > 60 and flr(frame() / 30) % 2 == 0 then
-    local p = "按 Ⓐ 返回标题"
+    local p = "按 " .. btnicon("a") .. " 返回标题"
     print(p, flr((256 - tw(p)) / 2), 232, C.COINL)
   end
 end
 
 function _draw()
   local st = game.state
-  if st == "title" then
+  if st == "splash" then
+    draw_splash()
+  elseif st == "title" then
     draw_title()
   elseif st == "inter" then
     draw_inter()
@@ -3797,7 +3892,7 @@ function _draw()
       rect(96, 100, 64, 40, C.WHITE)
       local t = "暂停"
       print(t, flr((256 - tw(t)) / 2), 108, C.WHITE)
-      local p = "Menu 继续"
+      local p = btnicon("menu") .. " 继续　" .. btnicon("view") .. " 音乐"
       print(p, flr((256 - tw(p)) / 2), 124, C.COIND)
     end
   end
@@ -3817,7 +3912,7 @@ function _init()
   game.best = flr(dget(0) or 0)
   game.bestlv = flr(dget(1) or 1)
   game.music_on = (dget(2) or 0) == 0
-  game.state = "title"
+  game.state = "splash" -- 开机封面，Ⓐ/Menu 或 90 帧后进 title
   if game.music_on then music(0, 500, 240) end
 end
 

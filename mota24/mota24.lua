@@ -978,21 +978,59 @@ local TK = {
 -- 各曲速度/小节数见 transcribe_music.py 的 TRACKS 与运行输出。
 local function u8(a, v) poke(a, v % 256) end
 
--- steps: {{音高, 波形, 音量, 效果?}, ...}；音高 0 = 休止；1-96 = C0-B7
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+-- steps: {{音高, 音色, 音量, 效果?}, ...}；音高 0 = 休止；旧 1-96 = C0-B7
+-- 音高为旧固件值，写卡带前换算为新 0-95 并用音量 0 表休止
 local function sfx_steps(id, speed, steps)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, #steps)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #steps)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
+    local a = base + 16 + i * 4
     local st = steps[i + 1]
-    if st then
-      u8(a, st[1] or 0)
-      u8(a + 1, (st[2] or 0) * 16 + (st[3] or 0))
-      u8(a + 2, st[4] or 0)
+    if st and (st[1] or 0) > 0 then
+      u8(a, st[1] - 1)
+      u8(a + 1, WMAP[st[2] or 0])
+      u8(a + 2, st[3] or 0)
+      u8(a + 3, st[4] or 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
@@ -1000,12 +1038,13 @@ end
 local S_STEP, S_DOOR, S_PICK, S_GEM, S_FIGHT, S_KILL, S_DENY = 0, 1, 2, 3, 4, 5, 6
 local S_BOSS, S_WIN, S_LOSE, S_SAVE, S_MENU, S_BUY, S_STAIR = 7, 8, 9, 10, 11, 12, 13
 
--- BGM 曲目表（Pattern 起始号，全局）
+-- BGM 曲目表（MUSIC 行起始号，全局）
 P_TITLE, P_F1_7, P_F8_14, P_F15_18, P_F19_24, P_ENDING = 0, 2, 4, 6, 8, 10
 -- 机器可读曲目表（verify_music.py 用）：名=起始:段数:speed
 -- TRACKS: P_TITLE=0:2:7, P_F1_7=2:2:9, P_F8_14=4:2:4, P_F15_18=6:2:5, P_F19_24=8:2:4, P_ENDING=10:2:15
 
 local function init_audio()
+  init_waveforms()
   sfx_steps(0, 1, {{49, 14, 4, 0}, {44, 14, 3, 0}})
   sfx_steps(1, 1, {{65, 3, 8, 0}, {70, 3, 7, 1}, {73, 3, 5, 3}})
   sfx_steps(2, 1, {{85, 10, 8, 0}, {92, 10, 8, 0}})
@@ -1056,56 +1095,67 @@ local function init_audio()
   sfx_steps(47, 15, {{62, 4, 10, 0}, {0}, {69, 4, 10, 0}, {69, 4, 10, 0}, {64, 4, 10, 0}, {64, 4, 10, 0}, {64, 4, 10, 0}, {64, 4, 10, 0}, {67, 4, 10, 0}, {67, 4, 10, 0}, {67, 4, 10, 0}, {67, 4, 10, 0}, {67, 4, 10, 0}, {67, 4, 10, 0}, {67, 4, 10, 0}, {67, 4, 10, 0}, {67, 4, 10, 0}, {0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}, {62, 4, 10, 0}})
   sfx_steps(48, 15, {{57, 6, 6, 0}, {0}, {64, 6, 6, 0}, {57, 6, 6, 0}, {69, 6, 6, 0}, {69, 6, 6, 0}, {69, 6, 6, 0}, {71, 6, 6, 0}, {64, 6, 6, 0}, {64, 6, 6, 0}, {64, 6, 6, 0}, {64, 6, 6, 0}, {64, 6, 6, 0}, {64, 6, 6, 0}, {64, 6, 6, 0}, {64, 6, 6, 0}, {57, 6, 6, 0}, {57, 6, 6, 0}, {0}, {74, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}, {59, 6, 6, 0}})
   sfx_steps(49, 15, {{38, 11, 9, 0}, {38, 11, 9, 0}, {38, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {40, 11, 9, 0}, {38, 11, 9, 0}, {38, 11, 9, 0}, {38, 11, 9, 0}, {38, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}, {35, 11, 9, 0}})
-  local mb = 0x063800
+  local mb = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+  for r = 0, 11 do
+    for c = 0, 7 do u8(mb + 32 + r * 32 + c, 0xFF) end  -- 空轨写 0xFF（0 是合法 SFX 号）
+  end
 
-  u8(mb + 0 * 16 + 0, 15)  -- ch0 ← SFX 14
-  u8(mb + 0 * 16 + 1, 16)  -- ch1 ← SFX 15
-  u8(mb + 0 * 16 + 2, 17)  -- ch2 ← SFX 16
-  u8(mb + 0 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 1 * 16 + 0, 18)  -- ch0 ← SFX 17
-  u8(mb + 1 * 16 + 1, 19)  -- ch1 ← SFX 18
-  u8(mb + 1 * 16 + 2, 20)  -- ch2 ← SFX 19
-  u8(mb + 1 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 2 * 16 + 0, 21)  -- ch0 ← SFX 20
-  u8(mb + 2 * 16 + 1, 22)  -- ch1 ← SFX 21
-  u8(mb + 2 * 16 + 2, 23)  -- ch2 ← SFX 22
-  u8(mb + 2 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 3 * 16 + 0, 24)  -- ch0 ← SFX 23
-  u8(mb + 3 * 16 + 1, 25)  -- ch1 ← SFX 24
-  u8(mb + 3 * 16 + 2, 26)  -- ch2 ← SFX 25
-  u8(mb + 3 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 4 * 16 + 0, 27)  -- ch0 ← SFX 26
-  u8(mb + 4 * 16 + 1, 28)  -- ch1 ← SFX 27
-  u8(mb + 4 * 16 + 2, 29)  -- ch2 ← SFX 28
-  u8(mb + 4 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 5 * 16 + 0, 30)  -- ch0 ← SFX 29
-  u8(mb + 5 * 16 + 1, 31)  -- ch1 ← SFX 30
-  u8(mb + 5 * 16 + 2, 32)  -- ch2 ← SFX 31
-  u8(mb + 5 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 6 * 16 + 0, 33)  -- ch0 ← SFX 32
-  u8(mb + 6 * 16 + 1, 34)  -- ch1 ← SFX 33
-  u8(mb + 6 * 16 + 2, 35)  -- ch2 ← SFX 34
-  u8(mb + 6 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 7 * 16 + 0, 36)  -- ch0 ← SFX 35
-  u8(mb + 7 * 16 + 1, 37)  -- ch1 ← SFX 36
-  u8(mb + 7 * 16 + 2, 38)  -- ch2 ← SFX 37
-  u8(mb + 7 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 8 * 16 + 0, 39)  -- ch0 ← SFX 38
-  u8(mb + 8 * 16 + 1, 40)  -- ch1 ← SFX 39
-  u8(mb + 8 * 16 + 2, 41)  -- ch2 ← SFX 40
-  u8(mb + 8 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 9 * 16 + 0, 42)  -- ch0 ← SFX 41
-  u8(mb + 9 * 16 + 1, 43)  -- ch1 ← SFX 42
-  u8(mb + 9 * 16 + 2, 44)  -- ch2 ← SFX 43
-  u8(mb + 9 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 10 * 16 + 0, 45)  -- ch0 ← SFX 44
-  u8(mb + 10 * 16 + 1, 46)  -- ch1 ← SFX 45
-  u8(mb + 10 * 16 + 2, 47)  -- ch2 ← SFX 46
-  u8(mb + 10 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 11 * 16 + 0, 48)  -- ch0 ← SFX 47
-  u8(mb + 11 * 16 + 1, 49)  -- ch1 ← SFX 48
-  u8(mb + 11 * 16 + 2, 50)  -- ch2 ← SFX 49
-  u8(mb + 11 * 16 + 8, 3)  -- BEGIN|END 回环
+  u8(mb + 32 + 0 * 32 + 0, 14)  -- ch0 ← SFX 14
+  u8(mb + 32 + 0 * 32 + 1, 15)  -- ch1 ← SFX 15
+  u8(mb + 32 + 0 * 32 + 2, 16)  -- ch2 ← SFX 16
+  u8(mb + 32 + 0 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 1 * 32 + 0, 17)  -- ch0 ← SFX 17
+  u8(mb + 32 + 1 * 32 + 1, 18)  -- ch1 ← SFX 18
+  u8(mb + 32 + 1 * 32 + 2, 19)  -- ch2 ← SFX 19
+  u8(mb + 32 + 1 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 1 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 2 * 32 + 0, 20)  -- ch0 ← SFX 20
+  u8(mb + 32 + 2 * 32 + 1, 21)  -- ch1 ← SFX 21
+  u8(mb + 32 + 2 * 32 + 2, 22)  -- ch2 ← SFX 22
+  u8(mb + 32 + 2 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 3 * 32 + 0, 23)  -- ch0 ← SFX 23
+  u8(mb + 32 + 3 * 32 + 1, 24)  -- ch1 ← SFX 24
+  u8(mb + 32 + 3 * 32 + 2, 25)  -- ch2 ← SFX 25
+  u8(mb + 32 + 3 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 3 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 4 * 32 + 0, 26)  -- ch0 ← SFX 26
+  u8(mb + 32 + 4 * 32 + 1, 27)  -- ch1 ← SFX 27
+  u8(mb + 32 + 4 * 32 + 2, 28)  -- ch2 ← SFX 28
+  u8(mb + 32 + 4 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 5 * 32 + 0, 29)  -- ch0 ← SFX 29
+  u8(mb + 32 + 5 * 32 + 1, 30)  -- ch1 ← SFX 30
+  u8(mb + 32 + 5 * 32 + 2, 31)  -- ch2 ← SFX 31
+  u8(mb + 32 + 5 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 5 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 6 * 32 + 0, 32)  -- ch0 ← SFX 32
+  u8(mb + 32 + 6 * 32 + 1, 33)  -- ch1 ← SFX 33
+  u8(mb + 32 + 6 * 32 + 2, 34)  -- ch2 ← SFX 34
+  u8(mb + 32 + 6 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 7 * 32 + 0, 35)  -- ch0 ← SFX 35
+  u8(mb + 32 + 7 * 32 + 1, 36)  -- ch1 ← SFX 36
+  u8(mb + 32 + 7 * 32 + 2, 37)  -- ch2 ← SFX 37
+  u8(mb + 32 + 7 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 7 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 8 * 32 + 0, 38)  -- ch0 ← SFX 38
+  u8(mb + 32 + 8 * 32 + 1, 39)  -- ch1 ← SFX 39
+  u8(mb + 32 + 8 * 32 + 2, 40)  -- ch2 ← SFX 40
+  u8(mb + 32 + 8 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 9 * 32 + 0, 41)  -- ch0 ← SFX 41
+  u8(mb + 32 + 9 * 32 + 1, 42)  -- ch1 ← SFX 42
+  u8(mb + 32 + 9 * 32 + 2, 43)  -- ch2 ← SFX 43
+  u8(mb + 32 + 9 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 9 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 10 * 32 + 0, 44)  -- ch0 ← SFX 44
+  u8(mb + 32 + 10 * 32 + 1, 45)  -- ch1 ← SFX 45
+  u8(mb + 32 + 10 * 32 + 2, 46)  -- ch2 ← SFX 46
+  u8(mb + 32 + 10 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 11 * 32 + 0, 47)  -- ch0 ← SFX 47
+  u8(mb + 32 + 11 * 32 + 1, 48)  -- ch1 ← SFX 48
+  u8(mb + 32 + 11 * 32 + 2, 49)  -- ch2 ← SFX 49
+  u8(mb + 32 + 11 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 11 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+
+  u8(mb, 12)  -- 全表 LEN = 12 行
 end
 -- END GENERATED MUSIC
 
@@ -1219,8 +1269,10 @@ end
 -- 24F 对话（原版为位图对话，以下文本按经典剧情重构，README 已标注）
 local TX24 = {
   help = {
-    "【游戏使用帮助】方向键移动（按住连续走）。Ⓐ 确认／对话翻页／战斗确认，Ⓑ 取消／关闭面板。",
-    "Menu 打开存档·读档·怪物手册菜单，View 切换背景音乐。撞向怪物弹出战斗预览，攻击足以击杀时才会出手。",
+    "【游戏使用帮助】方向键移动（按住连续走）。" .. btnicon("a")
+      .. " 确认／对话翻页／战斗确认，" .. btnicon("b") .. " 取消／关闭面板。",
+    btnicon("menu") .. " 打开存档·读档·怪物手册菜单，" .. btnicon("view")
+      .. " 切换背景音乐。撞向怪物弹出战斗预览，攻击足以击杀时才会出手。",
   },
   prologue = {
     "仙子：勇敢的冒险者，你终于醒了。这座魔塔已被魔王占据，公主也被囚禁在塔顶。",
@@ -1614,14 +1666,14 @@ local FLAGS = { "prologue", "say4", "dug18", "love", "bigclean", "rod1", "rod2",
 local function flags_pack()
   local f = 0
   for i, k in ipairs(FLAGS) do
-    if G.fl[k] then f = f | (1 << (i - 1)) end
+    if G.fl[k] then f = bit32.bor(f, bit32.lshift(1, i - 1)) end
   end
   return f
 end
 
 local function flags_unpack(f)
   for i, k in ipairs(FLAGS) do
-    if (f >> (i - 1)) & 1 == 1 then G.fl[k] = true end
+    if bit32.band(bit32.rshift(f, i - 1), 1) == 1 then G.fl[k] = true end
   end
 end
 
@@ -1802,10 +1854,9 @@ local function draw_bottom()
   if MSG.t > 0 then
     printw(MSG.txt, 8, 196, C_WHITE, 240)
   else
-    local hint = "Ⓐ确认/战斗　Menu 菜单"
+    local hint = btnicon("a") .. "确认/战斗　" .. btnicon("menu") .. "菜单　"
+      .. btnicon("view") .. "音乐:" .. (bgm_on and "开" or "关")
     print(hint, 8, 196, C_GRAY)
-    local st = "View 音乐:" .. (bgm_on and "开" or "关")
-    print(st, 8, 212, C_GRAY)
   end
 end
 
@@ -1816,8 +1867,7 @@ local function draw_dialog()
   local page = DLG.pages[DLG.i] or ""
   printw(page, 14, 70, C_WHITE, 228)
   if flr(G.t / 16) % 2 == 0 then
-    local s = "Ⓐ"
-    print(s, 232, 122, C_GOLD)
+    print(btnicon("a"), 232, 122, C_GOLD)
   end
 end
 
@@ -1832,7 +1882,7 @@ local function draw_battle_panel()
   print(s1, 40, 210, C_GRAY)
   local s2 = "预计 " .. rounds .. " 回合　损失 " .. loss .. " 生命"
   print(s2, 40, 226, loss == 0 and C_GREEN or C_ORNG)
-  local s3 = "Ⓐ 战斗　Ⓑ 取消"
+  local s3 = btnicon("a") .. " 战斗　" .. btnicon("b") .. " 取消"
   print(s3, (256 - tw(s3)) / 2, 242, C_GOLD)
 end
 
@@ -1851,7 +1901,8 @@ local function draw_shop()
     yy = yy + 16
   end
   print("金币 " .. G.money, 52, yy + 4, C_GOLD_D)
-  local s = "↑↓选择　Ⓐ购买　Ⓑ离开"
+  local s = btnicon("up") .. btnicon("down") .. "选择　" .. btnicon("a")
+    .. "购买　" .. btnicon("b") .. "离开"
   print(s, (256 - tw(s)) / 2, 188, C_GRAY)
 end
 
@@ -1899,11 +1950,58 @@ local function draw_manual()
   end
   local pg = #MANUAL.list > 0 and (flr((MANUAL.top - 1) / 8) + 1) or 1
   local pgs = max(1, flr((#MANUAL.list - 1) / 8) + 1)
-  local t2 = "↑↓ 翻页 " .. pg .. "/" .. pgs .. "　Ⓑ 关闭"
+  local t2 = btnicon("up") .. btnicon("down") .. " 翻页 " .. pg .. "/" .. pgs
+    .. "　" .. btnicon("b") .. " 关闭"
   print(t2, (256 - tw(t2)) / 2, 242, C_GRAY)
 end
 
 
+
+-- Splash：纯主视觉封面（0-90 帧）——塔层剪影 + 主角/金钥匙/红宝石特写，
+-- 零菜单零提示零统计（封面帧 --cover 30 落在本段）
+local function draw_splash()
+  cls(C_BG)
+  -- 塔层剪影（自上而下渐宽，金窗点缀）
+  local LV = { { 96, 88, 64 }, { 84, 112, 88 }, { 72, 136, 112 },
+    { 60, 160, 136 }, { 48, 184, 160 } }
+  for i, l in ipairs(LV) do
+    rectfill(l[1], l[2], l[3], 24, i % 2 == 0 and C_WALL_D or C_DARK)
+    for w = 0, flr(l[3] / 24) - 1 do
+      rectfill(l[1] + 10 + w * 24, l[2] + 8, 4, 6,
+        (w + i) % 3 == 0 and C_GOLD or C_GOLD_D)
+    end
+  end
+  -- 大 logo：24 层魔塔（scale 3：黑影 + "24"红 / "层魔塔"金）
+  local s1, s2 = "24", "层魔塔"
+  local w1, w2 = tw(s1) * 3, tw(s2) * 3
+  local x0 = flr((256 - w1 - w2 - 6) / 2)
+  print(s1, x0 + 3, 23, C_DARK, 3)
+  print(s1, x0, 20, C_RED, 3)
+  print(s2, x0 + w1 + 6 + 3, 23, C_DARK, 3)
+  print(s2, x0 + w1 + 6, 20, C_GOLD, 3)
+  local s = "MAGIC TOWER ・ 24F"
+  print(s, (256 - tw(s)) / 2, 64, C_GRAY)
+  -- 石台地面（原版地板图块铺底）
+  rectfill(0, 210, 256, 46, C_WALL_D)
+  line(0, 210, 255, 210, C_WALL)
+  for x = 0, 15 do
+    spr(TK.FLOOR, x * 16, 216)
+    spr(TK.FLOOR, x * 16, 232)
+  end
+  -- 主视觉：主角（scale 6）・金钥匙（scale 4）・红宝石（scale 4）立于石台
+  local function tile_big(id, x, y, s)
+    sspr((id % 16) * 16, flr(id / 16) * 16, 16, 16, x, y, s, s)
+  end
+  tile_big(TK.HERO, 18, 114, 96)
+  tile_big(TK.KEYY, 118, 146, 64)
+  tile_big(TK.GEMR, 186, 146, 64)
+  -- 拾取星光（宝物上方的确定性闪光装饰）
+  for _, q in ipairs({ { 218, 134 }, { 232, 126 }, { 208, 122 } }) do
+    pset(q[1], q[2], C_YELLOW)
+    pset(q[1] + 1, q[2], C_GOLD)
+    pset(q[1], q[2] + 1, C_GOLD)
+  end
+end
 
 local function draw_title()
   -- 原版标题干净幀全屏烘焙（瓦片 256..511，FFDec 渲染 1100 幀，
@@ -1926,7 +2024,8 @@ local function draw_title()
   if slot_used(0) or slot_used(1) or slot_used(2) then
     print("有存档", 196, 138 + (TITLE.cur - 1) * 29, C_DGREEN)
   end
-  local s3 = "↑↓ 选择　Ⓐ 确定　Menu 读档"
+  local s3 = btnicon("up") .. btnicon("down") .. " 选择　" .. btnicon("a")
+    .. " 确定　" .. btnicon("menu") .. " 读档"
   print(s3, (256 - tw(s3)) / 2, 244, C_GRAY)
 end
 
@@ -1961,7 +2060,7 @@ local function draw_story()
     end
   end
   if flr(G.t / 20) % 2 == 0 then
-    print("Ⓐ 跳过", 200, 244, C_GRAY)
+    print(btnicon("a") .. " 跳过", 176, 244, C_GRAY)
   end
 end
 
@@ -1969,7 +2068,7 @@ local function draw_over()
   cls(C_BG)
   local s = "GAME OVER"
   print(s, 128 - tw(s) / 2, 100, C_RED)
-  local s2 = "Ⓐ 读档　Ⓑ 重新开始"
+  local s2 = btnicon("a") .. " 读档　" .. btnicon("b") .. " 重新开始"
   print(s2, 128 - tw(s2) / 2, 140, C_GRAY)
 end
 
@@ -1978,7 +2077,7 @@ local function draw_win()
   local pages = TX24.win
   local idx = min(flr(G.t / 180) + 1, #pages)
   printw(pages[idx], 16, 60, C_WHITE, 224)
-  local s = "感谢游玩 ・ 按 Menu 回到标题"
+  local s = "感谢游玩 ・ " .. btnicon("menu") .. " 回到标题"
   if flr(G.t / 20) % 2 == 0 then
     print(s, 128 - tw(s) / 2, 220, C_GOLD)
   end
@@ -1999,7 +2098,7 @@ function _init()
   bake_generated_art()
   init_audio()
   new_game()
-  G.state = "title"
+  G.state = "splash"
   cur_bgm = P_TITLE
   music(P_TITLE, 500, 0x3F)
 end
@@ -2023,7 +2122,9 @@ function _update()
   if MSG.t > 0 then MSG.t = MSG.t - 1 end
   if float_t > 0 then float_t = float_t - 1 end
   if flash_t > 0 then flash_t = flash_t - 1 end
-  if G.state == "title" then
+  if G.state == "splash" then
+    if G.t > 90 or btnp(4) or btnp(11) then G.state = "title" end
+  elseif G.state == "title" then
     if dirp(2) or dirp(3) then
       TITLE.cur = 3 - TITLE.cur sfx(S_MENU)
     end
@@ -2182,6 +2283,10 @@ function _update()
 end
 
 function _draw()
+  if G.state == "splash" then
+    draw_splash()
+    return
+  end
   if G.state == "title" then
     draw_title()
     return

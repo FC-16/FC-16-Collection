@@ -64,6 +64,7 @@ spawn_increase_timer=0
   game_over=false
   game_over_slide=0
   tutorial_screen=1
+  intro_t=0
   tutorial_slide=0
   
   game_state="intro"
@@ -202,6 +203,7 @@ local function chance30(p) return rnd()<1-sqrt(1-p) end
 
 function _update()
     if game_state=="intro" then
+    intro_t=(intro_t or 0)+1
     if btnp(11) then
       sfx(36)
       if tutorial_screen==1 then
@@ -928,17 +930,21 @@ function _draw()
         spr(106 + i, ((x + i * 8)*2), ((y + 16)*2))
       end
       
-      print("按开始键继续", ((256 - tw("按开始键继续")) / 2), ((105 - s)*2), COL[7])
+      if (intro_t or 0) > 90 then
+        print(btnicon("menu") .. " 继续", ((256 - tw(btnicon("menu") .. " 继续")) / 2), ((105 - s)*2), COL[7])
+      end
     else
       print("收集詛咒寶石獲得經驗", ((5)*2), ((20 - s)*2), COL[7])
       print("尽可能长时间生存", ((10)*2), ((30 - s)*2), COL[7])
-      print("方向键", ((30)*2), ((55 - s)*2), COL[8])
-      print("移动", ((75)*2), ((55 - s)*2), COL[7])
-      print("B", ((30)*2), ((65 - s)*2), COL[8])
-      print("冲刺", ((75)*2), ((65 - s)*2), COL[7])
-      print("A", ((30)*2), ((75 - s)*2), COL[8])
-      print("射击", ((75)*2), ((75 - s)*2), COL[7])
-      print("按开始键进入游戏", ((256 - tw("按开始键进入游戏")) / 2), ((105 - s)*2), COL[8])
+      -- 操作表（图标 + 说明，两列）
+      print(btnicon("dpad"), ((30)*2), ((55 - s)*2), COL[8])
+      print("移动", ((44)*2), ((55 - s)*2), COL[7])
+      print(btnicon("b"), ((30)*2), ((65 - s)*2), COL[8])
+      print("冲刺", ((44)*2), ((65 - s)*2), COL[7])
+      print(btnicon("a"), ((30)*2), ((75 - s)*2), COL[8])
+      print("射击", ((44)*2), ((75 - s)*2), COL[7])
+      print("弹尽自动装填", ((30)*2), ((85 - s)*2), COL[8])
+      print(btnicon("menu") .. " 进入游戏", ((256 - tw(btnicon("menu") .. " 进入游戏")) / 2), ((105 - s)*2), COL[8])
     end
     return
   end
@@ -1262,12 +1268,9 @@ function _draw()
     spr(173, ((icon_x)*2), ((stats_y + 24)*2))
     print(""..total_xp, ((text_x)*2), ((stats_y + 25)*2), COL[7])
 
-    -- restart prompt - centered, key name in red（原作 press ❎ to restart；
-    -- 本移植死亡重启走 Menu。CJK 8px/字、ASCII 4px/字：按_ =12、开始键 =24、_重新开始 =36）
-    local restart_x = 28
-    print("按 ", ((restart_x)*2), ((110 - slide_offset)*2), COL[7])
-    print("开始键", ((restart_x + 12)*2), ((110 - slide_offset)*2), COL[8])
-    print(" 重新开始", ((restart_x + 36)*2), ((110 - slide_offset)*2), COL[7])
+    -- restart prompt - centered（原作 press ❎ to restart；本移植死亡重启走 Menu）
+    local restart_s = btnicon("menu") .. " 重新开始"
+    print(restart_s, ((256 - tw(restart_s)) / 2), ((110 - slide_offset)*2), COL[7])
     return
   end
 
@@ -1390,8 +1393,11 @@ function _draw()
     local current_upgrade = offered_upgrades[selected_card]
     if current_upgrade then
       -- Fusion 比例步进，用 tw 计宽居中（#str 是字节数，不适用）
-      print(current_upgrade.name, ((256 - tw(current_upgrade.name)) / 2), ((118)*2), COL[7])
+      print(current_upgrade.name, ((256 - tw(current_upgrade.name)) / 2), ((115)*2), COL[7])
     end
+    -- 升级选择操作提示（一行图标）
+    local pick = btnicon("dpad") .. " 选择　" .. btnicon("b") .. " 确认"
+    print(pick, ((256 - tw(pick)) / 2), ((122)*2), COL[0])
   end
 
   -- update collected xp gems positions

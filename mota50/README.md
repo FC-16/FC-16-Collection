@@ -35,7 +35,7 @@
 
 同段内换层 BGM 连续播放（不重头起），段切换自动换曲——与 tswKai 的
 BGM 改进行为一致。转录管线见 `../magetower/midi_arrange.py`（声部分类：
-主音/副旋律/贝斯/鼓，每曲 6-8 小节循环，SFX/Pattern 内容寻址去重）。
+主音/副旋律/贝斯/鼓，每曲 6-8 小节循环，SFX/MUSIC 行内容寻址去重）。
 如实申报：四芯片声道无法还原原曲全部声部，低声部以贝斯波近似。
 
 ## 美术与数据
@@ -50,13 +50,13 @@ BGM 改进行为一致。转录管线见 `../magetower/midi_arrange.py`（声部
 ## 重建
 
 ```bash
-python demo/magetower/convert_art.py             # 生成美术块写入两张卡带源
-python demo/magetower/transcribe_music.py mota50 # MIDI 精确转录写入本卡带源
-python demo/magetower/verify_music.py mota50     # 渲染验收（相似度应 ≥0.55）
+python magetower/convert_art.py             # 生成美术块写入两张卡带源
+python magetower/transcribe_music.py mota50 # MIDI 精确转录写入本卡带源
+python magetower/verify_music.py mota50     # 渲染验收（相似度应 ≥0.55）
 cargo run -p fc16-tools --bin fc16mk -- --name "50层魔塔" --author "FrostMiKu" \
-  --version 1 --save-id mota50 --code demo/mota50/mota50.lua \
-  --out demo/mota50/mota50.fc16 --png demo/mota50/mota50.fc16.png --cover 120
-cargo run -p fc16-host -- demo/mota50/mota50.fc16
+  --version 1 --save-id mota50 --code mota50/mota50.lua \
+  --out mota50/mota50.fc16 --png carts/mota50.fc16.png --cover 30
+cargo run -p fc16-host -- mota50/mota50.fc16
 ```
 
 音频源（MIDI/MP3 留档与 tswKai 整合包下载说明）见 `../magetower/README.md`；

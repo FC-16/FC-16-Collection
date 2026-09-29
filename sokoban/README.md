@@ -32,7 +32,7 @@
 SFX 与 BGM 均由 `_init` 程序化写入：脚步、推箱、归位、无效推、悔棋、
 菜单、过关号角、终章号角、死锁警示共 11 条音效；BGM 为 A 小调八小节
 平静循环（Am-F-C-G × 2，旋律 SQUARE / 贝斯 BASS / 和声 ORGAN 三声部，
-8 个 Pattern 以 BEGIN/END 回环），Select 随时开关并存档。
+8 行 MUSIC 以 LOOP_START/LOOP_BACK 回环），Select 随时开关并存档。
 
 ## 操作
 
@@ -57,15 +57,15 @@ SFX 与 BGM 均由 `_init` 程序化写入：脚步、推箱、归位、无效�
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "推箱子" --author "FrostMiKu" \
-  --version 1 --save-id sokoban --code demo/sokoban/sokoban.lua --cover 60 \
-  --out demo/sokoban/sokoban.fc16 --png demo/sokoban/sokoban.fc16.png
-cargo run -p fc16-host -- demo/sokoban/sokoban.fc16
+  --version 1 --save-id sokoban --code sokoban/sokoban.lua --cover 30 \
+  --out sokoban/sokoban.fc16 --png carts/sokoban.fc16.png
+cargo run -p fc16-host -- sokoban/sokoban.fc16
 ```
 
 开发期验证（headless + 输入脚本）：
 
 ```bash
-cargo run -p fc16-host -- demo/sokoban/sokoban.fc16 --frames 400 \
+cargo run -p fc16-host -- sokoban/sokoban.fc16 --frames 400 \
   --screenshot out.png
 ```
 

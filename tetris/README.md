@@ -2,7 +2,7 @@
 
 经典拼块下落游戏。10×20 井、标准七种方块与 7-bag 随机袋，完整实现
 简化踢墙旋转、幽灵落点、暂存换块、三格预告、软硬降计分、触底锁定延迟
-与消行动画。精灵表与全部 SFX/PATTERN 数据由 `_init` 程序化 poke 写入，
+与消行动画。精灵表与全部 SFX/MUSIC 数据由 `_init` 程序化 poke 写入，
 卡带不携带二进制资产。
 
 ## 玩法与规则
@@ -29,8 +29,8 @@ S 绿、Z 红、J 蓝、L 橙），方块由烘焙精灵绘制，带高光、暗
 音频：14 条游戏音效（移动 / 旋转 / 软降 / 硬降 / 锁定 / 消行 / 四消三通道
 庆祝 / 升级 / 结束 / 开始 / 暂停 / 暂存）+ Korobeiniki（俄罗斯民谣，公有
 领域）A+B 双段 16 小节循环 BGM：旋律（ROUND）、琶音垫（TRIANGLE）、
-贝斯（BASS）与鼓组四声部，每小节一条 32 步 SFX，经 16 个 PATTERN 以
-BEGIN/END 回环；Select 随时开关。
+贝斯（BASS）与鼓组四声部，每小节一条 32 步 SFX，经 16 行 MUSIC 以
+LOOP_START/LOOP_BACK 回环；Select 随时开关。
 
 ## 操作
 
@@ -51,15 +51,15 @@ BEGIN/END 回环；Select 随时开关。
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "俄罗斯方块" --author "FrostMiKu" \
-  --version 1 --save-id tetris --code demo/tetris/tetris.lua --cover 125 \
-  --out demo/tetris/tetris.fc16 --png demo/tetris/tetris.fc16.png
-cargo run -p fc16-host -- demo/tetris/tetris.fc16
+  --version 1 --save-id tetris --code tetris/tetris.lua --cover 30 \
+  --out tetris/tetris.fc16 --png carts/tetris.fc16.png
+cargo run -p fc16-host -- tetris/tetris.fc16
 ```
 
 headless 验证（封面取第 125 帧标题画面；headless 不带 `--seed` 时每 run
 随机种子，复现请显式传 `--seed`）：
 
 ```bash
-cargo run -p fc16-host -- demo/tetris/tetris.fc16 --frames 400 --seed 1 \
+cargo run -p fc16-host -- tetris/tetris.fc16 --frames 400 --seed 1 \
   --screenshot out.png --wav out.wav
 ```

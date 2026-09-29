@@ -46,8 +46,8 @@ FC-16 幻想主机上的完整黑白棋（Reversi/Othello）演示卡带：标�
 - **HUD**：右侧信息板（双方棋数 + 黑白比例条 + 当前手脉动指示灯 +
   难度 / 用时 / 手数），顶栏回合状态，底栏轮换提示行。
 - **音频**：落子 / 翻转 / 非法 / 跳过 / 胜负和 SFX + 原创 D 小调安静棋类
-  BGM（4 小节循环，ch4 旋律 ROUND + ch5 贝斯 BASS，Pattern 0-3 回环），
-  全部 SFX/PATTERN 由 `_init` 程序化烘焙（SPEC §4.2/§5.2）。
+  BGM（4 小节循环，ch4 旋律 ROUND + ch5 贝斯 BASS，MUSIC 行 0-3 回环），
+  全部 SFX/MUSIC 由 `_init` 程序化烘焙（SPEC §4.2/§5.2）。
 - **终局面板**：黑白子数对比条 + 胜负大字 + 各难度战绩（本难度行高亮，
   获胜闪"★"），Ⓐ 再来一局、Start 回标题。
 
@@ -55,17 +55,17 @@ FC-16 幻想主机上的完整黑白棋（Reversi/Othello）演示卡带：标�
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "黑白棋" --author "FrostMiKu" \
-  --version 1 --code demo/reversi/reversi.lua --cover 120 \
-  --out demo/reversi/reversi.fc16 --png demo/reversi/reversi.fc16.png
-cargo run -p fc16-host -- demo/reversi/reversi.fc16
+  --version 1 --code reversi/reversi.lua --cover 30 \
+  --out reversi/reversi.fc16 --png carts/reversi.fc16.png
+cargo run -p fc16-host -- reversi/reversi.fc16
 ```
 
 headless 验证（截图 + 输入脚本）：
 
 ```bash
-cargo run -p fc16-host -- demo/reversi/reversi.fc16 --frames 300 \
+cargo run -p fc16-host -- reversi/reversi.fc16 --frames 300 \
   --screenshot out.png
 printf '60 key 4\n62 key -\n100 key 4\n102 key -\n' > script.txt
-cargo run -p fc16-host -- demo/reversi/reversi.fc16 --frames 900 \
+cargo run -p fc16-host -- reversi/reversi.fc16 --frames 900 \
   --screenshot out.png --script script.txt
 ```

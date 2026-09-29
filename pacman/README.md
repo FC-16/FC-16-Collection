@@ -51,16 +51,16 @@
 
 音频：吃豆双音交替、惊恐警报循环、吃鬼上冲、死亡下滑、水果、加命、
 开场小旋律、过关闪屏，全部由 `_init` 程序化写入 SFX 区；
-BGM 为原创 A 小调四小节行进（Am-F-G-E），旋律/贝斯/琶音三声部 Pattern 回环，
+BGM 为原创 A 小调四小节行进（Am-F-G-E），旋律/贝斯/琶音三声部 MUSIC 行回环，
 占用 ch5-7，事件音效固定在 ch0-4。
 
 ## 构建与运行
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "吃豆人" --author "FrostMiKu" \
-  --version 1 --save-id pacman --code demo/pacman/pacman.lua --cover 45 \
-  --out demo/pacman/pacman.fc16 --png demo/pacman/pacman.fc16.png
-cargo run -p fc16-host -- demo/pacman/pacman.fc16
+  --version 1 --save-id pacman --code pacman/pacman.lua --cover 30 \
+  --out pacman/pacman.fc16 --png carts/pacman.fc16.png
+cargo run -p fc16-host -- pacman/pacman.fc16
 ```
 
 无二进制资产：墙瓦（16 种连接掩码）、水果（8 种）由 `_init` 逐像素烘焙进精灵表，

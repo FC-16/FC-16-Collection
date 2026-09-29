@@ -36,7 +36,7 @@ FC-16 幻想主机上的完整贪吃蛇演示卡带：三种模式、三档速�
 ## 音频
 
 8 声部芯片配器：旋律 ROUND、琶音 TRIANGLE、贝斯 BASS、鼓组（长/短噪声），
-PATTERN 0-7 以 BEGIN/END 回环，占 ch4-7；游戏音效走 ch0-2。BGM 为原创
+MUSIC 行 0-7 以 LOOP_START/LOOP_BACK 回环，占 ch4-7；游戏音效走 ch0-2。BGM 为原创
 A 小调五声 8 小节循环。吃食音高随连吃次数上升，死亡为下滑锯齿，
 新纪录有独立号角旋律。
 
@@ -44,16 +44,16 @@ A 小调五声 8 小节循环。吃食音高随连吃次数上升，死亡为下
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "贪吃蛇" --author "FrostMiKu" \
-  --version 1 --save-id snake --code demo/snake/snake.lua --cover 140 \
-  --out demo/snake/snake.fc16 --png demo/snake/snake.fc16.png
-cargo run -p fc16-host -- demo/snake/snake.fc16
+  --version 1 --save-id snake --code snake/snake.lua --cover 30 \
+  --out snake/snake.fc16 --png carts/snake.fc16.png
+cargo run -p fc16-host -- snake/snake.fc16
 ```
 
 headless 验证（零输入 400 帧 + 输入脚本长跑，注意 seed 0 会被宿主映射为
 随机种子，固定请用 `--seed 1`）：
 
 ```bash
-cargo run -p fc16-host -- demo/snake/snake.fc16 --frames 400 --screenshot out.png
-cargo run -p fc16-host -- demo/snake/snake.fc16 --frames 6100 --seed 4 \
+cargo run -p fc16-host -- snake/snake.fc16 --frames 400 --screenshot out.png
+cargo run -p fc16-host -- snake/snake.fc16 --frames 6100 --seed 4 \
   --script script.txt --screenshot out.png
 ```

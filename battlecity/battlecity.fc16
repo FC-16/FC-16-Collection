@@ -6,12 +6,23 @@ version: 1
 flags: 0
 icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
 @sprites 0
-@map 0
+@maps 0
 @sfx 0
-@patterns 0
+@waveforms 0
+@instruments 0
+@music 2080
+0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
-@free 0
-@code 56684
+@custom 0
+@code 61645
 -- 坦克大战（FC-16）・ 致敬 Battle City 的原创重制
 -- 玩法与关卡布局忠实还原经典（关卡数据还原自原作 ROM 出厂表）；
 -- 像素美术与音乐为本卡带原创，以 FC-16 出厂 64 色自绘。
@@ -21,7 +32,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 -- 砖墙以 8×8 半格为破坏粒度；钢墙挡弹（3 级火力可摧毁）；
 -- 水挡车不挡弹；树冠盖在坦克上层；冰面带惯性滑行。
 --
--- 操作：←↑↓→ 移动・Ⓐ 开火・Menu 暂停・View 音乐开关
+-- 操作：dpad 移动・A 开火・Menu 暂停・View 音乐开关
 
 -- ================================================================ 常量
 
@@ -576,24 +587,63 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+-- notes: 音高表（旧固件 1-96，0=休止）；wave 旧固件音色，经 WMAP 映射到新来源
 local function init_sfx(id, notes, wave, vol, speed, loop_from)
-  local base = 0x060000 + id * 112
-  u8(base, speed or 2)
-  u8(base + 1, #notes)
+  local base = 0x0C0000 + id * 144
+  local sp = speed or 2
+  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
   if loop_from then
-    u8(base + 2, loop_from)
-    u8(base + 3, #notes)
-    u8(base + 4, 1)
+    u8(base + 3, loop_from)
+    u8(base + 4, #notes - 1)  -- 旧 loop_end 排他 → 新包含
+    u8(base + 5, 1)
   end
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      u8(a, notes[i + 1])
-      u8(a + 1, wave * 16 + vol)
-      u8(a + 2, 0)
+    local a = base + 16 + i * 4
+    if i < #notes and notes[i + 1] > 0 then
+      u8(a, notes[i + 1] - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
@@ -613,7 +663,9 @@ local BASS = {  -- 每小节 4 个四分音符
   { 34, 34, 29, 29 }, { 34, 29, 34, 34 }, { 30, 30, 37, 37 }, { 32, 32, 35, 35 },
 }
 
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 local function init_audio()
+  init_waveforms()
   init_sfx(0, { 78, 70 }, 3, 10, 1)               -- 开火
   init_sfx(1, { 45, 33 }, 15, 12, 1)              -- 击砖
   init_sfx(2, { 90, 0, 87 }, 5, 7, 1)             -- 击钢弹开
@@ -653,12 +705,15 @@ local function init_audio()
       drum[#drum + 1] = n
     end
     init_sfx(32 + bar, drum, 15, 9, 4)
-    local mb = 0x063800 + bar * 16
-    u8(mb + 4, 17 + bar)
-    u8(mb + 5, 25 + bar)
-    u8(mb + 6, 33 + bar)
-    u8(mb + 8, (bar == 0 and 1 or 0) + (bar == 7 and 2 or 0))
+    local mb = MUSIC_BASE + 32 + bar * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end
+    u8(mb + 4, 16 + bar)
+    u8(mb + 5, 24 + bar)
+    u8(mb + 6, 32 + bar)
+    if bar == 0 then u8(mb + 16, 1) end    -- LOOP_START：循环起点
+    if bar == 7 then u8(mb + 17, 1) end    -- LOOP_BACK：回到 LOOP_START
   end
+  u8(MUSIC_BASE, 8)  -- 全表 LEN = 8 行
 end
 
 -- ================================================================ 地形
@@ -1421,7 +1476,7 @@ local function draw_top()
   print(hs, PX - 4 - tw(hs), 4, 23)
   if G.bgm then print("♪", PX - 16 - tw(hs), 4, 41) end
   line(0, 23, PX - 1, 23, 11)
-  local h = "←↑↓→ 移动・Ⓐ 开火"
+  local h = btnicon("dpad") .. " 移动・" .. btnicon("a") .. " 开火"
   print(h, flr((PX - tw(h)) / 2), 240, 9)
   line(0, 233, PX - 1, 233, 11)
 end
@@ -1477,14 +1532,14 @@ end
 local function draw_pause_overlay()
   fillp(0xa5a5)
   rectfill(24, 64, 160, 128, 15 * 256 + 0)
-  fillp()
+  fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
   rect(24, 64, 160, 128, 30)
   local s = "暂停"
   print(s, flr((256 - tw(s)) / 2), 72, 31)
   local lines = {
-    "←↑↓→ 移动・Ⓐ 开火",
-    "Menu 继续",
-    "View 音乐开关",
+    btnicon("dpad") .. " 移动・" .. btnicon("a") .. " 开火",
+    btnicon("menu") .. " 继续",
+    btnicon("view") .. " 音乐开关",
     "护基地・灭 20 辆过关",
   }
   for i = 1, 4 do
@@ -1493,44 +1548,67 @@ local function draw_pause_overlay()
   end
 end
 
+-- Splash：纯主视觉封面（0-90 帧）——主角坦克正面大特写 + 砖墙 + 星，零菜单零提示
+local function draw_splash()
+  cls(0)
+  -- 大 logo（scale 3 金字 + 投影）
+  local s = "坦克大战"
+  local tx = flr((256 - tw(s, 3)) / 2)
+  print(s, tx + 4, 26, 0, 3)
+  print(s, tx, 22, 30, 3)
+  -- 英雄画面：主角坦克 ×7 正面特写（履带滚动），金星道具悬于侧上
+  local bx, by = torg(40)                       -- 砖
+  local pf = flr(t / 6) % 2
+  local psx, psy = torg(pf)                     -- 玩家朝上两幀
+  local sbx, sby = torg(51)                     -- 金星道具
+  local bob = flr(sin(t / 18) * 3)
+  rectfill(58, 202, 140, 4, 27)                 -- 砖墙上的落影
+  sspr(sbx, sby, 16, 16, 180, 64 + bob, 32, 32) -- 金星
+  sspr(psx, psy, 16, 16, 72, 88, 112, 112)      -- 主角坦克大特写
+  -- 砖墙基座
+  for ry = 0, 3 do
+    for hx = 0, 31 do
+      sspr(bx + (hx % 2) * 8, by + (ry % 2) * 8, 8, 8, hx * 8, 200 + ry * 8)
+    end
+  end
+end
+
 local function draw_title()
   cls(0)
+  -- 上下砖带（封面构图：砖墙战场）
   local wx, wy = torg(40)
-  for hx = 0, 25 do
-    sspr(wx + (hx % 2) * 8, wy, 8, 8, hx * 8, 6)
-    sspr(wx + (hx % 2) * 8, wy + 8, 8, 8, hx * 8, 246)
+  for hx = 0, 31 do
+    for ry = 0, 1 do
+      sspr(wx + (hx % 2) * 8, wy + ry * 8, 8, 8, hx * 8, ry * 8)
+      sspr(wx + (hx % 2) * 8, wy + ry * 8, 8, 8, hx * 8, 240 + ry * 8)
+    end
   end
-  -- 标题
-  print("坦克大战", 98, 46, 62)
-  print("坦克大战", 96, 44, 30)
-  rect(88, 36, 80, 30, 28)
+  -- 大标题（scale 3 金字 + 投影）
+  local s = "坦克大战"
+  local tx = flr((256 - tw(s, 3)) / 2)
+  print(s, tx + 2, 32, 0, 3)
+  print(s, tx, 30, 30, 3)
   local sub = "FC-16 TRIBUTE"
-  print(sub, flr((256 - tw(sub)) / 2), 76, 24)
+  print(sub, flr((256 - tw(sub)) / 2), 70, 24)
+  -- 主角坦克剪影（×3 放大，履带滚动）
+  local pf = flr(t / 6) % 2
+  local psx, psy = torg(pf)
+  sspr(psx, psy, 16, 16, 104, 96, 48, 48)
   -- 敌型悬赏表
-  print("敌军悬赏", flr((256 - tw("敌军悬赏")) / 2), 94, 9)
+  print("敌军悬赏", flr((256 - tw("敌军悬赏")) / 2), 148, 9)
   for i = 1, 4 do
     local x = 36 + (i - 1) * 48
-    spr(EBASE[i] + 4, x, 112)
-    local s = "" .. ESCORE[i]
-    print(s, x + 16 - tw(s) / 2, 130, 23)
+    spr(EBASE[i] + 4, x, 162)
+    local sc = "" .. ESCORE[i]
+    print(sc, x + 16 - tw(sc) / 2, 180, 23)
   end
-  -- 巡逻队列（履带滚动）
-  local pf = flr(t / 6) % 2
-  for i = 0, 3 do
-    local x = (t * 0.5 + i * 56) % (256 + 64) - 32
-    spr(EBASE[i + 1] + 2 + pf, flr(x), 150)
-  end
-  -- 提示与记录
-  if flr(t / 30) % 2 == 0 then
-    local s = "按 Ⓐ 开始"
-    print(s, flr((256 - tw(s)) / 2), 172, 7)
-  end
-  local f = "View 音乐开关"
-  print(f, flr((256 - tw(f)) / 2), 190, 5)
-  local r1 = "最高 " .. G.hi .. " 分"
-  local r2 = "最远 第 " .. G.fstage .. " 关"
-  print(r1, flr((256 - tw(r1)) / 2), 212, 23)
-  print(r2, flr((256 - tw(r2)) / 2), 228, 23)
+  -- 一行图标提示（稳定不闪）
+  local h = btnicon("dpad") .. " 移动　" .. btnicon("a") .. " 开火・开始"
+  print(h, flr((256 - tw(h)) / 2) + 1, 202, 1)
+  print(h, flr((256 - tw(h)) / 2), 201, 7)
+  -- 纪录与署名（底部一行小字）
+  local r = "最高 " .. G.hi .. " ・ 最远 第 " .. G.fstage .. " 关 ・ FrostMiKu"
+  print(r, flr((256 - tw(r)) / 2), 222, 23)
 end
 
 local function draw_tally()
@@ -1571,7 +1649,7 @@ local function draw_tally()
     local s2 = "合计 " .. total
     print(s2, flr((256 - tw(s2)) / 2), 184, 31)
     if flr(t / 20) % 2 == 0 then
-      local s3 = "按 Ⓐ 继续"
+      local s3 = "按 " .. btnicon("a") .. " 继续"
       print(s3, flr((256 - tw(s3)) / 2), 220, 7)
     end
   end
@@ -1587,10 +1665,10 @@ local function draw_over()
   local l2 = "得分 " .. G.score .. "・最高 " .. G.hi
   print(l2, flr((256 - tw(l2)) / 2), 128, 23)
   if flr(t / 20) % 2 == 0 then
-    local a = "Ⓐ 续关（本关重来・分数清零）"
+    local a = btnicon("a") .. " 续关（本关重来・分数清零）"
     print(a, flr((256 - tw(a)) / 2), 168, 30)
   end
-  local b = "Menu 返回标题"
+  local b = btnicon("menu") .. " 返回标题"
   print(b, flr((256 - tw(b)) / 2), 192, 9)
 end
 
@@ -1616,7 +1694,7 @@ local function draw_victory()
   local l3 = "最高 " .. G.hi .. " 分"
   print(l3, flr((256 - tw(l3)) / 2), 168, 23)
   if flr(t / 20) % 2 == 0 then
-    local s = "按 Menu 返回标题"
+    local s = btnicon("menu") .. " 返回标题"
     print(s, flr((256 - tw(s)) / 2), 208, 7)
   end
 end
@@ -1625,7 +1703,7 @@ end
 
 function _init()
   G = {
-    state = "title", p = nil, foes = {}, buls = {}, booms = {}, parts = {},
+    state = "splash", p = nil, foes = {}, buls = {}, booms = {}, parts = {},
     pops = {}, stars = {}, item = nil,
     score = 0, hi = 0, lives = 3, stage = 1, fstage = 0, cpower = 0,
     kills = { 0, 0, 0, 0 }, itc = 0,
@@ -1655,7 +1733,12 @@ end
 function _update()
   t = t + 1
   local st = G.state
-  if st == "title" then
+  if st == "splash" then
+    -- 开机封面：90 帧后（或 Ⓐ / Menu）进交互菜单
+    if t > 90 or btnp(4) or btnp(11) then
+      G.state = "title"
+    end
+  elseif st == "title" then
     if btnp(4) or btnp(11) then new_campaign() end
     if btnp(10) then toggle_bgm() end
   elseif st == "intro" then
@@ -1729,7 +1812,9 @@ function _draw()
     camera(flr(rnd(5)) - 2, flr(rnd(5)) - 2)
   end
   local st = G.state
-  if st == "title" then
+  if st == "splash" then
+    draw_splash()
+  elseif st == "title" then
     draw_title()
   elseif st == "intro" then
     draw_play()

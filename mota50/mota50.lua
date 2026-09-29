@@ -900,21 +900,59 @@ local TK = {
 -- 各曲速度/小节数见 transcribe_music.py 的 TRACKS 与运行输出。
 local function u8(a, v) poke(a, v % 256) end
 
--- steps: {{音高, 波形, 音量, 效果?}, ...}；音高 0 = 休止；1-96 = C0-B7
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+-- steps: {{音高, 音色, 音量, 效果?}, ...}；音高 0 = 休止；旧 1-96 = C0-B7
+-- 音高为旧固件值，写卡带前换算为新 0-95 并用音量 0 表休止
 local function sfx_steps(id, speed, steps)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, #steps)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #steps)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
+    local a = base + 16 + i * 4
     local st = steps[i + 1]
-    if st then
-      u8(a, st[1] or 0)
-      u8(a + 1, (st[2] or 0) * 16 + (st[3] or 0))
-      u8(a + 2, st[4] or 0)
+    if st and (st[1] or 0) > 0 then
+      u8(a, st[1] - 1)
+      u8(a + 1, WMAP[st[2] or 0])
+      u8(a + 2, st[3] or 0)
+      u8(a + 3, st[4] or 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
@@ -922,12 +960,13 @@ end
 local S_STEP, S_DOOR, S_PICK, S_GEM, S_FIGHT, S_KILL, S_DENY = 0, 1, 2, 3, 4, 5, 6
 local S_BOSS, S_WIN, S_LOSE, S_SAVE, S_MENU, S_BUY, S_STAIR = 7, 8, 9, 10, 11, 12, 13
 
--- BGM 曲目表（Pattern 起始号，全局）
+-- BGM 曲目表（MUSIC 行起始号，全局）
 P_TITLE, P_F1_10, P_F11_20, P_F21_30, P_F31_40, P_F41_49, P_F50, P_END50 = 0, 4, 9, 12, 16, 20, 24, 29
 -- 机器可读曲目表（verify_music.py 用）：名=起始:段数:speed
 -- TRACKS: P_TITLE=0:4:12, P_F1_10=4:5:13, P_F11_20=9:3:6, P_F21_30=12:4:7, P_F31_40=16:4:9, P_F41_49=20:4:10, P_F50=24:5:8, P_END50=29:4:10
 
 local function init_audio()
+  init_waveforms()
   sfx_steps(0, 1, {{49, 14, 4, 0}, {44, 14, 3, 0}})
   sfx_steps(1, 1, {{65, 3, 8, 0}, {70, 3, 7, 1}, {73, 3, 5, 3}})
   sfx_steps(2, 1, {{85, 10, 8, 0}, {92, 10, 8, 0}})
@@ -1029,153 +1068,149 @@ local function init_audio()
   sfx_steps(98, 10, {{68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}, {68, 6, 5, 0}})
   sfx_steps(99, 10, {{0}, {0}, {0}, {0}, {0}, {0}, {75, 4, 9, 0}, {87, 4, 9, 0}, {0}, {70, 4, 9, 0}, {87, 4, 9, 0}, {0}, {75, 4, 9, 0}, {87, 4, 9, 0}, {0}, {70, 4, 9, 0}, {87, 4, 9, 0}, {0}, {67, 4, 9, 0}, {79, 4, 9, 0}, {87, 4, 9, 0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}})
   sfx_steps(100, 10, {{67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}, {67, 6, 5, 0}})
-  local mb = 0x063800
+  local mb = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+  for r = 0, 32 do
+    for c = 0, 7 do u8(mb + 32 + r * 32 + c, 0xFF) end  -- 空轨写 0xFF（0 是合法 SFX 号）
+  end
 
-  u8(mb + 0 * 16 + 0, 15)  -- ch0 ← SFX 14
-  u8(mb + 0 * 16 + 1, 16)  -- ch1 ← SFX 15
-  u8(mb + 0 * 16 + 2, 17)  -- ch2 ← SFX 16
-  u8(mb + 0 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 1 * 16 + 0, 18)  -- ch0 ← SFX 17
-  u8(mb + 1 * 16 + 1, 19)  -- ch1 ← SFX 18
-  u8(mb + 1 * 16 + 2, 20)  -- ch2 ← SFX 19
-  u8(mb + 1 * 16 + 8, 0)  -- 
-  u8(mb + 2 * 16 + 0, 21)  -- ch0 ← SFX 20
-  u8(mb + 2 * 16 + 1, 22)  -- ch1 ← SFX 21
-  u8(mb + 2 * 16 + 2, 23)  -- ch2 ← SFX 22
-  u8(mb + 2 * 16 + 8, 0)  -- 
-  u8(mb + 3 * 16 + 0, 24)  -- ch0 ← SFX 23
-  u8(mb + 3 * 16 + 1, 25)  -- ch1 ← SFX 24
-  u8(mb + 3 * 16 + 2, 26)  -- ch2 ← SFX 25
-  u8(mb + 3 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 4 * 16 + 0, 27)  -- ch0 ← SFX 26
-  u8(mb + 4 * 16 + 1, 28)  -- ch1 ← SFX 27
-  u8(mb + 4 * 16 + 2, 29)  -- ch2 ← SFX 28
-  u8(mb + 4 * 16 + 4, 30)  -- ch4 ← SFX 29
-  u8(mb + 4 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 5 * 16 + 0, 31)  -- ch0 ← SFX 30
-  u8(mb + 5 * 16 + 1, 32)  -- ch1 ← SFX 31
-  u8(mb + 5 * 16 + 2, 33)  -- ch2 ← SFX 32
-  u8(mb + 5 * 16 + 4, 34)  -- ch4 ← SFX 33
-  u8(mb + 5 * 16 + 8, 0)  -- 
-  u8(mb + 6 * 16 + 0, 35)  -- ch0 ← SFX 34
-  u8(mb + 6 * 16 + 1, 36)  -- ch1 ← SFX 35
-  u8(mb + 6 * 16 + 2, 37)  -- ch2 ← SFX 36
-  u8(mb + 6 * 16 + 4, 38)  -- ch4 ← SFX 37
-  u8(mb + 6 * 16 + 8, 0)  -- 
-  u8(mb + 7 * 16 + 0, 39)  -- ch0 ← SFX 38
-  u8(mb + 7 * 16 + 1, 40)  -- ch1 ← SFX 39
-  u8(mb + 7 * 16 + 2, 33)  -- ch2 ← SFX 32
-  u8(mb + 7 * 16 + 4, 41)  -- ch4 ← SFX 40
-  u8(mb + 7 * 16 + 8, 0)  -- 
-  u8(mb + 8 * 16 + 0, 42)  -- ch0 ← SFX 41
-  u8(mb + 8 * 16 + 1, 43)  -- ch1 ← SFX 42
-  u8(mb + 8 * 16 + 2, 44)  -- ch2 ← SFX 43
-  u8(mb + 8 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 9 * 16 + 0, 45)  -- ch0 ← SFX 44
-  u8(mb + 9 * 16 + 1, 46)  -- ch1 ← SFX 45
-  u8(mb + 9 * 16 + 2, 47)  -- ch2 ← SFX 46
-  u8(mb + 9 * 16 + 4, 48)  -- ch4 ← SFX 47
-  u8(mb + 9 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 10 * 16 + 0, 45)  -- ch0 ← SFX 44
-  u8(mb + 10 * 16 + 1, 46)  -- ch1 ← SFX 45
-  u8(mb + 10 * 16 + 2, 47)  -- ch2 ← SFX 46
-  u8(mb + 10 * 16 + 4, 48)  -- ch4 ← SFX 47
-  u8(mb + 10 * 16 + 8, 0)  -- 
-  u8(mb + 11 * 16 + 0, 45)  -- ch0 ← SFX 44
-  u8(mb + 11 * 16 + 1, 49)  -- ch1 ← SFX 48
-  u8(mb + 11 * 16 + 2, 47)  -- ch2 ← SFX 46
-  u8(mb + 11 * 16 + 4, 48)  -- ch4 ← SFX 47
-  u8(mb + 11 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 12 * 16 + 0, 50)  -- ch0 ← SFX 49
-  u8(mb + 12 * 16 + 2, 51)  -- ch2 ← SFX 50
-  u8(mb + 12 * 16 + 4, 52)  -- ch4 ← SFX 51
-  u8(mb + 12 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 13 * 16 + 0, 53)  -- ch0 ← SFX 52
-  u8(mb + 13 * 16 + 2, 51)  -- ch2 ← SFX 50
-  u8(mb + 13 * 16 + 4, 54)  -- ch4 ← SFX 53
-  u8(mb + 13 * 16 + 8, 0)  -- 
-  u8(mb + 14 * 16 + 0, 55)  -- ch0 ← SFX 54
-  u8(mb + 14 * 16 + 2, 51)  -- ch2 ← SFX 50
-  u8(mb + 14 * 16 + 4, 56)  -- ch4 ← SFX 55
-  u8(mb + 14 * 16 + 8, 0)  -- 
-  u8(mb + 15 * 16 + 0, 57)  -- ch0 ← SFX 56
-  u8(mb + 15 * 16 + 2, 51)  -- ch2 ← SFX 50
-  u8(mb + 15 * 16 + 4, 58)  -- ch4 ← SFX 57
-  u8(mb + 15 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 16 * 16 + 0, 59)  -- ch0 ← SFX 58
-  u8(mb + 16 * 16 + 2, 60)  -- ch2 ← SFX 59
-  u8(mb + 16 * 16 + 4, 61)  -- ch4 ← SFX 60
-  u8(mb + 16 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 17 * 16 + 0, 62)  -- ch0 ← SFX 61
-  u8(mb + 17 * 16 + 2, 60)  -- ch2 ← SFX 59
-  u8(mb + 17 * 16 + 4, 61)  -- ch4 ← SFX 60
-  u8(mb + 17 * 16 + 8, 0)  -- 
-  u8(mb + 18 * 16 + 0, 63)  -- ch0 ← SFX 62
-  u8(mb + 18 * 16 + 1, 64)  -- ch1 ← SFX 63
-  u8(mb + 18 * 16 + 2, 65)  -- ch2 ← SFX 64
-  u8(mb + 18 * 16 + 4, 66)  -- ch4 ← SFX 65
-  u8(mb + 18 * 16 + 8, 0)  -- 
-  u8(mb + 19 * 16 + 0, 67)  -- ch0 ← SFX 66
-  u8(mb + 19 * 16 + 1, 64)  -- ch1 ← SFX 63
-  u8(mb + 19 * 16 + 2, 68)  -- ch2 ← SFX 67
-  u8(mb + 19 * 16 + 4, 69)  -- ch4 ← SFX 68
-  u8(mb + 19 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 20 * 16 + 0, 70)  -- ch0 ← SFX 69
-  u8(mb + 20 * 16 + 1, 71)  -- ch1 ← SFX 70
-  u8(mb + 20 * 16 + 2, 72)  -- ch2 ← SFX 71
-  u8(mb + 20 * 16 + 4, 73)  -- ch4 ← SFX 72
-  u8(mb + 20 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 21 * 16 + 0, 74)  -- ch0 ← SFX 73
-  u8(mb + 21 * 16 + 1, 75)  -- ch1 ← SFX 74
-  u8(mb + 21 * 16 + 2, 76)  -- ch2 ← SFX 75
-  u8(mb + 21 * 16 + 4, 77)  -- ch4 ← SFX 76
-  u8(mb + 21 * 16 + 8, 0)  -- 
-  u8(mb + 22 * 16 + 0, 78)  -- ch0 ← SFX 77
-  u8(mb + 22 * 16 + 1, 75)  -- ch1 ← SFX 74
-  u8(mb + 22 * 16 + 2, 79)  -- ch2 ← SFX 78
-  u8(mb + 22 * 16 + 4, 77)  -- ch4 ← SFX 76
-  u8(mb + 22 * 16 + 8, 0)  -- 
-  u8(mb + 23 * 16 + 0, 80)  -- ch0 ← SFX 79
-  u8(mb + 23 * 16 + 1, 75)  -- ch1 ← SFX 74
-  u8(mb + 23 * 16 + 2, 76)  -- ch2 ← SFX 75
-  u8(mb + 23 * 16 + 4, 77)  -- ch4 ← SFX 76
-  u8(mb + 23 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 24 * 16 + 0, 81)  -- ch0 ← SFX 80
-  u8(mb + 24 * 16 + 1, 82)  -- ch1 ← SFX 81
-  u8(mb + 24 * 16 + 2, 83)  -- ch2 ← SFX 82
-  u8(mb + 24 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 25 * 16 + 0, 84)  -- ch0 ← SFX 83
-  u8(mb + 25 * 16 + 1, 85)  -- ch1 ← SFX 84
-  u8(mb + 25 * 16 + 2, 86)  -- ch2 ← SFX 85
-  u8(mb + 25 * 16 + 8, 0)  -- 
-  u8(mb + 26 * 16 + 0, 87)  -- ch0 ← SFX 86
-  u8(mb + 26 * 16 + 1, 88)  -- ch1 ← SFX 87
-  u8(mb + 26 * 16 + 2, 89)  -- ch2 ← SFX 88
-  u8(mb + 26 * 16 + 8, 0)  -- 
-  u8(mb + 27 * 16 + 0, 90)  -- ch0 ← SFX 89
-  u8(mb + 27 * 16 + 1, 91)  -- ch1 ← SFX 90
-  u8(mb + 27 * 16 + 2, 92)  -- ch2 ← SFX 91
-  u8(mb + 27 * 16 + 8, 0)  -- 
-  u8(mb + 28 * 16 + 2, 93)  -- ch2 ← SFX 92
-  u8(mb + 28 * 16 + 8, 3)  -- BEGIN|END 回环
-  u8(mb + 29 * 16 + 1, 94)  -- ch1 ← SFX 93
-  u8(mb + 29 * 16 + 2, 95)  -- ch2 ← SFX 94
-  u8(mb + 29 * 16 + 4, 96)  -- ch4 ← SFX 95
-  u8(mb + 29 * 16 + 8, 1)  -- BEGIN
-  u8(mb + 30 * 16 + 0, 97)  -- ch0 ← SFX 96
-  u8(mb + 30 * 16 + 1, 98)  -- ch1 ← SFX 97
-  u8(mb + 30 * 16 + 2, 95)  -- ch2 ← SFX 94
-  u8(mb + 30 * 16 + 4, 96)  -- ch4 ← SFX 95
-  u8(mb + 30 * 16 + 8, 0)  -- 
-  u8(mb + 31 * 16 + 1, 99)  -- ch1 ← SFX 98
-  u8(mb + 31 * 16 + 2, 95)  -- ch2 ← SFX 94
-  u8(mb + 31 * 16 + 4, 96)  -- ch4 ← SFX 95
-  u8(mb + 31 * 16 + 8, 0)  -- 
-  u8(mb + 32 * 16 + 0, 100)  -- ch0 ← SFX 99
-  u8(mb + 32 * 16 + 1, 101)  -- ch1 ← SFX 100
-  u8(mb + 32 * 16 + 2, 95)  -- ch2 ← SFX 94
-  u8(mb + 32 * 16 + 4, 96)  -- ch4 ← SFX 95
-  u8(mb + 32 * 16 + 8, 3)  -- BEGIN|END 回环
+  u8(mb + 32 + 0 * 32 + 0, 14)  -- ch0 ← SFX 14
+  u8(mb + 32 + 0 * 32 + 1, 15)  -- ch1 ← SFX 15
+  u8(mb + 32 + 0 * 32 + 2, 16)  -- ch2 ← SFX 16
+  u8(mb + 32 + 0 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 1 * 32 + 0, 17)  -- ch0 ← SFX 17
+  u8(mb + 32 + 1 * 32 + 1, 18)  -- ch1 ← SFX 18
+  u8(mb + 32 + 1 * 32 + 2, 19)  -- ch2 ← SFX 19
+  u8(mb + 32 + 2 * 32 + 0, 20)  -- ch0 ← SFX 20
+  u8(mb + 32 + 2 * 32 + 1, 21)  -- ch1 ← SFX 21
+  u8(mb + 32 + 2 * 32 + 2, 22)  -- ch2 ← SFX 22
+  u8(mb + 32 + 3 * 32 + 0, 23)  -- ch0 ← SFX 23
+  u8(mb + 32 + 3 * 32 + 1, 24)  -- ch1 ← SFX 24
+  u8(mb + 32 + 3 * 32 + 2, 25)  -- ch2 ← SFX 25
+  u8(mb + 32 + 3 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 3 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 4 * 32 + 0, 26)  -- ch0 ← SFX 26
+  u8(mb + 32 + 4 * 32 + 1, 27)  -- ch1 ← SFX 27
+  u8(mb + 32 + 4 * 32 + 2, 28)  -- ch2 ← SFX 28
+  u8(mb + 32 + 4 * 32 + 4, 29)  -- ch4 ← SFX 29
+  u8(mb + 32 + 4 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 5 * 32 + 0, 30)  -- ch0 ← SFX 30
+  u8(mb + 32 + 5 * 32 + 1, 31)  -- ch1 ← SFX 31
+  u8(mb + 32 + 5 * 32 + 2, 32)  -- ch2 ← SFX 32
+  u8(mb + 32 + 5 * 32 + 4, 33)  -- ch4 ← SFX 33
+  u8(mb + 32 + 6 * 32 + 0, 34)  -- ch0 ← SFX 34
+  u8(mb + 32 + 6 * 32 + 1, 35)  -- ch1 ← SFX 35
+  u8(mb + 32 + 6 * 32 + 2, 36)  -- ch2 ← SFX 36
+  u8(mb + 32 + 6 * 32 + 4, 37)  -- ch4 ← SFX 37
+  u8(mb + 32 + 7 * 32 + 0, 38)  -- ch0 ← SFX 38
+  u8(mb + 32 + 7 * 32 + 1, 39)  -- ch1 ← SFX 39
+  u8(mb + 32 + 7 * 32 + 2, 32)  -- ch2 ← SFX 32
+  u8(mb + 32 + 7 * 32 + 4, 40)  -- ch4 ← SFX 40
+  u8(mb + 32 + 8 * 32 + 0, 41)  -- ch0 ← SFX 41
+  u8(mb + 32 + 8 * 32 + 1, 42)  -- ch1 ← SFX 42
+  u8(mb + 32 + 8 * 32 + 2, 43)  -- ch2 ← SFX 43
+  u8(mb + 32 + 8 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 8 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 9 * 32 + 0, 44)  -- ch0 ← SFX 44
+  u8(mb + 32 + 9 * 32 + 1, 45)  -- ch1 ← SFX 45
+  u8(mb + 32 + 9 * 32 + 2, 46)  -- ch2 ← SFX 46
+  u8(mb + 32 + 9 * 32 + 4, 47)  -- ch4 ← SFX 47
+  u8(mb + 32 + 9 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 10 * 32 + 0, 44)  -- ch0 ← SFX 44
+  u8(mb + 32 + 10 * 32 + 1, 45)  -- ch1 ← SFX 45
+  u8(mb + 32 + 10 * 32 + 2, 46)  -- ch2 ← SFX 46
+  u8(mb + 32 + 10 * 32 + 4, 47)  -- ch4 ← SFX 47
+  u8(mb + 32 + 11 * 32 + 0, 44)  -- ch0 ← SFX 44
+  u8(mb + 32 + 11 * 32 + 1, 48)  -- ch1 ← SFX 48
+  u8(mb + 32 + 11 * 32 + 2, 46)  -- ch2 ← SFX 46
+  u8(mb + 32 + 11 * 32 + 4, 47)  -- ch4 ← SFX 47
+  u8(mb + 32 + 11 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 11 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 12 * 32 + 0, 49)  -- ch0 ← SFX 49
+  u8(mb + 32 + 12 * 32 + 2, 50)  -- ch2 ← SFX 50
+  u8(mb + 32 + 12 * 32 + 4, 51)  -- ch4 ← SFX 51
+  u8(mb + 32 + 12 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 13 * 32 + 0, 52)  -- ch0 ← SFX 52
+  u8(mb + 32 + 13 * 32 + 2, 50)  -- ch2 ← SFX 50
+  u8(mb + 32 + 13 * 32 + 4, 53)  -- ch4 ← SFX 53
+  u8(mb + 32 + 14 * 32 + 0, 54)  -- ch0 ← SFX 54
+  u8(mb + 32 + 14 * 32 + 2, 50)  -- ch2 ← SFX 50
+  u8(mb + 32 + 14 * 32 + 4, 55)  -- ch4 ← SFX 55
+  u8(mb + 32 + 15 * 32 + 0, 56)  -- ch0 ← SFX 56
+  u8(mb + 32 + 15 * 32 + 2, 50)  -- ch2 ← SFX 50
+  u8(mb + 32 + 15 * 32 + 4, 57)  -- ch4 ← SFX 57
+  u8(mb + 32 + 15 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 15 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 16 * 32 + 0, 58)  -- ch0 ← SFX 58
+  u8(mb + 32 + 16 * 32 + 2, 59)  -- ch2 ← SFX 59
+  u8(mb + 32 + 16 * 32 + 4, 60)  -- ch4 ← SFX 60
+  u8(mb + 32 + 16 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 17 * 32 + 0, 61)  -- ch0 ← SFX 61
+  u8(mb + 32 + 17 * 32 + 2, 59)  -- ch2 ← SFX 59
+  u8(mb + 32 + 17 * 32 + 4, 60)  -- ch4 ← SFX 60
+  u8(mb + 32 + 18 * 32 + 0, 62)  -- ch0 ← SFX 62
+  u8(mb + 32 + 18 * 32 + 1, 63)  -- ch1 ← SFX 63
+  u8(mb + 32 + 18 * 32 + 2, 64)  -- ch2 ← SFX 64
+  u8(mb + 32 + 18 * 32 + 4, 65)  -- ch4 ← SFX 65
+  u8(mb + 32 + 19 * 32 + 0, 66)  -- ch0 ← SFX 66
+  u8(mb + 32 + 19 * 32 + 1, 63)  -- ch1 ← SFX 63
+  u8(mb + 32 + 19 * 32 + 2, 67)  -- ch2 ← SFX 67
+  u8(mb + 32 + 19 * 32 + 4, 68)  -- ch4 ← SFX 68
+  u8(mb + 32 + 19 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 19 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 20 * 32 + 0, 69)  -- ch0 ← SFX 69
+  u8(mb + 32 + 20 * 32 + 1, 70)  -- ch1 ← SFX 70
+  u8(mb + 32 + 20 * 32 + 2, 71)  -- ch2 ← SFX 71
+  u8(mb + 32 + 20 * 32 + 4, 72)  -- ch4 ← SFX 72
+  u8(mb + 32 + 20 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 21 * 32 + 0, 73)  -- ch0 ← SFX 73
+  u8(mb + 32 + 21 * 32 + 1, 74)  -- ch1 ← SFX 74
+  u8(mb + 32 + 21 * 32 + 2, 75)  -- ch2 ← SFX 75
+  u8(mb + 32 + 21 * 32 + 4, 76)  -- ch4 ← SFX 76
+  u8(mb + 32 + 22 * 32 + 0, 77)  -- ch0 ← SFX 77
+  u8(mb + 32 + 22 * 32 + 1, 74)  -- ch1 ← SFX 74
+  u8(mb + 32 + 22 * 32 + 2, 78)  -- ch2 ← SFX 78
+  u8(mb + 32 + 22 * 32 + 4, 76)  -- ch4 ← SFX 76
+  u8(mb + 32 + 23 * 32 + 0, 79)  -- ch0 ← SFX 79
+  u8(mb + 32 + 23 * 32 + 1, 74)  -- ch1 ← SFX 74
+  u8(mb + 32 + 23 * 32 + 2, 75)  -- ch2 ← SFX 75
+  u8(mb + 32 + 23 * 32 + 4, 76)  -- ch4 ← SFX 76
+  u8(mb + 32 + 23 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 23 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 24 * 32 + 0, 80)  -- ch0 ← SFX 80
+  u8(mb + 32 + 24 * 32 + 1, 81)  -- ch1 ← SFX 81
+  u8(mb + 32 + 24 * 32 + 2, 82)  -- ch2 ← SFX 82
+  u8(mb + 32 + 24 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 25 * 32 + 0, 83)  -- ch0 ← SFX 83
+  u8(mb + 32 + 25 * 32 + 1, 84)  -- ch1 ← SFX 84
+  u8(mb + 32 + 25 * 32 + 2, 85)  -- ch2 ← SFX 85
+  u8(mb + 32 + 26 * 32 + 0, 86)  -- ch0 ← SFX 86
+  u8(mb + 32 + 26 * 32 + 1, 87)  -- ch1 ← SFX 87
+  u8(mb + 32 + 26 * 32 + 2, 88)  -- ch2 ← SFX 88
+  u8(mb + 32 + 27 * 32 + 0, 89)  -- ch0 ← SFX 89
+  u8(mb + 32 + 27 * 32 + 1, 90)  -- ch1 ← SFX 90
+  u8(mb + 32 + 27 * 32 + 2, 91)  -- ch2 ← SFX 91
+  u8(mb + 32 + 28 * 32 + 2, 92)  -- ch2 ← SFX 92
+  u8(mb + 32 + 28 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 28 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+  u8(mb + 32 + 29 * 32 + 1, 93)  -- ch1 ← SFX 93
+  u8(mb + 32 + 29 * 32 + 2, 94)  -- ch2 ← SFX 94
+  u8(mb + 32 + 29 * 32 + 4, 95)  -- ch4 ← SFX 95
+  u8(mb + 32 + 29 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 30 * 32 + 0, 96)  -- ch0 ← SFX 96
+  u8(mb + 32 + 30 * 32 + 1, 97)  -- ch1 ← SFX 97
+  u8(mb + 32 + 30 * 32 + 2, 94)  -- ch2 ← SFX 94
+  u8(mb + 32 + 30 * 32 + 4, 95)  -- ch4 ← SFX 95
+  u8(mb + 32 + 31 * 32 + 1, 98)  -- ch1 ← SFX 98
+  u8(mb + 32 + 31 * 32 + 2, 94)  -- ch2 ← SFX 94
+  u8(mb + 32 + 31 * 32 + 4, 95)  -- ch4 ← SFX 95
+  u8(mb + 32 + 32 * 32 + 0, 99)  -- ch0 ← SFX 99
+  u8(mb + 32 + 32 * 32 + 1, 100)  -- ch1 ← SFX 100
+  u8(mb + 32 + 32 * 32 + 2, 94)  -- ch2 ← SFX 94
+  u8(mb + 32 + 32 * 32 + 4, 95)  -- ch4 ← SFX 95
+  u8(mb + 32 + 32 * 32 + 16, 1)  -- LOOP_START：循环起点
+  u8(mb + 32 + 32 * 32 + 17, 1)  -- LOOP_BACK：回到 LOOP_START
+
+  u8(mb, 33)  -- 全表 LEN = 33 行
 end
 -- END GENERATED MUSIC
 
@@ -1517,7 +1552,7 @@ local function move50(nx, ny)
       else pickup_txt(nm .. " 防御+" .. add) end
       took = true
     end
-    if ic == 81 then G.fl.help = true pickup_txt("怪物手册（Menu 菜单可用）") took = true end
+    if ic == 81 then G.fl.help = true pickup_txt("怪物手册（" .. btnicon("menu") .. " 菜单可用）") took = true end
     if ic == 82 then G.fl.note = true pickup_txt("留言簿（自动记录对话）") took = true end
     if ic == 83 then G.fl.fly = true pickup_txt("魔杖：可在菜单飞往去过的楼层") took = true end
     if ic == 84 then G.fl.ice = true pickup_txt("冰魔法（冻结熔岩之力）") took = true end
@@ -1604,12 +1639,12 @@ local function flags_pack()
   local f1, f2 = 0, 0
   local bits = { "prologue", "say4", "dug18", "love", "bigclean", "rod1", "rod2", "rod3", "door5" }
   for i, k in ipairs(bits) do
-    if G.fl[k] then f1 = f1 | (1 << (i - 1)) end
+    if G.fl[k] then f1 = bit32.bor(f1, bit32.lshift(1, i - 1)) end
   end
   local bits2 = { "help", "note", "fly", "ice", "cross", "dragon", "luck", "holy",
     "keymagic", "pick", "quake", "bomb", "holyshield", "blessed" }
   for i, k in ipairs(bits2) do
-    if G.fl[k] then f2 = f2 | (1 << (i - 1)) end
+    if G.fl[k] then f2 = bit32.bor(f2, bit32.lshift(1, i - 1)) end
   end
   return f1, f2
 end
@@ -1619,10 +1654,10 @@ local function flags_unpack(f1, f2)
   local bits2 = { "help", "note", "fly", "ice", "cross", "dragon", "luck", "holy",
     "keymagic", "pick", "quake", "bomb", "holyshield", "blessed" }
   for i, k in ipairs(bits) do
-    if (f1 >> (i - 1)) & 1 == 1 then G.fl[k] = true end
+    if bit32.band(bit32.rshift(f1, i - 1), 1) == 1 then G.fl[k] = true end
   end
   for i, k in ipairs(bits2) do
-    if (f2 >> (i - 1)) & 1 == 1 then G.fl[k] = true end
+    if bit32.band(bit32.rshift(f2, i - 1), 1) == 1 then G.fl[k] = true end
   end
 end
 
@@ -1888,10 +1923,9 @@ local function draw_bottom()
   if MSG.t > 0 then
     printw(MSG.txt, 8, 196, C_WHITE, 240)
   else
-    local hint = "Ⓐ确认/战斗　Menu 菜单"
+    local hint = btnicon("a") .. "确认/战斗　" .. btnicon("menu") .. "菜单　"
+      .. btnicon("view") .. "音乐:" .. (bgm_on and "开" or "关")
     print(hint, 8, 196, C_GRAY)
-    local st = "View 音乐:" .. (bgm_on and "开" or "关")
-    print(st, 8, 212, C_GRAY)
   end
 end
 
@@ -1902,8 +1936,7 @@ local function draw_dialog()
   local page = DLG.pages[DLG.i] or ""
   printw(page, 14, 70, C_WHITE, 228)
   if flr(G.t / 16) % 2 == 0 then
-    local s = "Ⓐ"
-    print(s, 232, 122, C_GOLD)
+    print(btnicon("a"), 232, 122, C_GOLD)
   end
 end
 
@@ -1918,7 +1951,7 @@ local function draw_battle_panel()
   print(s1, 40, 210, C_GRAY)
   local s2 = "预计 " .. rounds .. " 回合　损失 " .. loss .. " 生命"
   print(s2, 40, 226, loss == 0 and C_GREEN or C_ORNG)
-  local s3 = "Ⓐ 战斗　Ⓑ 取消"
+  local s3 = btnicon("a") .. " 战斗　" .. btnicon("b") .. " 取消"
   print(s3, (256 - tw(s3)) / 2, 242, C_GOLD)
 end
 
@@ -1937,7 +1970,8 @@ local function draw_shop()
     yy = yy + 16
   end
   print("金币 " .. G.money, 52, yy + 4, C_GOLD_D)
-  local s = "↑↓选择　Ⓐ购买　Ⓑ离开"
+  local s = btnicon("up") .. btnicon("down") .. "选择　" .. btnicon("a")
+    .. "购买　" .. btnicon("b") .. "离开"
   print(s, (256 - tw(s)) / 2, 188, C_GRAY)
 end
 
@@ -1985,7 +2019,8 @@ local function draw_manual()
   end
   local pg = #MANUAL.list > 0 and (flr((MANUAL.top - 1) / 8) + 1) or 1
   local pgs = max(1, flr((#MANUAL.list - 1) / 8) + 1)
-  local t2 = "↑↓ 翻页 " .. pg .. "/" .. pgs .. "　Ⓑ 关闭"
+  local t2 = btnicon("up") .. btnicon("down") .. " 翻页 " .. pg .. "/" .. pgs
+    .. "　" .. btnicon("b") .. " 关闭"
   print(t2, (256 - tw(t2)) / 2, 242, C_GRAY)
 end
 
@@ -2005,8 +2040,60 @@ local function draw_fly()
     shown = shown + 1
     f = f + 1
   end
-  local t2 = "↑↓ 选择　Ⓐ 前往　Ⓑ 取消"
+  local t2 = btnicon("up") .. btnicon("down") .. " 选择　" .. btnicon("a")
+    .. " 前往　" .. btnicon("b") .. " 取消"
   print(t2, (256 - tw(t2)) / 2, 240, C_GRAY)
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——塔层剪影 + 主角/魔杖/50 层铭牌特写，零菜单零提示
+local function draw_splash()
+  pal()
+  cls(1)
+  -- 星空（固定散点，frame 0 完整）
+  for i = 1, 30 do
+    pset((i * 89) % 248 + 4, (i * 53) % 110 + 8, i % 3 == 0 and 5 or 6)
+  end
+  -- 远景塔层剪影：五层主塔向上收窄，层檐 + 暖窗
+  local cx = 128
+  for i = 0, 4 do
+    local w = 64 + i * 10
+    local y = 92 + i * 38
+    rectfill(cx - w, y, w * 2, 40, 16)
+    rectfill(cx - w - 4, y - 5, w * 2 + 8, 6, 20)
+    rectfill(cx - 7, y + 16, 14, 13, 30)
+    rectfill(cx - w + 14, y + 19, 8, 10, 26)
+    rectfill(cx + w - 22, y + 19, 8, 10, 26)
+  end
+  -- 塔顶垛口
+  rectfill(cx - 74, 87, 148, 6, 20)
+  for i = 0, 4 do
+    rectfill(cx - 68 + i * 34, 79, 8, 9, 16)
+  end
+  -- 前景石台（主角站位）
+  rectfill(0, 214, 256, 42, 10)
+  line(0, 214, 255, 214, 11)
+  for i = 0, 7 do
+    line(12 + i * 32, 224, 28 + i * 32, 224, 16)
+    line(60 - i * 16, 240, 76 - i * 16, 240, 16)
+  end
+  -- 主角特写（HERO 瓦片 123 放大 4 倍）
+  sspr((TK.HERO % 16) * 16, flr(TK.HERO / 16) * 16, 16, 16, 30, 150, 64, 64)
+  -- 魔杖（ROD50 瓦片 219）悬浮 + 金色辉点
+  sspr((TK.ROD50 % 16) * 16, flr(TK.ROD50 / 16) * 16, 16, 16, 112, 156, 36, 36)
+  pset(106, 150, 30) pset(152, 162, 31) pset(110, 198, 30)
+  pset(150, 192, 26) pset(104, 174, 26)
+  -- 50 层铭牌
+  rectfill(156, 150, 72, 58, 1)
+  rect(156, 150, 72, 58, 30)
+  rect(159, 153, 66, 52, 26)
+  print("50", flr(192 - tw("50", 3) / 2), 156, 31, 3)
+  print("F L O O R", flr(192 - tw("F L O O R") / 2), 190, 30)
+  -- 大 logo（scale 3，黑影 + 金字）
+  local s = "50层魔塔"
+  local lx = flr((256 - tw(s, 3)) / 2)
+  print(s, lx + 3, 29, 0, 3)
+  print(s, lx, 26, 30, 3)
+  print("MAGIC TOWER", flr((256 - tw("MAGIC TOWER")) / 2), 68, 26)
 end
 
 local function draw_title()
@@ -2030,7 +2117,8 @@ local function draw_title()
   if slot_used(0) or slot_used(1) or slot_used(2) then
     print("有存档", 196, 138 + (TITLE.cur - 1) * 29, C_DGREEN)
   end
-  local s3 = "↑↓ 选择　Ⓐ 确定　Menu 读档"
+  local s3 = btnicon("up") .. btnicon("down") .. " 选择　" .. btnicon("a")
+    .. " 确定　" .. btnicon("menu") .. " 读档"
   print(s3, (256 - tw(s3)) / 2, 244, C_GRAY)
 end
 
@@ -2038,7 +2126,7 @@ local function draw_over()
   cls(C_BG)
   local s = "GAME OVER"
   print(s, 128 - tw(s) / 2, 100, C_RED)
-  local s2 = "Ⓐ 读档　Ⓑ 重新开始"
+  local s2 = btnicon("a") .. " 读档　" .. btnicon("b") .. " 重新开始"
   print(s2, 128 - tw(s2) / 2, 140, C_GRAY)
 end
 
@@ -2049,7 +2137,7 @@ local function draw_win()
   }
   local idx = min(flr(G.t / 180) + 1, #pages)
   printw(pages[idx], 16, 60, C_WHITE, 224)
-  local s = "感谢游玩 ・ 按 Menu 回到标题"
+  local s = "感谢游玩 ・ " .. btnicon("menu") .. " 回到标题"
   if flr(G.t / 20) % 2 == 0 then
     print(s, 128 - tw(s) / 2, 220, C_GOLD)
   end
@@ -2069,7 +2157,7 @@ function _init()
   bake_generated_art()
   init_audio()
   new_game()
-  G.state = "title"
+  G.state = "splash" -- 开机封面：Ⓐ/Menu 跳过，90 帧后进 title
   cur_bgm = P_TITLE
   music(P_TITLE, 500, 0x3F)
 end
@@ -2093,7 +2181,9 @@ function _update()
   if MSG.t > 0 then MSG.t = MSG.t - 1 end
   if float_t > 0 then float_t = float_t - 1 end
   if flash_t > 0 then flash_t = flash_t - 1 end
-  if G.state == "title" then
+  if G.state == "splash" then
+    if G.t > 90 or btnp(4) or btnp(11) then G.state = "title" end
+  elseif G.state == "title" then
     if dirp(2) or dirp(3) then
       TITLE.cur = 3 - TITLE.cur sfx(S_MENU)
     end
@@ -2103,8 +2193,10 @@ function _update()
         sfx(S_STAIR)
       else
         dialog({
-          "【游戏使用帮助】方向键移动（按住连续走）。Ⓐ 确认／对话翻页／战斗确认，Ⓑ 取消／关闭面板。",
-          "Menu 打开存档·读档·怪物手册·道具菜单，View 切换背景音乐。撞向怪物弹出战斗预览，攻击足以击杀时才会出手。",
+          "【游戏使用帮助】方向键移动（按住连续走）。" .. btnicon("a")
+            .. " 确认／对话翻页／战斗确认，" .. btnicon("b") .. " 取消／关闭面板。",
+          btnicon("menu") .. " 打开存档·读档·怪物手册·道具菜单，" .. btnicon("view")
+            .. " 切换背景音乐。撞向怪物弹出战斗预览，攻击足以击杀时才会出手。",
         }, function() G.state = "title" end)
         G.state = "dialog"
       end
@@ -2254,6 +2346,10 @@ function _update()
 end
 
 function _draw()
+  if G.state == "splash" then
+    draw_splash()
+    return
+  end
   if G.state == "title" then
     draw_title()
     return

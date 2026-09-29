@@ -82,25 +82,25 @@ FC-16 幻想主机上的完整 Agar.io 类演示卡带：1024×1024 竞技场里
 - 结算面板：生存时间 / 峰值质量 / 吞噬数 / 家族名次，破纪录行带 ★ 闪烁。
 - 音频：吃豆音高随体型下降（8 档）/ 吞球下咽 / 分身弹开 / 吐球 / 拒绝提示 /
   死亡坠落 / 胜利号角 / 新纪录旋律；原创 C 大调五声 8 小节循环 BGM（ROUND 旋律 +
-  TRIANGLE 琶音 + BASS 贝斯 + 鼓组，PATTERN BEGIN/END 回环，占 ch4-7，
+  TRIANGLE 琶音 + BASS 贝斯 + 鼓组，MUSIC 行 LOOP_START/LOOP_BACK 回环，占 ch4-7，
   游戏音效走 ch0-2）。
 
 ## 构建与运行
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "球球大作战" --author "FrostMiKu" \
-  --version 1 --code demo/ballbattle/ballbattle.lua --cover 120 \
-  --out demo/ballbattle/ballbattle.fc16 --png demo/ballbattle/ballbattle.fc16.png
-cargo run -p fc16-host -- demo/ballbattle/ballbattle.fc16
+  --version 1 --code ballbattle/ballbattle.lua --cover 30 \
+  --out ballbattle/ballbattle.fc16 --png carts/ballbattle.fc16.png
+cargo run -p fc16-host -- ballbattle/ballbattle.fc16
 ```
 
 headless 验证（零输入不会开局；用 `--script` 注入 Ⓐ 开始，注意 seed 0 会被宿主
 映射为随机种子，固定请用 `--seed 1`）：
 
 ```bash
-cargo run -p fc16-host -- demo/ballbattle/ballbattle.fc16 --frames 300 \
+cargo run -p fc16-host -- ballbattle/ballbattle.fc16 --frames 300 \
   --screenshot out.png
 printf '60 key 4\n62 key -\n100 key 4\n102 key -\n280 key 6\n282 key -\n' > script.txt
-cargo run -p fc16-host -- demo/ballbattle/ballbattle.fc16 --frames 900 \
+cargo run -p fc16-host -- ballbattle/ballbattle.fc16 --frames 900 \
   --seed 1 --script script.txt --screenshot out.png
 ```

@@ -29,8 +29,30 @@
 
 local c = {0, 12, 53, 63, 57, 21, 7}
 
+-- 开机 Splash 段：splash（纯主视觉）→ 90 帧或 Ⓐ/Menu → title（交互菜单）
+local state = "splash"
+local boot = 0
+
+function _update()
+  boot = boot + 1
+  if state == "splash" and (boot > 90 or btnp(4) or btnp(11)) then
+    state = "title"
+  end
+end
+
 function f(i)
   return c[flr(1.5 + abs(6 - i % 12))]
+end
+
+-- 描边文字：隧道配色随时间轮转，黑描边保证任意底色上可读
+local function outlined(s, x, y, col, sc, ow)
+  local o = ow or 2
+  for dy = -o, o, o do
+    for dx = -o, o, o do
+      if dx ~= 0 or dy ~= 0 then print(s, x + dx, y + dy, 0, sc) end
+    end
+  end
+  print(s, x, y, col, sc)
 end
 
 function _draw()
@@ -45,4 +67,20 @@ function _draw()
     -- 原作两点式 rect((x-w),(y-w),(x+w),(y+w)) 为闭区间，边长 2w+1 像素
     rect(flr(x - w), flr(y - w), flr(2 * w + 1), flr(2 * w + 1), f(i) * 256 + f(i + 0.5))
   end
+  fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
+  -- Splash（0-90 帧）：纯主视觉 —— 大 logo 压隧道，零提示零署名
+  if state == "splash" then
+    local s = "螺旋隧道"
+    outlined(s, flr((256 - tw(s, 4)) / 2), 52, 7, 4, 3)
+    local sub = "SPIRAL TUNNEL ・ FC-16"
+    outlined(sub, flr((256 - tw(sub)) / 2), 124, 7, 1, 1)
+    return
+  end
+  -- 交互菜单（title 态）：logo + 副题 + 署名
+  local s = "螺旋隧道"
+  outlined(s, flr((256 - tw(s, 3)) / 2), 48, 7, 3)
+  local sub = "SPIRAL TUNNEL ・ FC-16"
+  outlined(sub, flr((256 - tw(sub)) / 2), 96, 7, 1, 1)
+  local cr = "FrostMiKu"
+  outlined(cr, flr((256 - tw(cr)) / 2), 222, 9, 1, 1)
 end

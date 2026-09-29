@@ -71,9 +71,9 @@ STAGE 1 - STAGE 10，布局逐半格还原原作出厂表（六砖柱、钢块�
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "坦克大战" --author "FrostMiKu" \
-  --version 1 --save-id battlecity --code demo/battlecity/battlecity.lua \
-  --out demo/battlecity/battlecity.fc16 --png demo/battlecity/battlecity.fc16.png --cover 120
-cargo run -p fc16-host -- demo/battlecity/battlecity.fc16
+  --version 1 --save-id battlecity --code battlecity/battlecity.lua \
+  --out battlecity/battlecity.fc16 --png carts/battlecity.fc16.png --cover 30
+cargo run -p fc16-host -- battlecity/battlecity.fc16
 ```
 
 精灵表（玩家 4 向 × 2 履带帧、四型敌坦、砖 / 钢 / 水 / 树 / 冰、鹰基地、

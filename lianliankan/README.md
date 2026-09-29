@@ -50,24 +50,24 @@ FC-16 幻想主机上的完整连连看演示卡带：三种难度、经典"最�
   底栏轮播操作提示。
 - 最高分 `dset(0)`、音乐开关 `dset(1)`，`fflush` 持久化。
 - 音频：原创 C 大调五声 8 小节循环 BGM（旋律 ROUND / 琶音 TRIANGLE /
-  贝斯 BASS / 鼓组噪声，PATTERN 0-7 BEGIN/END 回环，占 ch4-7）；
+  贝斯 BASS / 鼓组噪声，MUSIC 行 0-7 LOOP_START/LOOP_BACK 回环，占 ch4-7）；
   选中 / 消除（连击 8 级音高）/ 拒绝 / 洗牌 / 提示 / 过关 / 时间到 / 新纪录 SFX 走 ch0-2。
 
 ## 构建与运行
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "连连看" --author "FrostMiKu" \
-  --version 1 --code demo/lianliankan/lianliankan.lua --cover 120 \
-  --out demo/lianliankan/lianliankan.fc16 --png demo/lianliankan/lianliankan.fc16.png
-cargo run -p fc16-host -- demo/lianliankan/lianliankan.fc16
+  --version 1 --code lianliankan/lianliankan.lua --cover 30 \
+  --out lianliankan/lianliankan.fc16 --png carts/lianliankan.fc16.png
+cargo run -p fc16-host -- lianliankan/lianliankan.fc16
 ```
 
 headless 验证（零输入截图 + 输入脚本开局消除一对，注意 seed 0 会被宿主映射为
 随机种子，固定请用 `--seed 1`）：
 
 ```bash
-cargo run -p fc16-host -- demo/lianliankan/lianliankan.fc16 --frames 150 \
+cargo run -p fc16-host -- lianliankan/lianliankan.fc16 --frames 150 \
   --screenshot out.png
-cargo run -p fc16-host -- demo/lianliankan/lianliankan.fc16 --frames 900 --seed 1 \
+cargo run -p fc16-host -- lianliankan/lianliankan.fc16 --frames 900 --seed 1 \
   --script script.txt --screenshot out.png
 ```

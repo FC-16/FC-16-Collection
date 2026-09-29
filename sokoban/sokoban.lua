@@ -6,10 +6,10 @@
 -- Microban 关卡集中的公开经典关卡，按难度排序；全部经离线求解器验证
 -- 可解，最少推动参考值亦由求解器计算（见 README）。
 --
--- 操作：方向移动（按住连续）；Ⓑ 悔棋（无限栈）；Ⓧ 重开本关；
---       Menu 选关；View 音乐开关；标题画面 Ⓐ 开始。
+-- 操作：方向移动（按住连续）；B 悔棋（无限栈）；X 重开本关；
+--       Menu 选关；View 音乐开关；标题画面 A 开始（按键提示均为 btnicon 图标）。
 -- 演出：推动滑动缓动、归位闪光与音效、过关庆祝、全通关终章、百叶窗转场。
--- 死锁提示：箱子被推进死角时提示"卡住了 Ⓑ 悔棋"。
+-- 死锁提示：箱子被推进死角时提示"卡住了 B 悔棋"。
 -- 存档：最佳推动数与通关标记（dset + fflush，save-id：sokoban）。
 
 -- ================================================================ 常量
@@ -405,20 +405,60 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
 -- init_sfx(id, notes, wave, vol, speed)：notes 为音高表（0 休止，至多32 步）
+-- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function init_sfx(id, notes, wave, vol, speed)
-  local base = 0x060000 + id * 112
-  u8(base, speed or 2)
-  u8(base + 1, #notes)
+  local sp = speed or 2
+  local base = 0x0C0000 + id * 144
+  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      u8(a, notes[i + 1])
-      u8(a + 1, wave * 16 + vol)
-      u8(a + 2, 0)
+    local a = base + 16 + i * 4
+    local p = notes[i + 1]
+    if p and p > 0 then
+      u8(a, p - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
@@ -453,7 +493,10 @@ local function expand(notes, k)
   return out
 end
 
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+
 local function init_audio()
+  init_waveforms()
   init_sfx(S_STEP, {n(57)}, 13, 4, 1) -- 脚步：短促软点
   init_sfx(S_PUSH, {n(45), n(43)}, 11, 9, 2) -- 推箱：低频搓动
   init_sfx(S_GOAL, {n(72), n(76), n(79)}, 6, 8, 2) -- 归位：上行三连
@@ -474,7 +517,7 @@ local function init_audio()
   init_sfx(S_DEAD, {n(56), n(55)}, 2, 8, 3) -- 死锁警示：不协和半音
   init_sfx(S_START, {n(60), n(67)}, 6, 8, 2) -- 开局定音
 
-  -- BGM：每小节一条 32 步 SFX × 三声部；8 个 Pattern 顺序回环
+  -- BGM：每小节一条 32 步 SFX × 三声部；8 个 MUSIC 行顺序回环
   for bar = 1, 8 do
     init_sfx(19 + bar, expand(MEL[bar], 4), 3, 7, 4) -- 旋律 SQUARE
     init_sfx(29 + bar, expand({n(BASS_ROOT[bar])}, 32), 11, 10, 4) -- 贝斯
@@ -482,12 +525,16 @@ local function init_audio()
     local lo, hi = pair[1], pair[2]
     init_sfx(39 + bar,
       expand({lo, hi, lo, hi, lo, hi, lo, hi}, 4), 6, 4, 4) -- 和声 ORGAN
-    local pb = 0x063800 + (bar - 1) * 16
-    u8(pb + 5, 20 + bar)
-    u8(pb + 6, 30 + bar)
-    u8(pb + 7, 40 + bar)
-    u8(pb + 8, (bar == 1 and 1 or 0) + (bar == 8 and 2 or 0)) -- BEGIN/END
+    -- MUSIC 行（SPEC §5.2：八个 SFX ID，0xFF 为空；LOOP_START/LOOP_BACK 控制回环）
+    local mb = MUSIC_BASE + 32 + (bar - 1) * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end
+    u8(mb + 5, 19 + bar)
+    u8(mb + 6, 29 + bar)
+    u8(mb + 7, 39 + bar)
+    if bar == 1 then u8(mb + 16, 1) end  -- LOOP_START：循环起点
+    if bar == 8 then u8(mb + 17, 1) end  -- LOOP_BACK：回到 LOOP_START
   end
+  u8(MUSIC_BASE, 8)  -- 全表 LEN = 8 行
 end
 
 -- ================================================================ 关卡装载
@@ -843,7 +890,9 @@ function _update()
     end
     return
   end
-  if state == "title" then
+  if state == "splash" then
+    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+  elseif state == "title" then
     update_title()
   elseif state == "play" then
     update_play()
@@ -946,11 +995,11 @@ local function draw_hud()
   rectfill(0, FOOT_Y, 256, 256 - FOOT_Y, C_BG)
   line(0, FOOT_Y, 255, FOOT_Y, C_WALL_D)
   print("最少推 " .. fmt(LEVELS[cur_level].par), 4, FOOT_Y + 2, C_TXT_D)
-  local hint = "Ⓑ悔棋Ⓧ重开Start选关"
+  local hint = btnicon("b") .. "悔棋 " .. btnicon("x") .. "重开 " .. btnicon("menu") .. "选关"
   print(hint, 252 - tw(hint), FOOT_Y + 2, C_TXT_D)
   -- 死锁提示（棋盘下方闪烁）
   if stuck_t > 0 and flr(t / 8) % 2 == 0 then
-    local s = "卡住了 Ⓑ 悔棋"
+    local s = "卡住了 " .. btnicon("b") .. " 悔棋"
     print(s, (256 - tw(s)) / 2, FOOT_Y - 18, C_RED)
   end
 end
@@ -1012,9 +1061,30 @@ local function draw_finale()
     pset(sparks[i].x, sparks[i].y, sparks[i].c)
   end
   if flr(t / 20) % 2 == 0 then
-    local s4 = "Ⓐ 返回选关"
+    local s4 = btnicon("a") .. " 返回选关"
     print(s4, (256 - tw(s4)) / 2, 196, C_HAT)
   end
+end
+
+-- 标题主题构图：工人推箱奔向目标点（箱子 + 目标点，frame 0 即完整）
+local function draw_vignette()
+  local function tspr(id, x, y, flip)
+    sspr(id % 16 * 16, flr(id / 16) * 16, 16, 16, x, y, 16, 16, flip)
+  end
+  tspr(T16 + 0, 76, 78)              -- 地板
+  tspr(T16 + 9, 76, 78, true)        -- 工人（朝右推）
+  tspr(T16 + 0, 92, 78)              -- 地板
+  tspr(T16 + 3, 92, 78)              -- 待推木箱
+  for i = 0, 1 do                    -- 推进方向箭头
+    local ax = 108 + i * 8
+    line(ax, 82, ax + 4, 85, C_GOAL)
+    line(ax, 88, ax + 4, 85, C_GOAL)
+  end
+  tspr(T16 + 2, 128, 78)             -- 目标点（自带地板）
+  tspr(T16 + 0, 160, 78)             -- 地板
+  tspr(T16 + 4, 160, 78)             -- 已归位的箱子
+  line(178, 72, 182, 72, C_GOAL)     -- 归位闪光
+  line(180, 70, 180, 74, C_GOAL)
 end
 
 local function draw_title()
@@ -1023,11 +1093,10 @@ local function draw_title()
   rectfill(0, 0, 256, 20, C_FLOOR)
   line(0, 20, 255, 20, C_WALL_D)
   draw_logo(56, 26)
-  local sub = "FC-16 经典谜题"
-  print(sub, (256 - tw(sub)) / 2, 80, C_TXT_D)
-  -- 选关网格 4×4
+  draw_vignette()
+  -- 选关网格 4×4（菜单项即开始入口）
   local gw, gh = 52, 28
-  local gx0, gy0 = (256 - 4 * gw - 3 * 4) / 2, 94
+  local gx0, gy0 = (256 - 4 * gw - 3 * 4) / 2, 100
   for i = 1, #LEVELS do
     local cx = gx0 + ((i - 1) % 4) * (gw + 4)
     local cy = gy0 + flr((i - 1) / 4) * (gh + 4)
@@ -1044,12 +1113,46 @@ local function draw_title()
       print(bs, cx + gw - 5 - tw(bs), cy + 6, C_GOAL)
     end
   end
-  if flr(t / 24) % 2 == 0 then
-    local s = "Ⓐ 开始"
-    print(s, (256 - tw(s)) / 2, 226, C_TXT)
-  end
-  local h2 = "方向选关 Select音乐" .. (music_on and "开" or "关")
+  local s = "按 " .. btnicon("a") .. " 开始" -- 稳定提示，不闪烁
+  print(s, (256 - tw(s)) / 2 + 1, 231, C_INK)
+  print(s, (256 - tw(s)) / 2, 230, C_TXT)
+  local h2 = btnicon("dpad") .. " 选关　" .. btnicon("view") .. " 音乐"
   print(h2, (256 - tw(h2)) / 2, 246, C_TXT_D)
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——工人推巨箱奔向发光目标点的侧写特写，
+-- 大 logo 放下方；零菜单零提示（Ⓐ/Menu 可跳过，90 帧后进选关菜单）
+local function draw_splash()
+  -- 浮尘微光（确定性散布，frame 0 即完整）
+  for i = 1, 14 do
+    pset((i * 53) % 256, 28 + (i * 37) % 66, (i % 3 == 0) and C_GOAL_D or C_FLOOR_D)
+  end
+  -- 仓库地面（地板 2× 横带，右端是发光目标点）
+  for i = 0, 6 do
+    sspr(T16 % 16 * 16, 0, 16, 16, i * 32, 136, 32, 32)
+  end
+  sspr((T16 + 2) % 16 * 16, 0, 16, 16, 224, 136, 32, 32)
+  rectfill(0, 168, 256, 12, C_FLOOR_D)  -- 地面暗缘
+  -- 目标点辉光（从钻石向外的扩散光环，叠在地面上）
+  for i = 2, 0, -1 do
+    circ(240, 152, 10 + i * 7 + sin(t * 0.06 + i * 2.1) * 2,
+      (i == 0) and C_GOAL or C_GOAL_D)
+  end
+  -- 目标点上方星光（装饰可动）
+  if flr(t / 16) % 2 == 0 then
+    line(234, 112, 246, 112, 7)
+    line(240, 106, 240, 118, 7)
+  end
+  -- 巨箱（3× 放大）与工人（2× 放大，行走两幀动画，朝右推进）
+  sspr((T16 + 3) % 16 * 16, 0, 16, 16, 136, 88, 48, 48)
+  local f = flr(t / 8) % 2
+  sspr((T16 + 9 + f) % 16 * 16, 0, 16, 16, 96, 104, 32, 32, true)
+  -- 推进动势线
+  line(76, 112, 90, 112, C_TXT_D)
+  line(70, 122, 86, 122, C_TXT_D)
+  line(78, 132, 92, 132, C_TXT_D)
+  -- 大 logo
+  draw_logo(56, 186)
 end
 
 -- 百叶窗转场（确定性：仅依赖 trans.t；条间交错收放）
@@ -1076,7 +1179,9 @@ end
 
 function _draw()
   cls(C_BG)
-  if state == "title" then
+  if state == "splash" then
+    draw_splash()
+  elseif state == "title" then
     draw_title()
   elseif state == "play" then
     draw_play()
@@ -1109,7 +1214,7 @@ function _init()
   for i = 1, #LEVELS do best[i] = dget(i) end
   music_on = dget(20) == 0
   sel = 1
-  state = "title"
+  state = "splash" -- 开机封面段：90 帧后回落选关菜单
   cur_level = 1
   steps, pushes = 0, 0
   st = {}

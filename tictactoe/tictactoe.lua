@@ -41,16 +41,55 @@ local function ucy(b, c) return uby(b) + 3 + flr((c - 1) / 3) * 20 + 10 end
 local function ctext(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
 -- ---------------------------------------------------------------- 音频（SPEC §5.2 布局）
 local function u8(a, val) poke(a, val % 256) end
+
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+
 local function init_sfx(id, notes, wave, vol, speed)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, #notes)
-  for i = 0, 31 do local a = base + 16 + i * 3
-    if i < #notes then u8(a, notes[i + 1]) u8(a + 1, wave * 16 + vol) u8(a + 2, 0)
-    else u8(a, 0) u8(a + 1, 0) end
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
+  for i = 0, 31 do local a = base + 16 + i * 4
+    local n = notes[i + 1]
+    if n and n > 0 then u8(a, n - 1) u8(a + 1, WMAP[wave]) u8(a + 2, vol) u8(a + 3, 0)
+    else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end
   end
 end
 local function init_all_sfx()
+  init_waveforms()
   init_sfx(0, { 40, 47 }, 3, 10, 1)   -- X 落子：方波低叩
   init_sfx(1, { 64, 69 }, 10, 9, 1)   -- O 落子：铃铛高叩
   init_sfx(2, { 64, 55 }, 6, 8, 2)    -- 悔棋：下行双音
@@ -72,14 +111,19 @@ local function init_all_sfx()
     end
     return out
   end
+  for r = 0, 3 do
+    for c = 0, 7 do u8(MUSIC_BASE + 32 + r * 32 + c, 0xFF) end  -- 空轨写 0xFF（0 是合法 SFX 号）
+  end
   for bar = 1, 4 do
     init_sfx(19 + bar, expand(melody[bar], 4), 8, 8, 5)
     init_sfx(29 + bar, expand({ bass[bar] }, 32), 11, 9, 5)
-    local mb = 0x063800 + (bar - 1) * 16
-    u8(mb + 4, 20 + bar)   -- 旋律 SFX id+1
-    u8(mb + 5, 30 + bar)   -- 贝斯 SFX id+1
-    u8(mb + 8, bar == 1 and 1 or (bar == 4 and 2 or 0))  -- BEGIN/END 回环
+    local mb = MUSIC_BASE + 32 + (bar - 1) * 32
+    u8(mb + 4, 19 + bar)   -- 旋律 SFX id
+    u8(mb + 5, 29 + bar)   -- 贝斯 SFX id
+    if bar == 1 then u8(mb + 16, 1) end    -- LOOP_START：循环起点
+    if bar == 4 then u8(mb + 17, 1) end    -- LOOP_BACK：回到 LOOP_START
   end
+  u8(MUSIC_BASE, 4)  -- 全表 LEN = 4 行
 end
 -- ---------------------------------------------------------------- 精灵烘焙
 -- 精灵表像素写入：瓦片按 256B 连续块存储（SPEC §4.1/§4.2）
@@ -196,7 +240,7 @@ local function wavy2(x0, y0, x1, y1, col, ph)
 end
 -- ---------------------------------------------------------------- 状态
 local t = 0                 -- 全局幀计数
-local state = "title"       -- title / play
+local state = "splash"      -- splash / title / play
 local title = { mode = 1, diff = 2, first = 1, uopp = 1 }
 local sel_row = 1
 local bake_queue = {}       -- 分幀烘焙队列（避免 _init 超单幀预算）
@@ -642,7 +686,10 @@ function _update()
     f()
     bake_done = bake_done + 1
   end
-  if state == "title" then update_title()
+  if state == "splash" then
+    -- 开机封面：90 帧后（或 Ⓐ / Menu）进交互菜单
+    if t > 90 or btnp(B_A) or btnp(B_STA) then state = "title" end
+  elseif state == "title" then update_title()
   else update_play() end
 end
 -- ---------------------------------------------------------------- 绘制
@@ -788,7 +835,7 @@ local function draw_banner()  -- 终局横幅（两种模式共用）
     draw_stone48(winner, x0 + 30, y0 + 24, 0.9)
     print(result_msg(), x0 + 56, y0 + 16, C_WHITE)
   end
-  ctext("Ⓐ再来一局　Ⓨ回标题", y0 + 48, C_TXT)
+  ctext(btnicon("a") .. " 再来一局　" .. btnicon("y") .. " 回标题", y0 + 48, C_TXT)
 end
 local function draw_hints()
   rectfill(0, BOT_Y, 256, 256 - BOT_Y, C_BG_D)
@@ -797,12 +844,47 @@ local function draw_hints()
   if gmode == 2 then st = string.format("战绩 胜%d 负%d 平%d", stats[4], stats[5], stats[6])
   elseif gmode == 3 then st = string.format("战绩 先%d 后%d 平%d", stats[7], stats[8], stats[9]) end
   local list
-  if winner ~= nil then list = { "Ⓐ再来一局　Ⓨ回标题" }
-  elseif ai_side == 3 then list = { "观战中　Menu 重开", st, "View 音乐" }
-  elseif gmode == 3 then list = { "Ⓐ落子　Ⓑ悔棋　Start重开", "Ⓨ回标题　Select音乐", "落子入对应宫　被占则任选", st }
-  else list = { "Ⓐ落子　Ⓑ悔棋　Start重开", "Ⓨ回标题　Select音乐", st } end
+  if winner ~= nil then
+    list = { btnicon("a") .. " 再来一局　" .. btnicon("y") .. " 回标题" }
+  elseif ai_side == 3 then
+    list = { "观战中　" .. btnicon("menu") .. " 重开", st, btnicon("view") .. " 音乐" }
+  elseif gmode == 3 then
+    list = { btnicon("a") .. " 落子　" .. btnicon("b") .. " 悔棋　" .. btnicon("menu") .. " 重开",
+      btnicon("y") .. " 回标题　" .. btnicon("view") .. " 音乐", "落子入对应宫　被占则任选", st }
+  else
+    list = { btnicon("a") .. " 落子　" .. btnicon("b") .. " 悔棋　" .. btnicon("menu") .. " 重开",
+      btnicon("y") .. " 回标题　" .. btnicon("view") .. " 音乐", st }
+  end
   local s = list[flr(t / 150) % #list + 1]
   print(s, flr((256 - tw(s)) / 2), 242, C_TXT_M)
+end
+-- Splash：纯主视觉封面（0-90 帧）——大 X 与 O 巨子交叠特写 + 金色制胜线，零菜单零提示
+local function draw_splash()
+  cls(C_BG)
+  fillp(0x0055)
+  rectfill(0, 0, 256, 256, C_BG_L * 256 + C_BG)
+  fillp()
+  for k = 1, 2 do  -- 背景淡宫格
+    local p = 85 + (k - 1) * 85
+    line(p, 0, p, 256, 14)
+    line(0, p, 256, p, 14)
+  end
+  -- 大 logo（scale 3，厚描边 + 投影）
+  local s = "井字棋"
+  local tx = flr((256 - tw(s, 3)) / 2)
+  for k = 0, 7 do
+    local a = k * 0.125
+    print(s, tx + 4 + flr(cos(a) + 0.5), 30 + flr(sin(a) + 0.5), C_BG_D, 3)
+  end
+  print(s, tx + 4, 28, C_BG_D, 3)
+  print(s, tx, 25, C_YEL_L, 3)
+  -- 英雄画面：巨型棋子交叠微距（烘焙手绘精灵放大），金色制胜线贯穿
+  local bob = sin(t * 0.017) * 3  -- 装饰微浮动（任意帧构图完整）
+  ovalfill(88, 216, 116, 12, C_BG_D)   -- 落影
+  ovalfill(160, 190, 100, 10, C_BG_D)
+  draw_stone48(1, 96, 156 + bob, 2.5)  -- 大 X
+  draw_stone48(2, 162, 132 - bob, 2.25) -- 大 O（交叠）
+  draw_beam(58, 210, 206, 76, 1, C_YEL) -- 制胜线
 end
 local function draw_title()
   cls(C_BG)
@@ -835,7 +917,8 @@ local function draw_title()
   for k = 1, #rows do
     local r = rows[k]
     local y = 76 + (k - 1) * 26
-    local sel = sel_row == k if sel and flr(t / 10) % 2 == 0 then print("▶", 44, y + 2, C_YEL_L) end
+    local sel = sel_row == k
+    if sel then print("▶", 44, y + 2, C_YEL_L) end
     print(r.label, 58, y + 2, sel and C_WHITE or C_TXT_M)
     rrect(112, y - 1, 92, 18, 4, sel and C_YEL or C_BG_L)
     local vs = r.opts[r.val]
@@ -849,11 +932,15 @@ local function draw_title()
   ctext(string.format("终极　先%d　后%d　平%d", stats[7], stats[8], stats[9]), y0 + 42, C_TXT)
   rectfill(0, BOT_Y, 256, 256 - BOT_Y, C_BG_D)
   line(0, BOT_Y, 255, BOT_Y, C_BG_L)
-  local hs = "←→调整　↑↓选行　Ⓐ开始"
+  local hs = btnicon("left") .. btnicon("right") .. " 调整　" .. btnicon("up")
+    .. btnicon("down") .. " 选行　" .. btnicon("a") .. " 开始"
   print(hs, flr((256 - tw(hs)) / 2), 242, C_TXT_M)
 end
 function _draw()
   pal()  -- 复位两级映射（幽灵棋子的绘制期映射每幀局部设置）
+  if state == "splash" then draw_splash()
+    return
+  end
   if state == "title" then draw_title()
     return
   end
@@ -880,6 +967,11 @@ function _init()
   bake_queue[2] = function() bake_x(0, 256, 48, 24, 47) end
   bake_queue[3] = function() bake_o(64, 256, 48, 0, 23) end
   bake_queue[4] = function() bake_o(64, 256, 48, 24, 47) end
+  -- 首幀即完成烘焙（棋子精灵是封面主视觉，frame 0 必须完整）
+  while #bake_queue > 0 do
+    table.remove(bake_queue, 1)()
+    bake_done = bake_done + 1
+  end
   init_all_sfx()
   for i = 1, 9 do
     stats[i] = flr(dget(i - 1))  -- dget 返回定点数，转整数计数
@@ -887,7 +979,7 @@ function _init()
   music_on = dget(9) == 0
   if music_on then music(0, 400, 0x30) end  -- ch4-5 交给音乐
   t = 0
-  state = "title"
+  state = "splash"
   sel_row = 1
   new_game()
 end

@@ -10,7 +10,7 @@
 -- 操作：←→选牌（按住重复）Ⓐ打出　Ⓨ立直宣言　Ⓧ杠菜单　Ⓑ取消/过
 --       鸣牌菜单 ←→选择 Ⓐ确认 Ⓑ过；和牌提示 Ⓐ和 Ⓑ过；Menu 暂停；View BGM。
 -- 存档：dset 槽 0=局数 1=和了数 2=立直数 3=最佳点数（1P 视角）。
--- 自测：自由区首字节 peek(0x064400)==42 时进入核心逻辑自测模式。
+-- 自测：自定义数据区首字节 peek(0x0C63A0)==42 时进入核心逻辑自测模式。
 
 -- ================================================================ 常量与配色
 
@@ -62,9 +62,9 @@ local NUM_CH = {"一", "二", "三", "四", "五", "六", "七", "八", "九"}
 -- kind 0..8=一万..九万 9..17=一筒..九筒 18..26=一条..九条
 -- 27..30=东南西北 31白 32发 33中；code=kind*4+copy(0..3)
 -- 红五：kind 4/13/22 且 copy==0
-local function kind_of(code) return code >> 2 end
+local function kind_of(code) return bit32.rshift(code, 2) end
 local RED_KIND = { [4] = true, [13] = true, [22] = true }
-local function is_red(code) return (code & 3) == 0 and RED_KIND[code >> 2] or false end
+local function is_red(code) return bit32.band(code, 3) == 0 and RED_KIND[bit32.rshift(code, 2)] or false end
 local function kind_suit(k) return k < 27 and flr(k / 9) or 3 end
 local function kind_num(k) return k % 9 + 1 end   -- 1..9
 local function is_yao(k) return k >= 27 or k % 9 == 0 or k % 9 == 8 end
@@ -838,25 +838,52 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+local WAVEFORM_DATA = {
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local b = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(b + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
 local function sfx_steps(id, speed, steps)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, #steps)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4) -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #steps)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
+    local a = base + 16 + i * 4
     local st = steps[i + 1]
-    if st then
-      u8(a, st[1] or 0)
-      u8(a + 1, (st[2] or 0) * 16 + (st[3] or 0))
-      u8(a + 2, st[4] or 0)
+    if st and (st[1] or 0) > 0 then
+      u8(a, st[1] - 1)               -- 旧音高 1-96 → 新 0-95
+      u8(a + 1, WMAP[st[2] or 0])
+      u8(a + 2, st[3] or 0)
+      u8(a + 3, st[4] or 0)
     else
-      u8(a, 0) u8(a + 1, 0)
+      u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0)  -- 休止：音量 0
     end
   end
 end
 
 local BGM_ON = true
 local function init_audio()
+  init_waveforms()
   sfx_steps(0, 1, { { 62, 15, 4 } })                                     -- 摸牌
   sfx_steps(1, 1, { { 40, 3, 8}, {34, 3, 6} })                           -- 切牌
   sfx_steps(2, 1, { { 45, 3, 9 }, { 38, 3, 8 }, { 30, 15, 6 } })         -- 吃/碰
@@ -885,10 +912,13 @@ local function init_audio()
     { 0 }, { 69, 10, 3 }, { 0 }, { 71, 10, 3 }, { 0 }, { 0 },
     { 0 }, { 69, 10, 3 }, { 0 }, { 67, 10, 3 }, { 0 }, { 0 },
   })
-  local mb = 0x063800
-  u8(mb + 6, 21)
-  u8(mb + 7, 22)
-  u8(mb + 8, 3)
+  local mb = 0x0C5380 + 32  -- MUSIC 行 0（SPEC §5.2）
+  for c = 0, 7 do u8(mb + c, 0xFF) end
+  u8(mb + 6, 20)
+  u8(mb + 7, 21)
+  u8(mb + 16, 1)  -- LOOP_START
+  u8(mb + 17, 1)  -- LOOP_BACK
+  u8(0x0C5380, 1) -- MUSIC LEN = 1 行
 end
 
 local function set_bgm(on)
@@ -2586,8 +2616,8 @@ local function draw_bottom_seat(P)
     local s = (d.amt > 0 and "+" or "") .. d.amt
     print(s, 132, 212, d.amt > 0 and C_GOLD or C_RED)
   end
-  local hint = "Ⓐ打 Ⓧ杠"
-  if can_riichi_now and can_riichi_now(P.seat) then hint = hint .. " Ⓨ立直" end
+  local hint = btnicon("a") .. "打 " .. btnicon("x") .. "杠"
+  if can_riichi_now and can_riichi_now(P.seat) then hint = hint .. " " .. btnicon("y") .. "立直" end
   print(hint, 256 - tw(hint) - 4, 212, C_DIM)
   -- 手牌
   local show = (not G.privacy) or (PROMPT and PROMPT.seat == P.seat and PROMPT.reveal)
@@ -2652,10 +2682,8 @@ local function draw_pass_overlay()
   print(s, (256 - tw(s)) / 2, 112, C_WHITE)
   local s2 = "轮到 " .. pname(PROMPT.seat)
   print(s2, (256 - tw(s2)) / 2, 130, SEAT_COL[PROMPT.seat + 1])
-  if flr(T / 20) % 2 == 0 then
-    local h = "Ⓐ 继续"
-    print(h, (256 - tw(h)) / 2, 148, C_GOLD)
-  end
+  local h = btnicon("a") .. " 继续"
+  print(h, (256 - tw(h)) / 2, 148, C_GOLD)
 end
 
 -- ================================================================ 面板：和牌 / 流局 / 终局
@@ -2730,10 +2758,8 @@ local function draw_panel_win()
   if p.mode == "ron" then
     print("放冲 " .. pname(p.payer), 138, 24, C_RED)
   end
-  if flr(T / 20) % 2 == 0 then
-    local h = "Ⓐ 继续"
-    print(h, (256 - tw(h)) / 2, 218, C_GOLD)
-  end
+  local h = btnicon("a") .. " 继续"
+  print(h, (256 - tw(h)) / 2, 218, C_GOLD)
 end
 
 local function draw_panel_ryuukyoku()
@@ -2771,10 +2797,8 @@ local function draw_panel_ryuukyoku()
     end
     y = y + 20
   end
-  if flr(T / 20) % 2 == 0 then
-    local h = "Ⓐ 继续"
-    print(h, (256 - tw(h)) / 2, 218, C_GOLD)
-  end
+  local h = btnicon("a") .. " 继续"
+  print(h, (256 - tw(h)) / 2, 218, C_GOLD)
 end
 
 local function draw_results()
@@ -2802,10 +2826,8 @@ local function draw_results()
   local st2 = "累计 局数" .. SAVE.games .. " 和了" .. SAVE.wins
     .. " 立直" .. SAVE.riichi .. " 最佳" .. SAVE.best
   print(st2, (256 - tw(st2)) / 2, y + 22, C_DIM)
-  if flr(T / 20) % 2 == 0 then
-    local h = "Ⓐ 返回标题"
-    print(h, (256 - tw(h)) / 2, 214, C_GOLD)
-  end
+  local h = btnicon("a") .. " 返回标题"
+  print(h, (256 - tw(h)) / 2, 214, C_GOLD)
 end
 
 -- ================================================================ 提示 UI
@@ -2827,25 +2849,25 @@ local function draw_prompt_ui()
       print(opts[i].label, x + 6, y + 2, sel and 30 or C_TEXT)
       x = x + w + 2
     end
-    local h = "←→选择 Ⓐ确认 Ⓑ过"
+    local h = btnicon("dpad") .. "选择 " .. btnicon("a") .. "确认 " .. btnicon("b") .. "过"
     print(h, (256 - tw(h)) / 2, 208 - 16, C_DIM)
   elseif p.type == "ron" then
     local s = pname(p.seat) .. " 可以荣和！"
     rectfill(28, 186, tw(s) + 130, 20, 0)
     rect(30, 187, tw(s) + 126, 18, C_RED)
     print(s, 34, 189, C_WHITE)
-    print("Ⓐ 和", 34 + tw(s) + 10, 189, C_GOLD)
-    print("Ⓑ 过", 34 + tw(s) + 60, 189, C_TEXT)
+    print(btnicon("a") .. " 和", 34 + tw(s) + 10, 189, C_GOLD)
+    print(btnicon("b") .. " 过", 34 + tw(s) + 60, 189, C_TEXT)
   elseif p.type == "tsumo" then
     local s = pname(p.seat) .. " 自摸和牌！"
     rectfill(28, 186, tw(s) + 130, 20, 0)
     rect(30, 187, tw(s) + 126, 18, C_GOLD)
     print(s, 34, 189, C_WHITE)
-    print("Ⓐ 和", 34 + tw(s) + 10, 189, C_GOLD)
-    print("Ⓑ 过", 34 + tw(s) + 60, 189, C_TEXT)
+    print(btnicon("a") .. " 和", 34 + tw(s) + 10, 189, C_GOLD)
+    print(btnicon("b") .. " 过", 34 + tw(s) + 60, 189, C_TEXT)
   elseif p.type == "discard" then
     if p.ri then
-      local s = "立直宣言：选择打出的牌（Ⓑ取消）"
+      local s = "立直宣言：选择打出的牌（" .. btnicon("b") .. "取消）"
       print(s, (256 - tw(s)) / 2, 208, C_GOLD)
     end
     if p.kmenu then
@@ -2873,7 +2895,7 @@ local HUMAN_LABEL = { "1人", "2人", "3人", "4人", "观战" }
 local HUMAN_CNT = { 1, 2, 3, 4, 0 }
 local LEVEL_LABEL = { "简单", "普通", "困难" }
 
-local function draw_title()
+local function draw_title_shell()
   cls(C_BG)
   rectfill(0, 0, 256, 256, C_PANEL)
   fillp(0x8142)
@@ -2884,28 +2906,44 @@ local function draw_title()
   rectfill(14, 10, 228, 236, C_FELT2 * 256 + C_FELT)
   fillp()
   rect(12, 8, 232, 240, C_RIM)
-  -- 装饰牌（2 倍放大）
-  local deco = { 33 * 4 + 1, 34, 26 * 4 + 1, 32 * 4 + 1, 31 * 4 + 1 }
-  local dx = 128 - 5 * 17
-  for i = 1, 5 do
+end
+
+-- Splash：纯主视觉封面（0-90 帧）
+local function draw_splash()
+  draw_title_shell()
+  local bsx, bsy = spr_origin(SPR.back)
+  for i = 0, 11 do
+    sspr(bsx, bsy, 16, 16, 28 + i * 17, 18, 16, 16)
+  end
+  local deco = { 31 * 4 + 1, 32 * 4 + 1, 33 * 4 + 1 }
+  local dx = 128 - 3 * 22
+  for i = 1, 3 do
     local t = tile_sprite(deco[i])
     local sx, sy = spr_origin(t)
-    sspr(sx, sy, 16, 16, dx + (i - 1) * 34, 22 + (i == 3 and -8 or 0), 32, 32)
+    sspr(sx, sy, 16, 16, dx + (i - 1) * 44, 40, 32, 32)
   end
   local s = "日本麻将"
-  local x = (256 - tw(s)) / 2
-  print(s, x + 1, 73, 0)
-  print(s, x - 1, 71, C_GOLD)
-  line(64, 92, 192, 92, C_GOLD)
+  print(s, (256 - tw(s, 3)) / 2 + 2, 86, 0, 3)
+  print(s, (256 - tw(s, 3)) / 2, 84, C_GOLD, 3)
+  line(64, 128, 192, 128, C_GOLD)
   local s2 = "立直麻将・东风战"
-  print(s2, (256 - tw(s2)) / 2, 98, C_TEXT)
+  print(s2, (256 - tw(s2)) / 2, 134, C_TEXT)
+end
+
+local function draw_title()
+  draw_title_shell()
+  -- 菜单页：小号标题 + 选项
+  local s = "日本麻将"
+  print(s, (256 - tw(s, 2)) / 2 + 1, 26, 0, 2)
+  print(s, (256 - tw(s, 2)) / 2, 24, C_GOLD, 2)
+  line(88, 52, 168, 52, C_GOLD)
   -- 选项
   local rows = {
     { "玩家", HUMAN_LABEL[TITLE.hidx] },
     { "难度", LEVEL_LABEL[TITLE.level] },
     { "音乐", TITLE.bgm and "开" or "关" },
   }
-  local y = 126
+  local y = 154
   for i = 1, 3 do
     local sel = (TITLE.row == i)
     if sel then
@@ -2915,15 +2953,14 @@ local function draw_title()
     print(rows[i][1], 66, y, sel and 30 or C_TEXT)
     local v = "〈" .. rows[i][2] .. "〉"
     print(v, 186 - tw(v) + 8, y, sel and C_WHITE or C_TEXT)
-    y = y + 23
+    y = y + 21
   end
   local st = "战绩 局数" .. SAVE.games .. "・和了" .. SAVE.wins
     .. "・立直" .. SAVE.riichi .. "・最佳" .. SAVE.best
-  print(st, (256 - tw(st)) / 2, 198, C_DIM)
-  if flr(T / 20) % 2 == 0 then
-    local h = "←→调整 Ⓐ 开始对局"
-    print(h, (256 - tw(h)) / 2, 222, C_GOLD)
-  end
+  print(st, (256 - tw(st)) / 2, 218, C_DIM)
+  local h = btnicon("dpad") .. " 选择调整　" .. btnicon("a") .. " 开始对局"
+  print(h, (256 - tw(h)) / 2 + 1, 233, 0)
+  print(h, (256 - tw(h)) / 2, 232, C_GOLD)
 end
 
 local PAUSE = nil
@@ -2952,7 +2989,7 @@ local function draw_pause()
       print(pg[i], 24, y, C_TEXT)
       y = y + 20
     end
-    local h = "←→翻页 Ⓑ 返回"
+    local h = btnicon("dpad") .. "翻页 " .. btnicon("b") .. " 返回"
     print(h, (256 - tw(h)) / 2, 214, C_GOLD)
     return
   end
@@ -2972,7 +3009,7 @@ end
 -- ================================================================ 输入
 
 local rep_d, rep_t = 0, 0
-local MODE = "title"
+local MODE = "splash"
 
 local function cursor_move(p, n)
   local move = 0
@@ -3142,7 +3179,14 @@ end
 local draw_selftest  -- 自测部分实现
 local WAIT_N = 0
 
+local SPLASH_T = 0
+
 local function drive()
+  if MODE == "splash" then
+    SPLASH_T = SPLASH_T + 1
+    if SPLASH_T > 90 or btnp(4) or btnp(11) then MODE = "title" end
+    return
+  end
   if WAIT_N > 0 then
     WAIT_N = WAIT_N - 1
     return
@@ -3235,6 +3279,10 @@ function _draw()
     draw_selftest()
     return
   end
+  if MODE == "splash" then
+    draw_splash()
+    return
+  end
   if MODE == "title" then
     draw_title()
     return
@@ -3308,7 +3356,7 @@ end
 
 local function meld_chi(str)
   local t = mk(str)
-  return { type = "chi", k = min(t[1], t[2], t[3]) >> 2, src = t[1],
+  return { type = "chi", k = bit32.rshift(min(t[1], t[2], t[3]), 2), src = t[1],
     others = { t[2], t[3] }, from = 0 }
 end
 
@@ -3568,16 +3616,14 @@ draw_selftest = function()
   if #TESTS.fails > 11 then
     print("…共 " .. #TESTS.fails .. " 项失败（详见终端）", 8, y, C_DIM)
   end
-  if flr(T / 20) % 2 == 0 then
-    local h = "Ⓐ 继续"
-    print(h, (256 - tw(h)) / 2, 236, C_GOLD)
-  end
+  local h = btnicon("a") .. " 继续"
+  print(h, (256 - tw(h)) / 2, 236, C_GOLD)
 end
 
 -- ================================================================ 生命周期
 
 function _init()
-  TEST_MODE = (peek(0x064400) == 42)
+  TEST_MODE = (peek(0x0C63A0) == 42)
   bake_tiles()
   init_audio()
   load_save()
@@ -3585,7 +3631,7 @@ function _init()
     run_self_tests()
     MODE = "test"
   else
-    MODE = "title"
+    MODE = "splash"
   end
 end
 

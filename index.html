@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FC-16 卡带收藏</title>
+<style>
+  :root {
+    --bg: #131313; --panel: #1d1d22; --line: #2c2c34; --ink: #e8e6df;
+    --dim: #9a97a3; --gold: #f2c14e; --accent: #4ecdc4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  }
+  header { padding: 36px 20px 8px; text-align: center; }
+  header h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: 2px; }
+  header h1 .fc { color: var(--gold); }
+  header p { margin: 0; color: var(--dim); font-size: 13px; }
+  .bar {
+    position: sticky; top: 0; z-index: 10; background: rgba(19,19,19,.94);
+    backdrop-filter: blur(6px); border-bottom: 1px solid var(--line);
+    padding: 12px 20px; display: flex; gap: 12px; flex-wrap: wrap;
+    align-items: center; justify-content: center;
+  }
+  #q {
+    width: min(340px, 80vw); padding: 9px 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    font-size: 14px; outline: none;
+  }
+  #q:focus { border-color: var(--accent); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .chip {
+    padding: 5px 14px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--dim); font-size: 13px; cursor: pointer;
+    user-select: none;
+  }
+  .chip.on { border-color: var(--gold); color: var(--gold); }
+  #count { color: var(--dim); font-size: 12px; min-width: 64px; text-align: center; }
+  main {
+    max-width: 1240px; margin: 0 auto; padding: 26px 16px 60px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 22px; justify-items: center;
+  }
+  .card {
+    width: 100%; max-width: 240px; border-radius: 10px; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--line); cursor: zoom-in;
+    transition: transform .15s ease, border-color .15s ease;
+  }
+  .card:hover { transform: translateY(-4px); border-color: var(--gold); }
+  .card img { display: block; width: 100%; height: auto; }
+  .card .meta { padding: 10px 12px 12px; }
+  .card .name { font-size: 15px; font-weight: 600; }
+  .card .sub { margin-top: 3px; font-size: 12px; color: var(--dim);
+               display: flex; justify-content: space-between; gap: 6px; }
+  .tag { color: var(--accent); }
+  .empty { grid-column: 1/-1; text-align: center; color: var(--dim); padding: 60px 0; }
+  dialog {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+    color: var(--ink); padding: 18px; max-width: min(92vw, 420px);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.7); }
+  dialog img { width: 100%; border-radius: 6px; }
+  dialog .row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  dialog a {
+    color: var(--gold); text-decoration: none; font-size: 14px;
+    border: 1px solid var(--gold); border-radius: 8px; padding: 6px 14px;
+  }
+  dialog .close { cursor: pointer; color: var(--dim); font-size: 13px; background: none; border: none; }
+  footer { text-align: center; color: var(--dim); font-size: 12px; padding: 0 0 40px; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="fc">FC-16</span> 卡带收藏</h1>
+  <p>31 款游戏 · 幻想主机 · 点击卡带查看大图与下载</p>
+</header>
+<div class="bar">
+  <input id="q" type="search" placeholder="搜索游戏名…" autocomplete="off">
+  <div class="chips" id="chips"></div>
+  <span id="count"></span>
+</div>
+<main id="grid"></main>
+<dialog id="dlg">
+  <img id="dlg_img" alt="">
+  <div class="row">
+    <div><div id="dlg_name" style="font-weight:600"></div>
+         <div id="dlg_desc" style="font-size:13px;color:var(--dim);margin-top:4px"></div></div>
+    <a id="dlg_dl" download>下载封面 PNG</a>
+  </div>
+  <div class="row" style="justify-content:flex-end">
+    <button class="close" onclick="dlg.close()">关闭 (Esc)</button>
+  </div>
+</dialog>
+<footer>FC-16 · FrostMiKu's Console —
+<a href="https://github.com/FrostMiKu/FC-16-Collection" target="_blank">GitHub 仓库</a>
+· 卡带需 FC-16 宿主运行</footer>
+<script>
+const DATA = [{"dir": "2048", "name": "2048", "author": "FrostMiKu", "genre": "益智", "desc": "滑动合成，冲向 2048"}, {"dir": "angrybirds", "name": "愤怒的小鸟", "author": "FrostMiKu", "genre": "休闲", "desc": "弹弓物理破坏，拆塔砸猪"}, {"dir": "ballbattle", "name": "球球大作战", "author": "FrostMiKu", "genre": "动作", "desc": "大球吞小球，质量即正义"}, {"dir": "battlecity", "name": "坦克大战", "author": "FrostMiKu", "genre": "射击", "desc": "坦克保卫基地，经典复刻"}, {"dir": "beachhead", "name": "抢滩登陆战2002", "author": "FrostMiKu", "genre": "射击", "desc": "纯软件 3D 管线的滩头守卫战"}, {"dir": "breakout", "name": "breakout", "author": "FrostMiKu", "genre": "休闲", "desc": "打砖块 + 道具弹幕"}, {"dir": "crimson_night", "name": "赤色之夜", "author": "Fictionity", "genre": "动作", "desc": "赤色之夜，弹幕生存"}, {"dir": "doudizhu", "name": "斗地主", "author": "FrostMiKu", "genre": "棋牌", "desc": "经典三人纸牌，真牌面精灵"}, {"dir": "flappy", "name": "flappy", "author": "FrostMiKu", "genre": "动作", "desc": "穿过管道间隙的拍翅飞行"}, {"dir": "gomoku", "name": "五子棋", "author": "FrostMiKu", "genre": "棋牌", "desc": "五子连珠，人机对弈"}, {"dir": "holdem", "name": "德州扑克", "author": "FrostMiKu", "genre": "棋牌", "desc": "无限注德州扑克，热座对局"}, {"dir": "klotski", "name": "华容道", "author": "FrostMiKu", "genre": "益智", "desc": "华容道，横刀立马"}, {"dir": "lianliankan", "name": "连连看", "author": "FrostMiKu", "genre": "益智", "desc": "连连看，图案配对消除"}, {"dir": "ludo", "name": "飞行棋", "author": "FrostMiKu", "genre": "桌游", "desc": "飞行棋，掷 6 起飞"}, {"dir": "mario", "name": "超级马里奥", "author": "FrostMiKu", "genre": "动作", "desc": "超级马里奥兄弟致敬版"}, {"dir": "minesweeper", "name": "扫雷", "author": "FrostMiKu", "genre": "益智", "desc": "扫雷，旗定千雷"}, {"dir": "mota24", "name": "24层魔塔", "author": "FrostMiKu", "genre": "RPG", "desc": "24 层魔塔，数值解谜爬塔"}, {"dir": "mota50", "name": "50层魔塔", "author": "FrostMiKu", "genre": "RPG", "desc": "50 层魔塔，更长的爬塔旅途"}, {"dir": "pacman", "name": "pacman", "author": "FrostMiKu", "genre": "动作", "desc": "迷宫追逐，能量豆反杀"}, {"dir": "reversi", "name": "黑白棋", "author": "FrostMiKu", "genre": "棋牌", "desc": "黑白棋，翻转制胜"}, {"dir": "riichi", "name": "日本麻将", "author": "FrostMiKu", "genre": "棋牌", "desc": "日本麻将，立直东风战"}, {"dir": "snake", "name": "snake", "author": "FrostMiKu", "genre": "动作", "desc": "贪吃蛇，越吃越长"}, {"dir": "sokoban", "name": "推箱子", "author": "FrostMiKu", "genre": "益智", "desc": "推箱子 16 关，一步都不能错"}, {"dir": "sudoku", "name": "数独", "author": "FrostMiKu", "genre": "益智", "desc": "数独，三档难度出题"}, {"dir": "survivors", "name": "暗夜幸存者", "author": "FrostMiKu", "genre": "动作", "desc": "暗夜幸存者，坟场弹幕求生"}, {"dir": "tetris", "name": "俄罗斯方块", "author": "FrostMiKu", "genre": "益智", "desc": "俄罗斯方块，Korobeiniki 背景音"}, {"dir": "thunder", "name": "雷霆战机", "author": "FrostMiKu", "genre": "射击", "desc": "雷霆战机，纵向弹幕射击"}, {"dir": "tictactoe", "name": "井字棋", "author": "FrostMiKu", "genre": "棋牌", "desc": "井字棋，人机对战"}, {"dir": "tunnel", "name": "螺旋隧道", "author": "FrostMiKu", "genre": "动作", "desc": "螺旋隧道，纯视觉竞速"}, {"dir": "xiangqi", "name": "中国象棋", "author": "FrostMiKu", "genre": "棋牌", "desc": "中国象棋，楚河汉界"}, {"dir": "brotato", "name": "土豆兄弟", "author": "FC-16", "genre": "动作", "desc": "竞技场生存割草（FC-16 官方移植）", "cover": "https://raw.githubusercontent.com/FC-16/FC-16-Brotato/main/brotato.fc16.png"}];
+const GENRES = ["全部", "益智", "棋牌", "动作", "射击", "休闲", "RPG", "桌游"];
+let genre = '全部';
+const grid = document.getElementById('grid');
+const chips = document.getElementById('chips');
+const q = document.getElementById('q');
+const dlg = document.getElementById('dlg');
+
+GENRES.forEach(g => {
+  const c = document.createElement('span');
+  c.className = 'chip' + (g === '全部' ? ' on' : '');
+  c.textContent = g;
+  c.onclick = () => {
+    genre = g;
+    chips.querySelectorAll('.chip').forEach(x => x.classList.remove('on'));
+    c.classList.add('on');
+    render();
+  };
+  chips.appendChild(c);
+});
+
+function card(d) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `
+    <img loading="lazy" src="${d.cover || `carts/${d.dir}.fc16.png`}" alt="${d.name}">
+    <div class="meta">
+      <div class="name">${d.name}</div>
+      <div class="sub"><span class="tag">${d.genre}</span><span>${d.author}</span></div>
+    </div>`;
+  el.onclick = () => {
+    dlg_img.src = d.cover || `carts/${d.dir}.fc16.png`;
+    dlg_name.textContent = d.name;
+    dlg_desc.textContent = d.desc;
+    dlg_dl.href = d.cover || `carts/${d.dir}.fc16.png`;
+    dlg.showModal();
+  };
+  return el;
+}
+
+function render() {
+  const kw = q.value.trim().toLowerCase();
+  grid.innerHTML = '';
+  let n = 0;
+  for (const d of DATA) {
+    if (genre !== '全部' && d.genre !== genre) continue;
+    if (kw && !(d.name.toLowerCase().includes(kw) || d.dir.includes(kw) || d.desc.includes(kw))) continue;
+    grid.appendChild(card(d));
+    n++;
+  }
+  document.getElementById('count').textContent = n + ' / ' + DATA.length;
+  if (n === 0) {
+    const e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = '没有匹配的卡带';
+    grid.appendChild(e);
+  }
+}
+q.addEventListener('input', render);
+render();
+</script>
+</body>
+</html>

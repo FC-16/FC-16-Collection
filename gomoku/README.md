@@ -42,7 +42,7 @@
 - 黑白落子为不同音色（圆润低叩 / 铃音高叩）、悔棋下行双音、
   胜利上行旋律、和棋中性双音、非法落子噪声；
 - 可选环境 BGM（Select 开关，默认开启）：C 大调五声音阶小品，
-  旋律（ROUND）+ 贝斯（BASS）两条声部，四小节 Pattern 回环 12.8 秒，
+  旋律（ROUND）+ 贝斯（BASS）两条声部，四小节 MUSIC 回环 12.8 秒，
   经 music mask 独占 ch4/5，与音效通道互不抢占。
 
 ## 存档
@@ -54,9 +54,9 @@
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "五子棋" --author "FrostMiKu" \
-  --version 1 --save-id gomoku --code demo/gomoku/gomoku.lua --cover 90 \
-  --out demo/gomoku/gomoku.fc16 --png demo/gomoku/gomoku.fc16.png
-cargo run -p fc16-host -- demo/gomoku/gomoku.fc16
+  --version 1 --save-id gomoku --code gomoku/gomoku.lua --cover 30 \
+  --out gomoku/gomoku.fc16 --png carts/gomoku.fc16.png
+cargo run -p fc16-host -- gomoku/gomoku.fc16
 ```
 
-封面取标题画面第 90 帧（`--cover 90`）。
+封面取标题画面第 90 帧（`--cover 30`）。

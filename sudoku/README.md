@@ -53,17 +53,17 @@ FC-16 幻想主机上的完整数独演示卡带：三档难度、唯一解题�
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "数独" --author "FrostMiKu" \
-  --version 1 --code demo/sudoku/sudoku.lua --cover 120 \
-  --out demo/sudoku/sudoku.fc16 --png demo/sudoku/sudoku.fc16.png
-cargo run -p fc16-host -- demo/sudoku/sudoku.fc16
+  --version 1 --code sudoku/sudoku.lua --cover 30 \
+  --out sudoku/sudoku.fc16 --png carts/sudoku.fc16.png
+cargo run -p fc16-host -- sudoku/sudoku.fc16
 ```
 
 headless 验证（零输入 300 帧 + 输入脚本长跑；出题为分帧生成，脚本帧号需为
 生成过程留足等待）：
 
 ```bash
-cargo run -p fc16-host -- demo/sudoku/sudoku.fc16 --frames 300 \
+cargo run -p fc16-host -- sudoku/sudoku.fc16 --frames 300 \
   --screenshot out.png
-cargo run -p fc16-host -- demo/sudoku/sudoku.fc16 --frames 900 \
+cargo run -p fc16-host -- sudoku/sudoku.fc16 --frames 900 \
   --script script.txt --screenshot out.png
 ```

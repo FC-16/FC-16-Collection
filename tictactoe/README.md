@@ -22,7 +22,7 @@ X / O 棋子与全部音效均由 `_init` 程序化生成，卡带不携带二�
 - **困难**：**完美 minimax**（negamax + 全局面记忆化 + 同分最优随机）。
   井字棋在完美对局下必为平局，因此困难 AI 不可战胜——玩家完美应对就是平局，
   犯错即被惩罚。搜索以协程分帧执行（每 700 节点让出一次），并跨局共享
-  记忆化表，全程不超单帧 20 万指令预算。
+  记忆化表。
 
 **终极井字棋**（启发式，非穷举）
 
@@ -67,16 +67,16 @@ Select 开关）。
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "井字棋" --author "FrostMiKu" \
-  --version 1 --save-id tictactoe --code demo/tictactoe/tictactoe.lua \
-  --cover 110 --out demo/tictactoe/tictactoe.fc16 --png demo/tictactoe/tictactoe.fc16.png
-cargo run -p fc16-host -- demo/tictactoe/tictactoe.fc16
+  --version 1 --save-id tictactoe --code tictactoe/tictactoe.lua \
+  --cover 30 --out tictactoe/tictactoe.fc16 --png carts/tictactoe.fc16.png
+cargo run -p fc16-host -- tictactoe/tictactoe.fc16
 ```
 
 headless 验证（400 帧零错误 + 截图）：
 
 ```bash
-cargo run -p fc16-host -- demo/tictactoe/tictactoe.fc16 --frames 400 \
-  --screenshot demo/tictactoe/_chk.png
+cargo run -p fc16-host -- tictactoe/tictactoe.fc16 --frames 400 \
+  --screenshot tictactoe/_chk.png
 ```
 
 AI 自查已在开发期完成：困难 AI 自弈多随机种子共 40+ 局全部平局

@@ -111,25 +111,67 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
 -- 按 SPEC §5.2 布局写一条 SFX（notes 音高表，0 = 休止）
+-- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function init_sfx(id, notes, wave, vol, speed)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, #notes)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #notes)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
-    if i < #notes then
-      u8(a, notes[i + 1])
-      u8(a + 1, wave * 16 + vol)
-      u8(a + 2, 0)
+    local a = base + 16 + i * 4
+    local p = notes[i + 1]
+    if p and p > 0 then
+      u8(a, p - 1)
+      u8(a + 1, WMAP[wave])
+      u8(a + 2, vol)
+      u8(a + 3, 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
 
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+
 local function init_audio()
+  init_waveforms()
   init_sfx(S_CUR, { 79 }, 0, 4, 1)                    -- 改选轻响
   init_sfx(S_PUSH, { 44, 39 }, 3, 10, 1)              -- 木块滑动
   init_sfx(S_BAD, { 28 }, 3, 6, 2)                    -- 推不动闷响
@@ -162,12 +204,16 @@ local function init_audio()
     init_sfx(19 + bar, expand(melody[bar], 4), 6, 9, 5)  -- ORGAN 旋律
     init_sfx(23 + bar, expand(harmony[bar], 16), 0, 6, 5) -- TRIANGLE 和声
     init_sfx(27 + bar, expand(bass[bar], 32), 11, 10, 5)  -- BASS 低音
-    local pb = 0x063800 + (bar - 1) * 16
-    u8(pb + 5, 20 + bar) -- ch5 旋律
-    u8(pb + 6, 24 + bar) -- ch6 和声
-    u8(pb + 7, 28 + bar) -- ch7 贝斯
-    u8(pb + 8, (bar == 1 and 1 or 0) + (bar == 4 and 2 or 0)) -- BEGIN/END
+    -- MUSIC 行（SPEC §5.2：八个 SFX ID，0xFF 为空；LOOP_START/LOOP_BACK 控制回环）
+    local mb = MUSIC_BASE + 32 + (bar - 1) * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end
+    u8(mb + 5, 19 + bar) -- ch5 旋律
+    u8(mb + 6, 23 + bar) -- ch6 和声
+    u8(mb + 7, 27 + bar) -- ch7 贝斯
+    if bar == 1 then u8(mb + 16, 1) end  -- LOOP_START：循环起点
+    if bar == 4 then u8(mb + 17, 1) end  -- LOOP_BACK：回到 LOOP_START
   end
+  u8(MUSIC_BASE, 4)  -- 全表 LEN = 4 行
 end
 
 -- ---------------------------------------------------------------- 精灵烘焙
@@ -358,7 +404,7 @@ end
 
 -- ---------------------------------------------------------------- 场景与演出
 
-local mode = "title"   -- title / select / help / play
+local mode = "splash"  -- splash / title / select / help / play
 local t = 0             -- 全局幀计数
 local title_sel = 1
 local sel_lv = 1        -- 选关光标
@@ -601,7 +647,9 @@ function _update()
     anim.t0 = anim.t0 + 1
     if anim.t0 >= anim.dur then anim = nil end
   end
-  if mode == "title" then
+  if mode == "splash" then
+    if t > 90 or btnp(4) or btnp(11) then mode = "title" end
+  elseif mode == "title" then
     update_title()
   elseif mode == "select" then
     update_select()
@@ -794,23 +842,32 @@ local function draw_win()
   else
     cprint("最佳 " .. best[lv] .. " 步", 118, C_GRAY)
   end
-  cprint("Ⓐ下一关 Ⓑ重来 Start选关", 166, C_GRAY)
+  cprint(btnicon("a") .. " 下一关　" .. btnicon("b") .. " 重来　"
+    .. btnicon("menu") .. " 选关", 166, C_GRAY)
 end
 
-local HELP_PARAS = {
-  "帮助曹操（2×2 大块）滑到棋盘下方中央的出口。滑块只能滑入相邻空位，不可斜移、跳跃或穿过其他块；每滑动一格计一步。",
-  "操作：←→↑↓ 推动高亮块，推不动时改选该向最近的块，按住方向连续推动。Ⓐ/Ⓑ 悔棋（无限），Ⓧ 重开本关，Ⓨ 可动提示开关，Ⓛ/Ⓡ 前后关卡，View 音乐开关，Menu 选关。",
-  "达成引擎最少步数有特别演出，各关最佳成绩自动存档。",
-}
-
+-- 帮助页：两列操作表（标题菜单进入，Ⓐ/Ⓑ 返回）
 local function draw_help()
-  cprint("玩法说明", 8, C_GOLD)
-  line(64, 26, 192, 26, C_BAR_LN)
-  local y = 34
-  for _, p in ipairs(HELP_PARAS) do
-    y = printw(p, 12, y, C_IVORY, 232) + 8
+  cls(C_BG)
+  cprint("操作说明", 10, C_GOLD)
+  line(64, 32, 192, 32, C_BAR_LN)
+  cprint("帮曹操（2×2）滑到下方中央出口", 44, C_IVORY)
+  cprint("滑块只可滑入相邻空位，不可穿块", 62, C_IVORY)
+  local rows = {
+    { btnicon("dpad"), "推块 / 改选最近块" },
+    { btnicon("a") .. btnicon("b"), "悔棋（无限）" },
+    { btnicon("x"), "重开本关" },
+    { btnicon("y"), "可动提示开关" },
+    { btnicon("lb") .. btnicon("rb"), "前后关卡" },
+    { btnicon("view"), "音乐开关" },
+    { btnicon("menu"), "选关" },
+  }
+  for i, r in ipairs(rows) do
+    local y = 88 + (i - 1) * 19
+    print(r[1], 62, y, C_GOLD_L)
+    print(r[2], 116, y, C_IVORY)
   end
-  cprint("Ⓐ 返回", 238, C_GRAY)
+  cprint(btnicon("b") .. " 返回", 236, C_GRAY)
 end
 
 local function draw_select()
@@ -839,7 +896,56 @@ local function draw_select()
       print(s, 216, y, on and C_WHITE or C_GRAY)
     end
   end
-  cprint("←→↑↓选择 Ⓐ开始 Ⓑ返回", 240, C_GRAY)
+  cprint(btnicon("dpad") .. " 选择　" .. btnicon("a") .. " 开始　"
+    .. btnicon("b") .. " 返回", 240, C_GRAY)
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——曹操 2×2 大方块特写 + 四卒环绕，
+-- 零菜单零提示零统计（封面帧 --cover 30 落在本段）
+local function draw_splash()
+  cls(C_BG)
+  -- 大 logo（scale 4：暗红影 + 亮金，匾额气质）
+  local chars = { "华", "容", "道" }
+  local cw = tw("华") * 4
+  for i = 1, 3 do
+    local x = 128 - cw * 1.5 + (i - 1) * (cw + 6)
+    print(chars[i], x + 4, 24, C_RED_D, 4)
+    print(chars[i], x, 20, C_GOLD_L, 4)
+  end
+  cprint("KLOTSKI ・ FC-16", 76, C_GRAY)
+  -- 木盘底（亮中棕衬黑漆描金曹操）
+  rectfill(24, 94, 208, 146, C_EDGE)
+  rect(24, 94, 208, 146, C_WOOD_D)
+  line(26, 96, 230, 96, C_EDGE_L)
+  for k = 1, 3 do
+    line(24 + k * 52, 96, 24 + k * 52, 238, C_WOOD_D)
+  end
+  for k = 1, 3 do
+    line(26, 94 + k * 36, 230, 94 + k * 36, C_WOOD_D)
+  end
+  -- 主视觉：曹操 2×2（scale 4，128px）居中 + 帝王金印
+  local bx, by, s = 64, 102, 64
+  local ct = TINT["曹"]
+  for py = 0, 1 do
+    for px = 0, 1 do
+      local id = TILE["曹"][py * 2 + px + 1]
+      sspr((id % 16) * 16, flr(id / 16) * 16, 16, 16, bx + px * s, by + py * s, s, s)
+    end
+  end
+  rrectfill(bx + 34, by + 74, 60, 44, 5, ct.dark)
+  rrect(bx + 34, by + 74, 60, 44, 5, C_GOLD)
+  print("曹操", bx + 40, by + 84, ct.ink, 2)
+  -- 四卒环绕（scale 2，盘面四角）
+  local sid = TILE["卒"][1]
+  local st = TINT["卒"]
+  local sx, sy = (sid % 16) * 16, flr(sid / 16) * 16
+  local spots = { { 30, 100 }, { 194, 100 }, { 30, 204 }, { 194, 204 } }
+  for _, q in ipairs(spots) do
+    sspr(sx, sy, 16, 16, q[1], q[2], 32, 32)
+    rrectfill(q[1] + 8, q[2] + 7, 16, 18, 2, st.dark)
+    rrect(q[1] + 8, q[2] + 7, 16, 18, 2, st.frame)
+    print("卒", q[1] + 10, q[2] + 10, st.ink)
+  end
 end
 
 local function draw_title()
@@ -857,16 +963,20 @@ local function draw_title()
   for i = 1, 2 do
     local y = 122 + (i - 1) * 26
     local on = title_sel == i
-    if on and flr(t / 8) % 2 == 0 then print("▶", 92, y, C_GOLD) end
+    if on then print("▶", 92, y, C_GOLD_L) end -- 光标常亮（封面帧须稳定）
     print(opts[i], 116, y, on and C_WHITE or C_GRAY)
   end
-  cprint("推动滑块・送曹操出下方出口", 182, 21)
-  cprint("横刀立马公开纪录 81 步", 200, 23)
-  cprint("Ⓐ确认 Select音乐" .. (music_on and "开" or "关"), 232, C_GRAY)
+  cprint("推动滑块・送曹操出下方出口", 182, C_IVORY)
+  cprint("横刀立马公开纪录 81 步", 202, C_GRAY)
+  cprint(btnicon("view") .. " 音乐", 232, C_GRAY)
 end
 
 function _draw()
   cls(C_BG)
+  if mode == "splash" then
+    draw_splash()
+    return
+  end
   if mode == "title" then
     draw_title()
   elseif mode == "select" then
@@ -896,6 +1006,6 @@ function _init()
   local last = dget(SLOT_LAST)
   sel_lv = (last >= 1 and last <= NLV) and last or 1
   load_level(NLV) -- 标题背景用横刀立马初始盘面
-  mode = "title"
+  mode = "splash"
   t = 0
 end

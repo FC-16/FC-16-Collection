@@ -1,0 +1,212 @@
+{
+"2048": {
+"name": "2048",
+"author": "FrostMiKu",
+"save_id": "2048",
+"version": "1",
+"flags": "0"
+},
+"angrybirds": {
+"name": "愤怒的小鸟",
+"author": "FrostMiKu",
+"save_id": "angrybirds",
+"version": "1",
+"flags": "0"
+},
+"ballbattle": {
+"name": "球球大作战",
+"author": "FrostMiKu",
+"save_id": "",
+"version": "1",
+"flags": "0"
+},
+"battlecity": {
+"name": "坦克大战",
+"author": "FrostMiKu",
+"save_id": "battlecity",
+"version": "1",
+"flags": "0"
+},
+"beachhead": {
+"name": "抢滩登陆战2002",
+"author": "FrostMiKu",
+"save_id": "beachhead2002",
+"version": "1",
+"flags": "0"
+},
+"breakout": {
+"name": "breakout",
+"author": "FrostMiKu",
+"save_id": "breakout",
+"version": "1",
+"flags": "0"
+},
+"crimson_night": {
+"name": "赤色之夜",
+"author": "Fictionity",
+"save_id": "",
+"version": "1",
+"flags": "0"
+},
+"doudizhu": {
+"name": "斗地主",
+"author": "FrostMiKu",
+"save_id": "doudizhu",
+"version": "1",
+"flags": "0"
+},
+"flappy": {
+"name": "flappy",
+"author": "FrostMiKu",
+"save_id": "",
+"version": "1",
+"flags": "0"
+},
+"gomoku": {
+"name": "五子棋",
+"author": "FrostMiKu",
+"save_id": "gomoku",
+"version": "1",
+"flags": "0"
+},
+"holdem": {
+"name": "德州扑克",
+"author": "FrostMiKu",
+"save_id": "holdem",
+"version": "1",
+"flags": "0"
+},
+"klotski": {
+"name": "华容道",
+"author": "FrostMiKu",
+"save_id": "klotski",
+"version": "1",
+"flags": "0"
+},
+"lianliankan": {
+"name": "连连看",
+"author": "FrostMiKu",
+"save_id": "",
+"version": "1",
+"flags": "0"
+},
+"ludo": {
+"name": "飞行棋",
+"author": "FrostMiKu",
+"save_id": "ludo",
+"version": "1",
+"flags": "0"
+},
+"mario": {
+"name": "超级马里奥",
+"author": "FrostMiKu",
+"save_id": "mario",
+"version": "1",
+"flags": "0"
+},
+"minesweeper": {
+"name": "扫雷",
+"author": "FrostMiKu",
+"save_id": "minesweeper",
+"version": "1",
+"flags": "0"
+},
+"mota24": {
+"name": "24层魔塔",
+"author": "FrostMiKu",
+"save_id": "mota24",
+"version": "1",
+"flags": "0"
+},
+"mota50": {
+"name": "50层魔塔",
+"author": "FrostMiKu",
+"save_id": "mota50",
+"version": "1",
+"flags": "0"
+},
+"pacman": {
+"name": "pacman",
+"author": "FrostMiKu",
+"save_id": "pacman",
+"version": "1",
+"flags": "0"
+},
+"reversi": {
+"name": "黑白棋",
+"author": "FrostMiKu",
+"save_id": "",
+"version": "1",
+"flags": "0"
+},
+"riichi": {
+"name": "日本麻将",
+"author": "FrostMiKu",
+"save_id": "riichi",
+"version": "1",
+"flags": "0"
+},
+"snake": {
+"name": "snake",
+"author": "FrostMiKu",
+"save_id": "snake",
+"version": "1",
+"flags": "0"
+},
+"sokoban": {
+"name": "推箱子",
+"author": "FrostMiKu",
+"save_id": "sokoban",
+"version": "1",
+"flags": "0"
+},
+"sudoku": {
+"name": "数独",
+"author": "FrostMiKu",
+"save_id": "",
+"version": "1",
+"flags": "0"
+},
+"survivors": {
+"name": "暗夜幸存者",
+"author": "FrostMiKu",
+"save_id": "survivors",
+"version": "1",
+"flags": "0"
+},
+"tetris": {
+"name": "俄罗斯方块",
+"author": "FrostMiKu",
+"save_id": "tetris",
+"version": "1",
+"flags": "0"
+},
+"thunder": {
+"name": "雷霆战机",
+"author": "FrostMiKu",
+"save_id": "thunder",
+"version": "2",
+"flags": "0"
+},
+"tictactoe": {
+"name": "井字棋",
+"author": "FrostMiKu",
+"save_id": "tictactoe",
+"version": "1",
+"flags": "0"
+},
+"tunnel": {
+"name": "螺旋隧道",
+"author": "FrostMiKu",
+"save_id": "tunnel",
+"version": "1",
+"flags": "0"
+},
+"xiangqi": {
+"name": "中国象棋",
+"author": "FrostMiKu",
+"save_id": "xiangqi",
+"version": "1",
+"flags": "0"
+}
+}

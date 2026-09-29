@@ -3,7 +3,7 @@
 经典中式四色飞行棋（Ludo）卡带。256×256 屏幕内完整呈现四色对称棋盘：
 四角机场、52 格环形跑道（每色 13 格，颜色沿跑道四色循环）、各色 6 格终点跑道、
 中心四色三角终点广场与四条虚线飞行捷径。全部精灵、音效与 BGM 由 `_init`
-程序化生成（poke 写精灵表 / SFX / PATTERN），卡带不携带二进制资产。
+程序化生成（poke 写精灵表 / SFX / MUSIC），卡带不携带二进制资产。
 
 ## 规则
 
@@ -72,21 +72,21 @@
 
 芯片音效覆盖掷骰、定格、起飞、逐格嘀嗒、同色跳跃、捷径飞跃、撞机、返航、
 到达终点、再掷、三连六警告与胜利旋律；BGM 为 C 大调轻快回旋
-（C・Am・F・G，ORGAN 旋律 + BASS + TRIANGLE 琶音垫，两段 Pattern 循环），
+（C・Am・F・G，ORGAN 旋律 + BASS + TRIANGLE 琶音垫，两行 MUSIC 循环），
 占 ch4-6（mask 0x70），游戏音效自动路由到其余通道。
 
 ## 构建与运行
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "飞行棋" --author "FrostMiKu" \
-  --version 1 --save-id ludo --code demo/ludo/ludo.lua --cover 40 \
-  --out demo/ludo/ludo.fc16 --png demo/ludo/ludo.fc16.png
-cargo run -p fc16-host -- demo/ludo/ludo.fc16
+  --version 1 --save-id ludo --code ludo/ludo.lua --cover 30 \
+  --out ludo/ludo.fc16 --png carts/ludo.fc16.png
+cargo run -p fc16-host -- ludo/ludo.fc16
 ```
 
-`--cover 40` 取标题画面第 40 帧作卡带封面。headless 验证：
+`--cover 30` 取标题画面第 40 帧作卡带封面。headless 验证：
 
 ```bash
-cargo run -p fc16-host -- demo/ludo/ludo.fc16 --frames 400 \
+cargo run -p fc16-host -- ludo/ludo.fc16 --frames 400 \
   --screenshot out.png --wav out.wav
 ```

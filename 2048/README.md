@@ -25,8 +25,8 @@
 - ≥128 合并喷发金色粒子（黄金角确定性散布），≥512 震屏；
   512 / 1024 首次达成弹出里程碑横幅；2048 金色射线旋转 + 彩带庆祝。
 - SFX 与轻量 BGM（A 小调四小节循环：ROUND 旋律 / TRIANGLE 琶音 / BASS
-  三声部，Pattern BEGIN/END 回环）全部由 `_init` 程序化写入 SFX 与
-  PATTERN 区；合并音效音高随数值档位升高，高档附加三度 / 五度 / 八度和音。
+  三声部，MUSIC 行 LOOP_START/LOOP_BACK 回环）全部由 `_init` 程序化写入 SFX 与
+  MUSIC 区；合并音效音高随数值档位升高，高档附加三度 / 五度 / 八度和音。
 
 ## 操作
 
@@ -42,7 +42,7 @@
 
 ```bash
 cargo run -p fc16-tools --bin fc16mk -- --name "2048" --author "FrostMiKu" \
-  --version 1 --save-id 2048 --code demo/2048/2048.lua --cover 80 \
-  --out demo/2048/2048.fc16 --png demo/2048/2048.fc16.png
-cargo run -p fc16-host -- demo/2048/2048.fc16
+  --version 1 --save-id 2048 --code 2048/2048.lua --cover 30 \
+  --out 2048/2048.fc16 --png carts/2048.fc16.png
+cargo run -p fc16-host -- 2048/2048.fc16
 ```

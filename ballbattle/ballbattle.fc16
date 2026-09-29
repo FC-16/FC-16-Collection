@@ -6,12 +6,23 @@ version: 1
 flags: 0
 icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a0a0b0b0c0c0d0d0e0e0f0f080809090a0a0b0b0c0c0d0d0e0e0f0f1010111112121313141415151616171710101111121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f181819191a1a1b1b1c1c1d1d1e1e1f1f2020212122222323242425252626272720202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f282829292a2a2b2b2c2c2d2d2e2e2f2f3030313132323333343435353636373730303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f383839393a3a3b3b3c3c3d3d3e3e3f3f
 @sprites 0
-@map 0
+@maps 0
 @sfx 0
-@patterns 0
+@waveforms 0
+@instruments 0
+@music 2080
+0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff000000000000000000000000000000000000000000000000
+ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
-@free 0
-@code 53030
+@custom 0
+@code 60386
 -- 球球大作战 ・ FC-16 演示卡带
 -- 1024×1024 竞技场：方向键加速（速度上限随体型降低）；
 -- 半径大 15% 且包裹中心即可吞并（得 80% 质量），吃豆微成长；质量 600 获胜
@@ -33,7 +44,7 @@ icon: 0000010102020303040405050606070700000101020203030404050506060707080809090a
 --   小地图画出每个玩家分身；右上排行榜按家族总质量取前四
 -- 音频：吃豆音高随体型下降 / 吞球 / 分身 / 吐球 / 死亡 / 胜利 SFX +
 --   原创 8 小节循环 BGM（View 开关，占 ch4-7）；纪录 dset(0..2) 持久化
--- 操作：←↑↓→ 移动　Ⓐ 分身　Ⓧ 吐球　Ⓐ 开始/再来一局　Menu 回标题
+-- 操作：dpad 移动　A 分身　X 吐球　A 开始/再来一局　Menu 回标题（Ⓨ 操作说明）
 
 -- ---------------------------------------------------------------- 常量
 
@@ -75,27 +86,68 @@ local P_SKIN = {31, 25, 22, 1}     -- 玩家：金黄球（描边暗橙、高光
 local PELLET_COLS = {32, 33, 34, 41, 42, 43, 45, 46, 30, 31, 23, 57, 8, 21}
 local NAMES = {"绿豆", "苹果", "蓝鲸", "橙子", "紫薯", "桃子", "银币", "樱桃",
   "柠檬", "西瓜", "葡萄", "草莓", "抹茶", "可可", "奶昔", "布丁"}
-local HINTS = {"Ⓐ 分身　Ⓧ 吐球", "同体冷却后靠近自动合体",
-  "吐出的球谁都能吃", "大球吞小球", "质量 600 即胜利", "View 音乐开关"}
+local HINTS = {btnicon("a") .. " 分身　" .. btnicon("x") .. " 吐球", "同体冷却后靠近自动合体",
+  "吐出的球谁都能吃", "大球吞小球", "质量 600 即胜利", btnicon("view") .. " 音乐开关"}
 local function fmt(n) return string.format("%d", flr(n + 0.5)) end -- 防御取整：dget 定点解码可能带尾差
 
 -- ---------------------------------------------------------------- 音频（SPEC §5.2）
 
 local function u8(a, v) poke(a, v % 256) end
--- 写一条 SFX：steps[i] = {音高, 波形, 音量[, 效果]}，nil 步为休止
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）
+-- steps[i] = {音高, 音色, 音量[, 效果]}，nil 步与音高 0 均为休止
+-- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function write_sfx(id, speed, steps, len)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, len or #steps)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, len or #steps)
   for i = 0, 31 do
-    local a, s = base + 16 + i * 3, steps[i + 1]
-    if s then u8(a, s[1] or 0) u8(a + 1, (s[2] or 0) * 16 + (s[3] or 0)) u8(a + 2, s[4] or 0)
-    else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) end
+    local a, s = base + 16 + i * 4, steps[i + 1]
+    if s and (s[1] or 0) > 0 then
+      u8(a, s[1] - 1)
+      u8(a + 1, WMAP[s[2] or 0])
+      u8(a + 2, s[3] or 0)
+      u8(a + 3, s[4] or 0)
+    else
+      u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0)
+    end
   end
 end
 -- 原创循环 BGM（C 大调五声，8 小节，轻快）：每小节 = 一条 32 步 SFX（speed 4，
 -- 八分音符展开 4 步）；四声部旋律 20-27 / 琶音 32-39 / 贝斯 44-51 / 鼓 56-63，
--- PATTERN 0-7 顺序相连并 BEGIN/END 回环，占 ch4-7（music mask 0xF0）
+-- MUSIC 0-7 行顺序相连并 LOOP_START/LOOP_BACK 回环，占 ch4-7（music mask 0xF0）
 local MEL = {
   {61, 64, 67, 69, 67, 64, 61, 0}, {64, 67, 69, 67, 64, 62, 64, 0},
   {61, 64, 67, 69, 72, 69, 67, 64}, {69, 67, 69, 72, 69, 0, 67, 0},
@@ -107,7 +159,9 @@ local ARP = {
   {41, 45, 48}, {48, 52, 55}, {43, 47, 50}, {48, 52, 55},
 }
 local BASS_ROOT = {36, 31, 36, 31, 29, 36, 31, 36}
+local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 local function init_audio()
+  init_waveforms()
   -- 游戏音效（显式走 ch0-2，ch4-7 留给音乐）
   write_sfx(0, 1, {{64, 3, 5}, {69, 3, 6}})                             -- 菜单微调
   write_sfx(1, 1, {{58, 3, 9}, {62, 3, 10}, {65, 3, 11}, {67, 3, 12}})  -- 开局
@@ -148,19 +202,19 @@ local function init_audio()
     write_sfx(32 + bar, 4, arp, 32)
     write_sfx(44 + bar, 4, bass, 32)
     write_sfx(56 + bar, 4, dr, 32)
-    local pb = 0x063800 + bar * 16
-    u8(pb + 4, 21 + bar) u8(pb + 5, 33 + bar)
-    u8(pb + 6, 45 + bar) u8(pb + 7, 57 + bar)
-    local fl = 0
-    if bar == 0 then fl = 1 end       -- BEGIN：循环起点
-    if bar == 7 then fl = fl + 2 end  -- END：回到 BEGIN
-    u8(pb + 8, fl)
+    local mb = MUSIC_BASE + 32 + bar * 32
+    for c = 0, 7 do u8(mb + c, 0xFF) end
+    u8(mb + 4, 20 + bar) u8(mb + 5, 32 + bar)
+    u8(mb + 6, 44 + bar) u8(mb + 7, 56 + bar)
+    if bar == 0 then u8(mb + 16, 1) end    -- LOOP_START：循环起点
+    if bar == 7 then u8(mb + 17, 1) end    -- LOOP_BACK：回到 LOOP_START
   end
+  u8(MUSIC_BASE, 8)  -- 全表 LEN = 8 行
 end
 
 -- ---------------------------------------------------------------- 状态
 
-local state, t = "title", 0       -- title | play | dying | win | over
+local state, t = "splash", 0       -- splash | title | play | dying | win | over
 local balls, pellets, spores, rspawns -- 球 / 食物豆 / 吐出的球 / 重生队列 {t, kind}
 local fam_counter                 -- AI 家族编号（玩家固定 0）
 local cam = {x = W / 2, y = W / 2, s = 1}
@@ -929,15 +983,24 @@ local function start_game()
   if music_on and not bgm_on then music(0, 500, 0xF0) bgm_on = true end
   sfx(1, 0)
 end
-local function to_title()
-  state = "title"
-  deco = {balls = {}, dots = {}}
+local function make_deco() -- 标题 / 封面装饰球与豆（_init 生成，frame 0 完整）
+  local d = {balls = {}, dots = {}}
   for i = 1, 6 do
-    deco.balls[i] = {ph = rnd(1), py = rnd(1), sk = SKINS[i], m = 18 + flr(rnd(26))}
+    d.balls[i] = {ph = rnd(1), py = rnd(1), sk = SKINS[i], m = 18 + flr(rnd(26))}
   end
   for i = 1, 28 do
-    deco.dots[i] = {x = rnd(8, 248), y = rnd(8, 248), c = PELLET_COLS[flr(rnd(#PELLET_COLS)) + 1]}
+    d.dots[i] = {x = rnd(8, 248), y = rnd(8, 248), c = PELLET_COLS[flr(rnd(#PELLET_COLS)) + 1]}
   end
+  return d
+end
+local function to_splash()
+  state = "splash"
+  deco = make_deco()
+  if music_on and not bgm_on then music(0, 500, 0xF0) bgm_on = true end
+end
+local function to_title()
+  state = "title"
+  deco = make_deco()
   if music_on and not bgm_on then music(0, 500, 0xF0) bgm_on = true end
 end
 local function settle_records() -- 进结算面板时落盘最高纪录
@@ -1043,7 +1106,11 @@ local function update_over()
 end
 local function update_title()
   if btnp(4) then start_game()
+  elseif btnp(7) then state = "help" sfx(0)
   elseif btnp(10) then toggle_music() end
+end
+local function update_help()
+  if btnp(5) or btnp(7) then state = "title" sfx(0) end
 end
 
 -- ---------------------------------------------------------------- 绘制：世界
@@ -1183,7 +1250,7 @@ local function draw_hud()
       if b.split_cd > cd then cd = b.split_cd end
     end
   end
-  print("Ⓐ分身", 10, 41, 6)
+  print(btnicon("a") .. "分身", 10, 41, 6)
   local st, sc = "就绪", 33
   if nf >= P_MAX_BALLS then st, sc = "已满", 5
   elseif not can then st, sc = "不足", 5 end
@@ -1241,7 +1308,7 @@ end
 local function draw_over_panel()
   fillp(0x8421)
   rectfill(0, 0, 256, 256, 13 * 256 + 0)
-  fillp()
+  fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
   local bx, by, bw, bh = 38, 48, 180, 160
   rrectfill(bx, by, bw, bh, 6, 8)
   rrect(bx, by, bw, bh, 6, 10)
@@ -1261,8 +1328,86 @@ local function draw_over_panel()
   row("吞噬 " .. fmt(kills) .. " 球", 128, 1)
   if new_kills and flr(t / 6) % 2 == 0 then print("★", 176, 128, 30) end
   row("排名 " .. fmt(final_rank) .. "/" .. fmt(final_count), 148, 1)
-  if flr(t / 24) % 4 ~= 3 then row("Ⓐ 再来一局", 174, 4) end
-  row("Menu 回标题", 192, 10)
+  if flr(t / 24) % 4 ~= 3 then row(btnicon("a") .. " 再来一局", 174, 4) end
+  row(btnicon("menu") .. " 回标题", 192, 10)
+end
+local function draw_help()
+  cls(13)
+  for x = 0, 256, 32 do line(x, 0, x, 256, 12) end
+  for y = 0, 256, 32 do line(0, y, 256, y, 12) end
+  local bx, by, bw, bh = 34, 34, 188, 188
+  rrectfill(bx, by, bw, bh, 6, 51)
+  rrect(bx, by, bw, bh, 6, 11)
+  rectfill(bx + 2, by + 2, bw - 4, 1, 7)
+  local s = "操作说明"
+  print(s, (256 - tw(s)) / 2, 48, 42)
+  local rows = {
+    { btnicon("dpad"), "移动（越大越慢）" },
+    { btnicon("a"), "分身：一分为二前冲" },
+    { btnicon("x"), "吐球：干扰与喂球" },
+    { btnicon("view"), "音乐开关" },
+    { btnicon("menu"), "结算回标题" },
+  }
+  for i = 1, #rows do
+    local y = 76 + (i - 1) * 22
+    print(rows[i][1], 62, y, 31)
+    print(rows[i][2], 92, y, 7)
+  end
+  local r = "大球吞小球；总质量 600 获胜"
+  print(r, (256 - tw(r)) / 2, 192, 8)
+  local b = btnicon("b") .. " 返回"
+  print(b, (256 - tw(b)) / 2, 208, 7)
+end
+-- Splash：纯主视觉封面（0-90 帧）——大金球特写（眼睛 + 高光）+ 彩色卫星球环绕，零菜单零提示
+local function draw_splash()
+  cls(13)
+  for x = 0, 256, 32 do line(x, 0, x, 256, 12) end -- 淡网格呼应赛场
+  for y = 0, 256, 32 do line(0, y, 256, y, 12) end
+  for i = 1, #deco.dots do                         -- 装饰豆
+    local d = deco.dots[i]
+    pset(d.x, d.y, d.c)
+  end
+  -- 大 logo（scale 3，逐字彩色 + 投影）
+  local chars, cols = {"球", "球", "大", "作", "战"}, {33, 41, 30, 55, 58}
+  for i = 1, 5 do
+    local x = 34 + (i - 1) * 40
+    print(chars[i], x + 3, 27, 1, 3)
+    print(chars[i], x, 24, cols[i], 3)
+  end
+  -- 英雄画面：中央大金球特写（呼吸微颤 + 望向环绕方向的眼睛）
+  local bx, by = 128, 160
+  local br = 62 + flr(sin(t * 0.02) * 2)
+  local f = t * 0.004
+  for i = 1, #deco.balls do                        -- 彩色卫星球环绕（后半先画）
+    local d = deco.balls[i]
+    local a = f + d.ph
+    if sin(a) < 0 then
+      local x, y = bx + cos(a) * 104, by + sin(a) * 46
+      circfill(x, y, 13, d.sk[2])
+      circfill(x, y, 10, d.sk[1])
+      circfill(x - 3, y - 3, 3, d.sk[3])
+    end
+  end
+  circfill(bx, by, br + 3, 25)                     -- 描边（暗橙）
+  circfill(bx, by, br, 31)                         -- 金黄主色
+  circfill(bx - 18, by - 18, 13, 22)               -- 高光斑
+  circfill(bx - 22, by - 22, 5, 7)
+  for side = -1, 1, 2 do                           -- 大眼睛
+    local a = f + side * 0.21
+    local ex, ey = bx + cos(a) * 30, by + sin(a) * 30
+    circfill(ex, ey, 10, 7)
+    circfill(ex + cos(f) * 4, ey + sin(f) * 4, 5, 1)
+  end
+  for i = 1, #deco.balls do                        -- 前半卫星球压在上层
+    local d = deco.balls[i]
+    local a = f + d.ph
+    if sin(a) >= 0 then
+      local x, y = bx + cos(a) * 104, by + sin(a) * 46
+      circfill(x, y, 13, d.sk[2])
+      circfill(x, y, 10, d.sk[1])
+      circfill(x - 3, y - 3, 3, d.sk[3])
+    end
+  end
 end
 local function draw_title()
   cls(13)
@@ -1272,41 +1417,48 @@ local function draw_title()
     local d = deco.dots[i]
     pset(d.x, d.y, d.c)
   end
-  for i = 1, #deco.balls do                        -- 利萨茹巡游的装饰球
-    local d = deco.balls[i]
-    local x = 128 + cos(t * 0.0035 + d.ph) * 106
-    local y = 128 + sin(t * 0.0052 + d.py) * 102
-    circfill(x, y, 17, d.sk[2])
-    circfill(x, y, 14, d.sk[1])
-    circfill(x - 4, y - 5, 4, d.sk[3])
-    print(fmt(d.m), x - tw(fmt(d.m)) / 2, y - 8, d.sk[4])
-  end
-  rectfill(48, 26, 160, 44, 51)                    -- 标题板（斜面匾）
-  rectfill(48, 26, 160, 2, 53) rectfill(48, 26, 2, 44, 53)
-  rectfill(48, 68, 160, 2, 50) rectfill(206, 26, 2, 44, 50)
+  -- 标题板（斜面匾）+ 逐字彩色大标题（scale 2）
+  rectfill(52, 30, 152, 52, 51)
+  rectfill(52, 30, 152, 2, 53) rectfill(52, 30, 2, 52, 53)
+  rectfill(52, 80, 152, 2, 50) rectfill(202, 30, 2, 52, 50)
   local chars, cols = {"球", "球", "大", "作", "战"},
     {33, 41, 30, 55, 58}
   for i = 1, 5 do
-    local x = 68 + (i - 1) * 26
-    local y = 38 + flr(sin(t * 0.05 + i * 0.16) * 3)
-    print(chars[i], x + 2, y + 2, 1)
-    print(chars[i], x, y, cols[i])
+    local x = 128 - 65 + (i - 1) * 26
+    print(chars[i], x + 2, 38, 1, 2)
+    print(chars[i], x, 36, cols[i], 2)
   end
   local s = "BALL BATTLE ・ FC-16"
-  print(s, (256 - tw(s)) / 2, 84, 5)
-  s = "大球吞小球　质量 600 取胜"
-  print(s, (256 - tw(s)) / 2, 110, 8)
-  s = "纪录 质量" .. fmt(dget(0)) .. "　生存" .. fmt(dget(1)) .. "秒　吞噬" .. fmt(dget(2))
-  print(s, (256 - tw(s)) / 2, 140, 30)
-  if flr(t / 20) % 2 == 0 then
-    s = "按 Ⓐ 开始游戏"
-    print(s, (256 - tw(s)) / 2 + 1, 171, 1)
-    print(s, (256 - tw(s)) / 2, 170, 7)
+  print(s, (256 - tw(s)) / 2, 94, 5)
+  -- 中央大金球 + 卫星小球环绕（封面构图）
+  for i = 1, #deco.balls do
+    local d = deco.balls[i]
+    local a = t * 0.004 + d.ph
+    local x = 128 + cos(a) * 76
+    local y = 148 + sin(a) * 30
+    circfill(x, y, 9, d.sk[2])
+    circfill(x, y, 7, d.sk[1])
+    circfill(x - 2, y - 2, 2, d.sk[3])
   end
-  local hints = {"Ⓐ 分身　Ⓧ 吐球", "←↑↓→ 移动　View 音乐开关"}
-  for i = 1, 2 do print(hints[i], (256 - tw(hints[i])) / 2, 202 + (i - 1) * 18, 6) end
+  circfill(128, 148, 32, 25)                       -- 描边（暗橙）
+  circfill(128, 148, 29, 31)                       -- 金黄主色
+  circfill(117, 137, 7, 22)                        -- 高光斑
+  local f = t * 0.004                              -- 眼睛望向环绕方向
+  for side = -1, 1, 2 do
+    local a = f + side * 0.21
+    local ex, ey = 128 + cos(a) * 16, 148 + sin(a) * 16
+    circfill(ex, ey, 5, 7)
+    circfill(ex + cos(f) * 2, ey + sin(f) * 2, 2.6, 1)
+  end
+  -- 标语 / 一行图标提示（稳定不闪）/ 纪录
+  s = "大球吞小球　质量 600 取胜"
+  print(s, (256 - tw(s)) / 2, 192, 8)
+  local h = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
+  print(h, (256 - tw(h)) / 2 + 1, 211, 1)
+  print(h, (256 - tw(h)) / 2, 210, 7)
+  s = "纪录 质量" .. fmt(dget(0)) .. "　生存" .. fmt(dget(1)) .. "秒　吞噬" .. fmt(dget(2))
+  print(s, (256 - tw(s)) / 2, 232, 30)
   print("♪", 242, 2, music_on and 30 or 10)
-  print("FrostMiKu ・ FC-16", (256 - tw("FrostMiKu ・ FC-16")) / 2, 240, 10)
 end
 
 -- ---------------------------------------------------------------- 生命周期
@@ -1319,14 +1471,19 @@ function _init()
   spores = {}
   cells = {}
   name_pool = {}
-  to_title()
+  to_splash()
 end
 function _update()
   t = t + 1
   update_fx()
   if shake > 0 then shake = shake - 1 end
-  if state == "title" then
+  if state == "splash" then
+    -- 开机封面：90 帧后（或 Ⓐ / Menu）进交互菜单
+    if t > 90 or btnp(4) or btnp(11) then to_title() end
+  elseif state == "title" then
     update_title()
+  elseif state == "help" then
+    update_help()
   elseif state == "play" then
     if btnp(10) then toggle_music() end
     update_play()
@@ -1342,8 +1499,16 @@ end
 function _draw()
   pal()
   camera(0, 0)
+  if state == "splash" then
+    draw_splash()
+    return
+  end
   if state == "title" then
     draw_title()
+    return
+  end
+  if state == "help" then
+    draw_help()
     return
   end
   if shake > 0 then -- 被吞震屏（与幀号绑定，保持确定性）

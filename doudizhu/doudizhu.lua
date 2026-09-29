@@ -12,7 +12,7 @@
 
 -- ================================================================ 常量与配色
 
-local CW, CH = 20, 28          -- 标准牌尺寸（手牌 / 侧家出牌）
+local CW, CH = 32, 32          -- 标准牌尺寸（balatro 扑克精灵 32×32）
 local HY = 196                 -- 手牌顶 y（选中牌上移 8px）
 local PLAY_CX = {128, 204, 52} -- 各家出牌区中心 x：1 南 2 东(右) 3 西(左)
 local PLAY_Y = {108, 44, 44}   -- 各家出牌区 y
@@ -76,7 +76,7 @@ local function glyph(pat, x, y, c, sc, w)
   for r = 1, 5 do
     local bits = pat[r]
     for i = 0, w - 1 do
-      if (bits >> (w - 1 - i)) & 1 == 1 then
+      if bit32.band(bit32.rshift(bits, w - 1 - i), 1) == 1 then
         rectfill(x + i * sc, y + (r - 1) * sc, sc, sc, c)
       end
     end
@@ -88,6 +88,17 @@ end
 -- 牌编码 c = 点数×4 + 花色；点数 3..15（3..2），16 小王，17 大王；小王=64 大王=68
 -- 点数序：3<4<…<K<A<2<小王<大王，编码整数值与大小序一致
 local function rank_of(c) return flr(c / 4) end
+
+-- balatro 扑克精灵表（tools/cards.bin，瓦片 0..255：52 牌面 + 6 牌背，32×32/张）
+local function band_tile(base, idx) return base + flr(idx / 8) * 32 + (idx % 8) * 2 end
+local SUIT_SPR = { [0] = 3, 2, 0, 1 }  -- 本作 ♠♥♦♣ → 图集 ♦♣♥♠ 顺序
+local BACK_TILE = band_tile(224, 0)
+local function tile_px(t) return (t % 16) * 16, flr(t / 16) * 16 end  -- 瓦片号 → 表像素
+local function card_tile(c)  -- 普通牌 → 图集瓦片号；王牌不在表内（程序化绘制）
+  local r = rank_of(c)
+  local br = r <= 13 and r - 1 or (r == 14 and 0 or 1)  -- 3..K→2..12，A→0，2→1
+  return band_tile(0, SUIT_SPR[c % 4] * 13 + br)
+end
 
 local function card_col(c)
   local r = rank_of(c)
@@ -623,26 +634,67 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- steps: {{音高, 波形, 音量, 效果?}, ...}；音高 0 = 休止
+-- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
+local WAVEFORM_DATA = {
+  -- 0: 旧 ROUND
+  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
+  -- 1: 旧 DOUBLE SAW
+  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
+  -- 2: 旧 BELL
+  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
+  -- 3: 旧 BASS
+  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
+  -- 4: 旧 HOLLOW
+  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
+  -- 5: 旧 BIT
+  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
+  -- 6: 旧 PULSE 12
+  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
+  -- 7: 旧 REED
+  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
+}
+
+local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
+
+local function init_waveforms()
+  for id = 0, 7 do
+    local base = WAVEFORM_BASE + id * 80
+    local t = WAVEFORM_DATA[id + 1]
+    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
+  end
+end
+
+-- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
+local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+
+-- steps: {{音高, 音色, 音量, 效果?}, ...}；音高 0 = 休止
+-- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function sfx_steps(id, speed, steps)
-  local base = 0x060000 + id * 112
-  u8(base, speed)
-  u8(base + 1, #steps)
+  local base = 0x0C0000 + id * 144
+  poke2(base, (speed == 0 and 1 or speed) * 4) -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  u8(base + 2, #steps)
   for i = 0, 31 do
-    local a = base + 16 + i * 3
+    local a = base + 16 + i * 4
     local st = steps[i + 1]
-    if st then
-      u8(a, st[1] or 0) -- 音高 0 = 休止
-      u8(a + 1, (st[2] or 0) * 16 + (st[3] or 0))
-      u8(a + 2, st[4] or 0)
+    if st and (st[1] or 0) > 0 then
+      u8(a, st[1] - 1)
+      u8(a + 1, WMAP[st[2] or 0])
+      u8(a + 2, st[3] or 0)
+      u8(a + 3, st[4] or 0)
     else
       u8(a, 0)
       u8(a + 1, 0)
+      u8(a + 2, 0)
+      u8(a + 3, 0)
     end
   end
 end
 
+local MUSIC_BASE = 0x0C5380 -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+
 local function init_audio()
+  init_waveforms()
   sfx_steps(0, 1, {{76, 15, 4}})                                       -- 发牌嗒
   sfx_steps(1, 1, {{68, 3, 5}})                                        -- 选牌
   sfx_steps(2, 1, {{0, 15, 8}, {40, 3, 9, 3}, {31, 3, 7}})             -- 出牌
@@ -662,7 +714,7 @@ local function init_audio()
   sfx_steps(12, 1, {{58, 3, 4}})                                       -- 光标
   sfx_steps(13, 2, {{79, 10, 8}, {84, 10, 8}, {88, 10, 9}})            -- 春天星音
   sfx_steps(14, 2, {{56, 3, 9}, {61, 3, 9}, {64, 3, 10}, {69, 3, 11}}) -- 地主揭晓
-  -- BGM（Pattern 0 回环，ch6 贝斯 + ch7 旋律，进行 C-Am-F-G）
+  -- BGM（MUSIC 行 0 回环，ch6 贝斯 + ch7 旋律，进行 C-Am-F-G）
   sfx_steps(20, 5, {
     {37, 0, 6}, {0}, {44, 0, 5}, {0}, {37, 0, 6}, {0}, {44, 0, 5}, {0},
     {34, 0, 6}, {0}, {41, 0, 5}, {0}, {34, 0, 6}, {0}, {41, 0, 5}, {0},
@@ -675,10 +727,13 @@ local function init_audio()
     {0}, {0}, {63, 8, 4}, {0}, {0}, {0}, {65, 8, 4}, {0},
     {0}, {0}, {68, 8, 4}, {0}, {0}, {0}, {0}, {0},
   })
-  local mb = 0x063800
-  u8(mb + 6, 21) -- ch6 ← SFX 20
-  u8(mb + 7, 22) -- ch7 ← SFX 21
-  u8(mb + 8, 3)  -- BEGIN|END 回环
+  local mb = MUSIC_BASE + 32 -- 行 0
+  for c = 0, 7 do u8(mb + c, 0xFF) end -- 空轨写 0xFF（0 是合法 SFX 号）
+  u8(mb + 6, 20) -- ch6 ← SFX 20
+  u8(mb + 7, 21) -- ch7 ← SFX 21
+  u8(mb + 16, 1) -- LOOP_START：循环起点
+  u8(mb + 17, 1) -- LOOP_BACK：回到 LOOP_START
+  u8(MUSIC_BASE, 1) -- 全表 LEN = 1 行
 end
 
 -- ================================================================ 游戏状态
@@ -1128,7 +1183,7 @@ local function update_deal()
     bid_cnt = 0
     high, high_seat = 0, 1
     bid_phase = "speak"
-    bid_turn = (flr(rnd(3)) | 0) + 1
+    bid_turn = flr(rnd(3)) + 1
     bid_cursor = 2
     if bid_turn ~= 1 then
       think[bid_turn] = 30
@@ -1140,84 +1195,53 @@ end
 -- ================================================================ 绘制：卡牌
 
 local function draw_back(x, y, w, h)
-  rectfill(x, y, w, h, 7)
-  rectfill(x + 1, y + 1, w - 2, h - 2, C_BACK)
-  if w >= 16 and h >= 20 then
-    fillp(0x8142)
-    rectfill(x + 3, y + 3, w - 6, h - 6, 63 * 256 + C_BACK)
-    fillp()
-  else
-    rectfill(flr(x + w / 2) - 2, flr(y + h / 2) - 2, 4, 4, 63)
-  end
+  local sx, sy = tile_px(BACK_TILE)
+  sspr(sx, sy, 32, 32, x, y, w, h)
 end
 
 -- 标准牌 20×28：左上角迷你点数 + 花色，右下角小花色
 local function draw_card(x, y, c, on)
-  rectfill(x, y, CW, CH, 7)
   if on then
-    rect(x - 1, y - 1, CW + 2, CH + 2, C_GOLD2)
-    rect(x, y, CW, CH, C_GOLD)
-  else
+    rect(x - 2, y - 2, CW + 4, CH + 4, C_GOLD2)
+  end
+  if rank_of(c) >= 16 then  -- 大小王：图集没有，程序化绘制
+    rectfill(x, y, CW, CH, 7)
     rect(x, y, CW, CH, 3)
-  end
-  local r = rank_of(c)
-  local col = card_col(c)
-  if r >= 16 then
-    glyph(JOKER_G, x + 2, y + 3, col, 1, 5)
-    glyph(JOKER_G, x + 12, y + 18, col, 1, 5)
+    local col = card_col(c)
+    glyph(JOKER_G, x + 6, y + 5, col, 1, 5)
+    glyph(JOKER_G, x + 20, y + 19, col, 1, 5)
   else
-    local s = RANK_STR[r - 2]
-    local gx = x + 2
-    for i = 1, #s do
-      glyph(GLYPH[s:sub(i, i)], gx, y + 3, col, 1, 3)
-      gx = gx + 4
-    end
-    glyph(SUIT_G[c % 4 + 1], x + 2, y + 10, col, 1, 5)
-    glyph(SUIT_G[c % 4 + 1], x + 12, y + 19, col, 1, 5)
+    spr(card_tile(c), x, y, 2, 2)
   end
 end
 
--- 放大牌（南家出牌 sc=2 / 标题 sc=3），迷你字形同倍放大
+-- 放大牌（南家出牌 sc=1 / 标题 sc=2）：普通牌走精灵，王牌程序化
 local function draw_card_big(x, y, c, sc)
-  rectfill(x, y, 20 * sc, 28 * sc, 7)
-  rect(x, y, 20 * sc, 28 * sc, 3)
-  local r = rank_of(c)
-  local col = card_col(c)
-  if r >= 16 then
-    glyph(JOKER_G, x + 3 * sc, y + 3 * sc, col, sc, 5)
-    glyph(JOKER_G, x + 12 * sc, y + 18 * sc, col, sc, 5)
+  if rank_of(c) >= 16 then
+    rectfill(x, y, 32 * sc, 32 * sc, 7)
+    rect(x, y, 32 * sc, 32 * sc, 3)
+    local col = card_col(c)
+    glyph(JOKER_G, x + 5 * sc, y + 5 * sc, col, sc, 5)
+    glyph(JOKER_G, x + 20 * sc, y + 19 * sc, col, sc, 5)
   else
-    local s = RANK_STR[r - 2]
-    local gx = x + 2 * sc
-    for i = 1, #s do
-      glyph(GLYPH[s:sub(i, i)], gx, y + 2 * sc, col, sc, 3)
-      gx = gx + 4 * sc
-    end
-    glyph(SUIT_G[c % 4 + 1], x + 2 * sc, y + 9 * sc, col, sc, 5)
-    glyph(SUIT_G[c % 4 + 1], x + 12 * sc, y + 19 * sc, col, sc, 5)
+    local sx, sy = tile_px(card_tile(c))
+    sspr(sx, sy, 32, 32, x, y, 32 * sc, 32 * sc)
   end
 end
 
--- 底牌迷你牌 12×17
+-- 底牌迷你牌 16×16
 local function draw_mini(x, y, c, up)
   if not up then
-    draw_back(x, y, 12, 17)
+    draw_back(x, y, 16, 16)
     return
   end
-  rectfill(x, y, 12, 17, 7)
-  rect(x, y, 12, 17, 3)
-  local r = rank_of(c)
-  local col = card_col(c)
-  if r >= 16 then
-    glyph(JOKER_G, x + 3, y + 4, col, 1, 5)
+  if rank_of(c) >= 16 then
+    rectfill(x, y, 16, 16, 7)
+    rect(x, y, 16, 16, 3)
+    glyph(JOKER_G, x + 5, y + 5, card_col(c), 1, 5)
   else
-    local s = RANK_STR[r - 2]
-    local gx = x + 1
-    for i = 1, #s do
-      glyph(GLYPH[s:sub(i, i)], gx, y + 2, col, 1, 3)
-      gx = gx + 4
-    end
-    glyph(SUIT_G[c % 4 + 1], x + 3, y + 9, col, 1, 5)
+    local sx, sy = tile_px(card_tile(c))
+    sspr(sx, sy, 32, 32, x, y, 16, 16)
   end
 end
 
@@ -1268,7 +1292,7 @@ local function draw_strip()
   if #bottom == 3 then
     print("底牌", 78, 3, C_DIM)
     for i = 1, 3 do
-      draw_mini(110 + (i - 1) * 15, 2, bottom[i], bottom_up)
+      draw_mini(106 + (i - 1) * 18, 2, bottom[i], bottom_up)
     end
   end
   -- 轮到东/西家的箭头指示
@@ -1292,10 +1316,10 @@ local function draw_play_row(seat)
   end
   local n = #d.cards
   local big = (seat == 1)
-  local cw2 = big and 40 or CW
+  local cw2 = CW
   local sp = 0
   if n > 1 then
-    sp = min(big and 18 or 10, flr((PLAY_W[seat] - cw2) / (n - 1)))
+    sp = min(18, flr((PLAY_W[seat] - cw2) / (n - 1)))
   end
   local total = (n - 1) * sp + cw2
   local x0 = flr(cx - total / 2)
@@ -1323,15 +1347,15 @@ local function draw_hand()
   local h = hands[1]
   local n = #h
   if n == 0 then return end
-  local sp = 12
-  if n > 1 then sp = min(12, flr(236 / (n - 1))) end
+  local sp = 11
+  if n > 1 then sp = min(11, flr(236 / (n - 1))) end
   local total = (n - 1) * sp + CW
   local x0 = flr((256 - total) / 2)
   for i = 1, n do
     draw_card(x0 + (i - 1) * sp, HY - (sel[i] and 8 or 0), h[i], sel[i])
   end
   -- 光标三角（呼吸）
-  local cx = x0 + (cur - 1) * sp + 7
+  local cx = x0 + (cur - 1) * sp + 13
   local cy = (sel[cur] and HY - 8 or HY) - 9 - flr(sin(t / 15) * 2 + 2)
   trifill(cx, cy, cx + 6, cy, cx + 3, cy + 6, C_GOLD2)
 end
@@ -1364,7 +1388,7 @@ local function draw_bidbox()
       rect(bx, 74, 52, 20, i == bid_cursor and C_GOLD2 or C_PANEL_BD)
       print(OPT_LABEL[i], bx + (52 - tw(OPT_LABEL[i])) / 2, 77, av and C_CREAM or C_DIM)
     end
-    local hs = "←→选择 Ⓐ确认"
+    local hs = btnicon("dpad") .. " 选择　" .. btnicon("a") .. " 确认"
     print(hs, (256 - tw(hs)) / 2, 102, C_DIM)
   else
     local s = SEAT_NAME[bid_turn] .. "思考中" .. string.rep(".", flr(t / 15) % 4)
@@ -1419,9 +1443,28 @@ local function draw_settle()
     yy = yy + 15
   end
   if flr(t / 20) % 2 == 0 then
-    local s = "Ⓐ 再来一局"
+    local s = btnicon("a") .. " 再来一局"
     print(s, (256 - tw(s)) / 2, y + h - 22, C_GOLD2)
   end
+end
+
+-- Splash：纯主视觉封面（0-90 帧）——三张大牌 + 大 logo，零菜单零提示
+local function draw_splash()
+  cls(C_RIM)
+  rrectfill(14, 8, 228, 240, 12, C_TABLE)
+  rrect(14, 8, 228, 240, 12, C_TABLE_HI)
+  fillp(0x1084)
+  rectfill(18, 12, 220, 232, C_TABLE_HI * 256 + C_TABLE)
+  fillp()
+  draw_card_big(34, 40, 14 * 4, 2)     -- ♠A
+  draw_card_big(98, 32, 13 * 4 + 1, 2) -- ♥K
+  draw_card_big(162, 40, 68, 2)        -- 大王
+  local s = "斗地主"
+  local x = (256 - tw(s) * 3) / 2
+  print(s, x + 3, 147, 0, 3)
+  print(s, x, 144, C_GOLD2, 3)
+  local s2 = "经 典 三 人 纸 牌"
+  print(s2, (256 - tw(s2)) / 2, 196, C_CREAM)
 end
 
 local function draw_title()
@@ -1431,21 +1474,46 @@ local function draw_title()
   fillp(0x1084)
   rectfill(18, 12, 220, 232, C_TABLE_HI * 256 + C_TABLE)
   fillp()
-  draw_card_big(34, 34, 14 * 4, 3)     -- ♠A
-  draw_card_big(98, 26, 13 * 4 + 1, 3) -- ♥K
-  draw_card_big(162, 34, 68, 3)        -- 大王
+  draw_card_big(34, 36, 14 * 4, 2)     -- ♠A
+  draw_card_big(98, 28, 13 * 4 + 1, 2) -- ♥K
+  draw_card_big(162, 36, 68, 2)        -- 大王
   local s = "斗地主"
-  local x = (256 - tw(s)) / 2
-  print(s, x + 1, 142, 26)
-  print(s, x - 1, 140, C_GOLD2)
+  local x = (256 - tw(s) * 3) / 2
+  print(s, x + 2, 146, 26, 3)
+  print(s, x, 144, C_GOLD2, 3)
   local s2 = "经典三人纸牌"
-  print(s2, (256 - tw(s2)) / 2, 164, C_CREAM)
+  print(s2, (256 - tw(s2)) / 2, 182, C_CREAM)
   local s3 = "积分 " .. fmt(score) .. " ・ " .. games .. " 局"
-  print(s3, (256 - tw(s3)) / 2, 188, C_DIM)
-  if flr(t / 20) % 2 == 0 then
-    local s4 = "Ⓐ 开始游戏"
-    print(s4, (256 - tw(s4)) / 2, 212, C_GOLD)
+  print(s3, (256 - tw(s3)) / 2, 198, C_DIM)
+  local s4 = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
+  print(s4, (256 - tw(s4)) / 2 + 1, 213, 0)
+  print(s4, (256 - tw(s4)) / 2, 212, C_GOLD)
+end
+
+-- 帮助页：出牌操作表（标题 Ⓨ 进入，Ⓑ 返回）
+local function draw_help()
+  cls(C_RIM)
+  rrectfill(14, 8, 228, 240, 12, C_TABLE)
+  local s = "操作说明"
+  print(s, 128 - tw(s) / 2, 22, C_GOLD)
+  local rows = {
+    { btnicon("dpad"), "选择手牌 / 叫分选项" },
+    { btnicon("a"), "确认（叫分 / 抬牌 / 出牌）" },
+    { btnicon("b"), "清除已抬的牌" },
+    { btnicon("x"), "出牌" },
+    { btnicon("y"), "过（不要）" },
+    { btnicon("rb"), "提示可出的牌" },
+    { btnicon("menu"), "暂停" },
+  }
+  for i, r in ipairs(rows) do
+    local y = 52 + (i - 1) * 20
+    print(r[1], 44, y, 31)
+    print(r[2], 84, y, C_CREAM)
   end
+  s = "三张底牌归地主；先出完手牌的一方获胜"
+  print(s, (256 - tw(s)) / 2, 208, C_DIM)
+  s = btnicon("b") .. " 返回"
+  print(s, (256 - tw(s)) / 2, 228, 6)
 end
 
 -- ================================================================ 生命周期
@@ -1462,7 +1530,7 @@ function _init()
   sel = {}
   cur = 1
   landlord = 0
-  state = "title"
+  state = "splash"
   t = 0
   msg_t = 0
   shake_t = 0
@@ -1480,8 +1548,13 @@ function _update()
     local d = plays_disp[s]
     if d and d.anim and d.anim > 0 then d.anim = d.anim - 1 end
   end
-  if state == "title" then
+  if state == "splash" then
+    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+  elseif state == "title" then
     if btnp(4) or btnp(11) then start_new_game() end
+    if btnp(7) then state = "help" end
+  elseif state == "help" then
+    if btnp(5) or btnp(7) then state = "title" end
   elseif state == "deal" then
     update_deal()
   elseif state == "bid" then
@@ -1497,8 +1570,17 @@ function _draw()
   if shake_t > 0 then
     camera(flr(rnd(5)) - 2, flr(rnd(5)) - 2)
   end
+  if state == "splash" then
+    draw_splash()
+    return
+  end
+  if state == "help" then
+    draw_help()
+    return
+  end
   if state == "title" then
     draw_title()
+    return
   else
     draw_room()
     draw_strip()
@@ -1512,7 +1594,8 @@ function _draw()
     draw_hand()
     if state == "deal" then draw_deal_anim() end
     if state == "play" and turn == 1 and not over_seat then
-      local s = "←→选Ⓐ抬Ⓑ清Ⓧ出Ⓨ过Ⓡ提示"
+      local s = btnicon("dpad") .. "选 " .. btnicon("a") .. "抬 " .. btnicon("b")
+        .. "清 " .. btnicon("x") .. "出 " .. btnicon("y") .. "过 " .. btnicon("rb") .. "提示"
       print(s, (256 - tw(s)) / 2, 232, C_DIM)
     end
     if state == "settle" then draw_settle() end
