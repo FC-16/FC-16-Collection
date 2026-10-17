@@ -313,8 +313,7 @@ local M50_EXCH = {
   {"    给我4000个金币我就给你地震卷轴<Q>，它可摧毁一层楼所有的墙。",1,-757,0,0,0,-4000,0,0,0,91},
 }
 
-
--- FC-16 50 层魔塔（demo/mota50）
+-- FC-16 50 层魔塔（mota50）
 -- 经典《50 层魔塔》移植：地下密室 + 1-50 层共 51 张地图。
 -- 地图、怪物属性、道具数值、商店定价、剧情文本全部提取自用户提供的
 -- 原版 SWF（管线见 extract_swf.py）；音乐由原版 TSW MIDI 精确转录
@@ -327,7 +326,7 @@ local M50_EXCH = {
 --     杀怪状态整局持久；商店按购买次数涨价。
 -- 操作：←↑↓→移动（按住连续）　Ⓐ确认/战斗　Ⓑ取消　Menu 菜单
 --       （存档×3/读档/怪物手册/道具使用/音效开关/返回标题）　View BGM 开关
--- 存档：dset 三槽（25001 头校验），fflush 落盘。
+-- 存档使用结构化数据（SPEC §13）。
 -- 精灵图块来自原版 SWF 位图提取（convert_art.py 生成，标记区间见下）；
 -- SFX/BGM 由 _init 按 SPEC §5.2 poke 写入（compose_music.py 生成编曲数据）。
 
@@ -893,31 +892,30 @@ local TK = {
   FLOOR50 = 244,
 }
 
-
 -- BEGIN GENERATED MUSIC (compose_music.py)
 -- 由 transcribe_music.py 从原曲音频转录生成（_source/audio/ 留档），勿手改。
 -- 声部布局：ch0 主音 ch1 和弦垫 ch2 贝斯 ch4 鼓；mask 0x3F。
 -- 各曲速度/小节数见 transcribe_music.py 的 TRACKS 与运行输出。
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -931,21 +929,21 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
--- steps: {{音高, 音色, 音量, 效果?}, ...}；音高 0 = 休止；旧 1-96 = C0-B7
--- 音高为旧固件值，写卡带前换算为新 0-95 并用音量 0 表休止
+-- steps: {{音高, 音色, 音量, 效果?}, ...}；音高 0 = 休止；乐谱 1-96 = C0-B7
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function sfx_steps(id, speed, steps)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #steps)
   for i = 0, 31 do
     local a = base + 16 + i * 4
     local st = steps[i + 1]
     if st and (st[1] or 0) > 0 then
       u8(a, st[1] - 1)
-      u8(a + 1, WMAP[st[2] or 0])
+      u8(a + 1, TIMBRE_SOURCE[st[2] or 0])
       u8(a + 2, st[3] or 0)
       u8(a + 3, st[4] or 0)
     else
@@ -1226,7 +1224,6 @@ end
 
 -- ================================================================ 游戏状态
 
-
 local G
 local MSG, DLG, PRE, SHOP, MENU, MANUAL, FLY = {}, {}, {}, {}, {}, {}, {}
 local rep_d, rep_t = 0, 0         -- 方向重复
@@ -1271,7 +1268,7 @@ local function new_game()
   cur_bgm = -1
   -- 50F：DefPlayer FloorNo=1 GridNo=115（行 10 列 5）
   G.floor = M50_BASE.floor
-  G.y, G.x = flr(M50_BASE.grid / 11), M50_BASE.grid % 11
+  G.y, G.x = math.floor(M50_BASE.grid / 11), M50_BASE.grid % 11
   G.hp, G.atk, G.def = M50_BASE.hp, M50_BASE.gong, M50_BASE.fang
   play_floor_bgm()
 end
@@ -1305,7 +1302,7 @@ local function magic_around(f, idx)
   local sum = 0
   for _, d in ipairs({ { -11, 1 }, { 11, 1 }, { -1, 0 }, { 1, 0 } }) do
     local n = idx + d[1]
-    if n >= 0 and n <= 120 and (d[2] == 1 or flr(n / 11) == flr(idx / 11)) then
+    if n >= 0 and n <= 120 and (d[2] == 1 or math.floor(n / 11) == math.floor(idx / 11)) then
       local ic = i50(f, n)
       if ic >= 1 and ic <= 35 then
         local mg = M50_MOBS[ic + 1][6]
@@ -1324,7 +1321,7 @@ local function preview50(icon, idx)
   local eo = m[2] - G.def
   if eo < 0 then eo = 0 end
   if po < 1 then return 0, 0, m end
-  local rounds = flr((m[1] + po - 1) / po) -- ceil
+  local rounds = math.floor((m[1] + po - 1) / po) -- ceil
   local loss = (rounds - 1) * eo
   if loss < 0 then loss = 0 end
   local mg = 0
@@ -1477,7 +1474,7 @@ local function move50(nx, ny)
     return false
   end
   if ic == 51 then -- 属性商店（20 金，产出随购买次数增长）
-    local seg = flr((G.floor + 9) / 10)
+    local seg = math.floor((G.floor + 9) / 10)
     local bought = G.shops[G.floor] or 0
     SHOP = { title = "商店（20 金）", items = {
       { "生命 +" .. (100 + 100 * bought), 20, function()
@@ -1530,7 +1527,7 @@ local function move50(nx, ny)
     return false
   end
   if ic >= 61 and ic <= 67 or ic >= 71 and ic <= 95 then -- 道具
-    local seg = flr((G.floor + 9) / 10)
+    local seg = math.floor((G.floor + 9) / 10)
     local took = false
     if ic == 61 then G.keyY = G.keyY + 1 pickup_txt("得到 黄钥匙") took = true end
     if ic == 62 then G.keyB = G.keyB + 1 pickup_txt("得到 蓝钥匙") took = true end
@@ -1598,7 +1595,7 @@ local function move50(nx, ny)
     local g = up and st.ug or st.dg
     if to < 0 then say("这里没有向下的路") return false end
     trans_t = 24
-    trans_to = { floor = to, x = g % 11, y = flr(g / 11) }
+    trans_to = { floor = to, x = g % 11, y = math.floor(g / 11) }
     sfx(S_STAIR)
     G.state = "trans"
     return false
@@ -1622,115 +1619,74 @@ local function fight50()
   local ev = e50(G.floor, idx)
   si50(G.floor, idx, 0) se50(G.floor, idx, 0)
   if ev ~= 0 then fire50(G.floor, ev, idx) end
-  G.x = idx % 11 G.y = flr(idx / 11)
+  G.x = idx % 11 G.y = math.floor(idx / 11)
   G.state = "play"
 end
 
-
--- ================================================================ 存档（SPEC §13：dset + fflush）
-
--- 布局：24F 槽基址 s*1310（0/1310/2620）；50F 4096+s*1310。
--- 头 20 槽 + 变更对（24F 两格/条打包，50F 一格/条 icon|event 打包）。
-local function slot_base(slot)
-  return slot * 1310
-end
-
-local function flags_pack()
-  local f1, f2 = 0, 0
-  local bits = { "prologue", "say4", "dug18", "love", "bigclean", "rod1", "rod2", "rod3", "door5" }
-  for i, k in ipairs(bits) do
-    if G.fl[k] then f1 = bit32.bor(f1, bit32.lshift(1, i - 1)) end
-  end
-  local bits2 = { "help", "note", "fly", "ice", "cross", "dragon", "luck", "holy",
-    "keymagic", "pick", "quake", "bomb", "holyshield", "blessed" }
-  for i, k in ipairs(bits2) do
-    if G.fl[k] then f2 = bit32.bor(f2, bit32.lshift(1, i - 1)) end
-  end
-  return f1, f2
-end
-
-local function flags_unpack(f1, f2)
-  local bits = { "prologue", "say4", "dug18", "love", "bigclean", "rod1", "rod2", "rod3", "door5" }
-  local bits2 = { "help", "note", "fly", "ice", "cross", "dragon", "luck", "holy",
-    "keymagic", "pick", "quake", "bomb", "holyshield", "blessed" }
-  for i, k in ipairs(bits) do
-    if bit32.band(bit32.rshift(f1, i - 1), 1) == 1 then G.fl[k] = true end
-  end
-  for i, k in ipairs(bits2) do
-    if bit32.band(bit32.rshift(f2, i - 1), 1) == 1 then G.fl[k] = true end
-  end
-end
-
--- 收集变更键（稳定升序）
-local function sorted_keys(t)
-  local ks = {}
-  for k in pairs(t) do ks[#ks + 1] = k end
-  table.sort(ks)
-  return ks
-end
+-- ================================================================ 存档（SPEC §13）
+local saved = load()
+if type(saved) ~= "table" then saved = {} end
 
 local function save_game(slot)
-  local b = slot_base(slot)
-  local f1, f2 = flags_pack()
-  dset(b + 0, 25001 + slot)
-  dset(b + 1, G.floor) dset(b + 2, G.x) dset(b + 3, G.y)
-  dset(b + 4, G.hp) dset(b + 5, G.atk) dset(b + 6, G.def)
-  dset(b + 7, G.money) dset(b + 8, G.exp) dset(b + 9, G.life)
-  dset(b + 10, G.keyY) dset(b + 11, G.keyB) dset(b + 12, G.keyR)
-  dset(b + 13, G.maxfloor) dset(b + 14, f1) dset(b + 15, f2)
-  dset(b + 16, G.weapon) dset(b + 17, G.shield)
-  -- 商店购买次数（50F）
-  local si = 0
-  for f, n in pairs(G.shops) do
-    dset(b + 60 + si, f * 100 + n) si = si + 1
-  end
-  dset(b + 59, si)
-  -- 变更对：一条变更占 2 槽（key, val），不做打包，避免污染未变更格
-  local ks = sorted_keys(G.ch)
-  local n = 0
-  while n < #ks and n < 620 do
-    dset(b + 70 + n * 2, ks[n + 1])
-    dset(b + 70 + n * 2 + 1, G.ch[ks[n + 1]])
-    n = n + 1
-  end
-  dset(b + 18, n)
-  dset(b + 19, 1)
-  fflush()
+  local state = {flags = {}, changes = {}}
+  state.floor = G.floor
+  state.x = G.x
+  state.y = G.y
+  state.hp = G.hp
+  state.atk = G.atk
+  state.def = G.def
+  state.money = G.money
+  state.exp = G.exp
+  state.life = G.life
+  state.keyY = G.keyY
+  state.keyB = G.keyB
+  state.keyR = G.keyR
+  state.maxfloor = G.maxfloor
+  state.weapon = G.weapon
+  state.shield = G.shield
+  for k, v in pairs(G.fl) do state.flags[k] = v end
+  local keys = {}
+  for k in pairs(G.ch) do keys[#keys + 1] = k end
+  table.sort(keys)
+  for _, k in ipairs(keys) do state.changes[#state.changes + 1] = {k, G.ch[k]} end
+  state.shops = {}
+  for k, v in pairs(G.shops) do state.shops[tostring(k)] = v end
+  saved[tostring(slot + 1)] = state
+  local ok, err = save(saved)
+  if not ok then say("保存失败：" .. err) return end
   sfx(S_SAVE)
   say("已保存到存档 " .. (slot + 1))
 end
 
 local function load_game(slot)
-  local b = slot_base(slot)
-  local magic = dget(b + 0)
-  if magic ~= 25001 + slot then
-    return false
-  end
+  local state = saved[tostring(slot + 1)]
+  if not state then return false end
   new_game()
-  G.floor = dget(b + 1) G.x = dget(b + 2) G.y = dget(b + 3)
-  G.hp = dget(b + 4) G.atk = dget(b + 5) G.def = dget(b + 6)
-  G.money = dget(b + 7) G.exp = dget(b + 8) G.life = dget(b + 9)
-  G.keyY = dget(b + 10) G.keyB = dget(b + 11) G.keyR = dget(b + 12)
-  G.maxfloor = dget(b + 13)
-  flags_unpack(dget(b + 14), dget(b + 15))
-  G.weapon = dget(b + 16) G.shield = dget(b + 17)
-  local si = dget(b + 59)
-  for j = 0, si - 1 do
-    local v = dget(b + 60 + j)
-    G.shops[flr(v / 100)] = v % 100
-  end
-  local n = dget(b + 18)
-  for j = 0, n - 1 do
-    local k = dget(b + 70 + j * 2)
-    G.ch[k] = dget(b + 70 + j * 2 + 1)
-  end
+  G.floor = state.floor
+  G.x = state.x
+  G.y = state.y
+  G.hp = state.hp
+  G.atk = state.atk
+  G.def = state.def
+  G.money = state.money
+  G.exp = state.exp
+  G.life = state.life
+  G.keyY = state.keyY
+  G.keyB = state.keyB
+  G.keyR = state.keyR
+  G.maxfloor = state.maxfloor
+  G.weapon = state.weapon
+  G.shield = state.shield
+  for k, v in pairs(state.flags) do G.fl[k] = v end
+  for _, change in ipairs(state.changes) do G.ch[change[1]] = change[2] end
+  for k, v in pairs(state.shops) do G.shops[tonumber(k)] = v end
   cur_bgm = -1
   play_floor_bgm()
   return true
 end
 
 local function slot_used(slot)
-  return dget(slot_base(slot)) == 25001 + slot
+  return saved[tostring(slot + 1)] ~= nil
 end
 
 -- ================================================================ 怪物手册
@@ -1767,7 +1723,7 @@ local function open_menu()
         if bgm_on then
           cur_bgm = -1 play_floor_bgm()
         else
-          music(-1, 300)
+          music_stop(300)
         end
       end },
     { "回到标题", function() G.state = "title" cur_bgm = P_TITLE music(P_TITLE, 300, 0x3F) end },
@@ -1860,7 +1816,7 @@ local function draw_map()
     end
   end
   -- 玩家（走路起伏）
-  local bob = (rep_t > 0 and flr(rep_t / 4) % 2 == 0) and 1 or 0
+  local bob = (rep_t > 0 and math.floor(rep_t / 4) % 2 == 0) and 1 or 0
   spr(TK.HERO, MX + G.x * 16, MY + G.y * 16 - bob)
 end
 
@@ -1869,7 +1825,7 @@ local function draw_sidebar()
   rectfill(x - 2, y - 2, 66, 178, C_WALL_D)
   rect(x - 2, y - 2, 66, 178, C_GOLD_D)
   local fn = floor_name()
-  print(fn, x + (60 - tw(fn)) / 2, y + 4, C_GOLD)
+  print(fn, x + (60 - textw(fn)) / 2, y + 4, C_GOLD)
   line(x, y + 22, x + 60, y + 22, C_GOLD_D)
   local rows = {
     { "生命", G.hp, C_ROSE },
@@ -1883,7 +1839,7 @@ local function draw_sidebar()
   for _, r in ipairs(rows) do
     print(r[1], x, yy, C_GRAY)
     local s = tostring(r[2])
-    print(s, x + 60 - tw(s), yy, r[3])
+    print(s, x + 60 - textw(s), yy, r[3])
     yy = yy + 14
   end
   line(x, yy - 4, x + 60, yy - 4, C_GOLD_D)
@@ -1913,7 +1869,7 @@ local function draw_sidebar()
   end
   for i, t in ipairs(marks) do
     if i > 6 then break end
-    spr(t, cx + ((i - 1) % 3) * 20, yy2 + flr((i - 1) / 3) * 18)
+    spr(t, cx + ((i - 1) % 3) * 20, yy2 + math.floor((i - 1) / 3) * 18)
   end
 end
 
@@ -1935,7 +1891,7 @@ local function draw_dialog()
   rrect(6, 62, 244, 132, 5, 16)
   local page = DLG.pages[DLG.i] or ""
   printw(page, 14, 70, C_WHITE, 228)
-  if flr(G.t / 16) % 2 == 0 then
+  if math.floor(G.t / 16) % 2 == 0 then
     print(btnicon("a"), 232, 122, C_GOLD)
   end
 end
@@ -1952,7 +1908,7 @@ local function draw_battle_panel()
   local s2 = "预计 " .. rounds .. " 回合　损失 " .. loss .. " 生命"
   print(s2, 40, 226, loss == 0 and C_GREEN or C_ORNG)
   local s3 = btnicon("a") .. " 战斗　" .. btnicon("b") .. " 取消"
-  print(s3, (256 - tw(s3)) / 2, 242, C_GOLD)
+  print(s3, (256 - textw(s3)) / 2, 242, C_GOLD)
 end
 
 local function draw_shop()
@@ -1960,7 +1916,7 @@ local function draw_shop()
   rrect(20, 52, 216, 204, 6, C_WALL_D)
   rrect(22, 54, 212, 200, 5, 16)
   local t = SHOP.title or "商店"
-  print(t, (256 - tw(t)) / 2, 60, C_GOLD)
+  print(t, (256 - textw(t)) / 2, 60, C_GOLD)
   spr(TK.SHOP, 28, 78)
   local yy = 80
   for i, it in ipairs(SHOP.items) do
@@ -1972,7 +1928,7 @@ local function draw_shop()
   print("金币 " .. G.money, 52, yy + 4, C_GOLD_D)
   local s = btnicon("up") .. btnicon("down") .. "选择　" .. btnicon("a")
     .. "购买　" .. btnicon("b") .. "离开"
-  print(s, (256 - tw(s)) / 2, 188, C_GRAY)
+  print(s, (256 - textw(s)) / 2, 188, C_GRAY)
 end
 
 local function draw_menu()
@@ -1980,7 +1936,7 @@ local function draw_menu()
   rrect(48, 16, 160, 244, 6, C_WALL_D)
   rrect(50, 18, 156, 240, 5, 16)
   local t = floor_name()
-  print(t, (256 - tw(t)) / 2, 24, C_GOLD)
+  print(t, (256 - textw(t)) / 2, 24, C_GOLD)
   local yy = 38
   for i, it in ipairs(MENU.items) do
     local col = (i == MENU.cur) and C_GOLD or C_WHITE
@@ -1994,12 +1950,12 @@ end
 local function draw_manual()
   cls(C_BG)
   local t = "怪物手册 ・ " .. floor_name()
-  print(t, (256 - tw(t)) / 2, 6, C_GOLD)
+  print(t, (256 - textw(t)) / 2, 6, C_GOLD)
   if #MANUAL.list == 0 then
-    print("本层没有怪物", (256 - tw("本层没有怪物")) / 2, 120, C_GRAY)
+    print("本层没有怪物", (256 - textw("本层没有怪物")) / 2, 120, C_GRAY)
   end
   local yy = 26
-  for i = MANUAL.top, min(MANUAL.top + 8, #MANUAL.list) do
+  for i = MANUAL.top, math.min(MANUAL.top + 8, #MANUAL.list) do
     local e = MANUAL.list[i]
     local m = M50_MOBS[e.icon + 1]
     local nm, t = m[5], tile50(e.icon)
@@ -2017,17 +1973,17 @@ local function draw_manual()
     print(d, 216, yy, e.rounds == 0 and C_RED or (e.loss == 0 and C_GREEN or C_ORNG))
     yy = yy + 24
   end
-  local pg = #MANUAL.list > 0 and (flr((MANUAL.top - 1) / 8) + 1) or 1
-  local pgs = max(1, flr((#MANUAL.list - 1) / 8) + 1)
+  local pg = #MANUAL.list > 0 and (math.floor((MANUAL.top - 1) / 8) + 1) or 1
+  local pgs = math.max(1, math.floor((#MANUAL.list - 1) / 8) + 1)
   local t2 = btnicon("up") .. btnicon("down") .. " 翻页 " .. pg .. "/" .. pgs
     .. "　" .. btnicon("b") .. " 关闭"
-  print(t2, (256 - tw(t2)) / 2, 242, C_GRAY)
+  print(t2, (256 - textw(t2)) / 2, 242, C_GRAY)
 end
 
 local function draw_fly()
   cls(C_BG)
   local t = "魔杖 ・ 飞往去过的楼层"
-  print(t, (256 - tw(t)) / 2, 10, C_GOLD)
+  print(t, (256 - textw(t)) / 2, 10, C_GOLD)
   local base = FLY.top
   local maxf = G.maxfloor
   local shown = 0
@@ -2042,7 +1998,7 @@ local function draw_fly()
   end
   local t2 = btnicon("up") .. btnicon("down") .. " 选择　" .. btnicon("a")
     .. " 前往　" .. btnicon("b") .. " 取消"
-  print(t2, (256 - tw(t2)) / 2, 240, C_GRAY)
+  print(t2, (256 - textw(t2)) / 2, 240, C_GRAY)
 end
 
 -- Splash：纯主视觉封面（0-90 帧）——塔层剪影 + 主角/魔杖/50 层铭牌特写，零菜单零提示
@@ -2077,23 +2033,23 @@ local function draw_splash()
     line(60 - i * 16, 240, 76 - i * 16, 240, 16)
   end
   -- 主角特写（HERO 瓦片 123 放大 4 倍）
-  sspr((TK.HERO % 16) * 16, flr(TK.HERO / 16) * 16, 16, 16, 30, 150, 64, 64)
+  sspr((TK.HERO % 16) * 16, math.floor(TK.HERO / 16) * 16, 16, 16, 30, 150, 64, 64)
   -- 魔杖（ROD50 瓦片 219）悬浮 + 金色辉点
-  sspr((TK.ROD50 % 16) * 16, flr(TK.ROD50 / 16) * 16, 16, 16, 112, 156, 36, 36)
+  sspr((TK.ROD50 % 16) * 16, math.floor(TK.ROD50 / 16) * 16, 16, 16, 112, 156, 36, 36)
   pset(106, 150, 30) pset(152, 162, 31) pset(110, 198, 30)
   pset(150, 192, 26) pset(104, 174, 26)
   -- 50 层铭牌
   rectfill(156, 150, 72, 58, 1)
   rect(156, 150, 72, 58, 30)
   rect(159, 153, 66, 52, 26)
-  print("50", flr(192 - tw("50", 3) / 2), 156, 31, 3)
-  print("F L O O R", flr(192 - tw("F L O O R") / 2), 190, 30)
+  print("50", math.floor(192 - textw("50", 3) / 2), 156, 31, 3)
+  print("F L O O R", math.floor(192 - textw("F L O O R") / 2), 190, 30)
   -- 大 logo（scale 3，黑影 + 金字）
   local s = "50层魔塔"
-  local lx = flr((256 - tw(s, 3)) / 2)
+  local lx = math.floor((256 - textw(s, 3)) / 2)
   print(s, lx + 3, 29, 0, 3)
   print(s, lx, 26, 30, 3)
-  print("MAGIC TOWER", flr((256 - tw("MAGIC TOWER")) / 2), 68, 26)
+  print("MAGIC TOWER", math.floor((256 - textw("MAGIC TOWER")) / 2), 68, 26)
 end
 
 local function draw_title()
@@ -2109,9 +2065,9 @@ local function draw_title()
   for i, o in ipairs(opts) do
     local y = 138 + (i - 1) * 29
     local sel = i == TITLE.cur
-    print(o, (256 - tw(o)) / 2, y, sel and C_WHITE or C_GRAY)
+    print(o, (256 - textw(o)) / 2, y, sel and C_WHITE or C_GRAY)
     if sel then
-      print("▶", (256 - tw(o)) / 2 - 16, y, C_WHITE)
+      print("▶", (256 - textw(o)) / 2 - 16, y, C_WHITE)
     end
   end
   if slot_used(0) or slot_used(1) or slot_used(2) then
@@ -2119,15 +2075,15 @@ local function draw_title()
   end
   local s3 = btnicon("up") .. btnicon("down") .. " 选择　" .. btnicon("a")
     .. " 确定　" .. btnicon("menu") .. " 读档"
-  print(s3, (256 - tw(s3)) / 2, 244, C_GRAY)
+  print(s3, (256 - textw(s3)) / 2, 244, C_GRAY)
 end
 
 local function draw_over()
   cls(C_BG)
   local s = "GAME OVER"
-  print(s, 128 - tw(s) / 2, 100, C_RED)
+  print(s, 128 - textw(s) / 2, 100, C_RED)
   local s2 = btnicon("a") .. " 读档　" .. btnicon("b") .. " 重新开始"
-  print(s2, 128 - tw(s2) / 2, 140, C_GRAY)
+  print(s2, 128 - textw(s2) / 2, 140, C_GRAY)
 end
 
 local function draw_win()
@@ -2135,15 +2091,15 @@ local function draw_win()
   local pages = {
     msg50(5), msg50(6), msg50(7), msg50(8), "—— 50 层魔塔 ・ 通关",
   }
-  local idx = min(flr(G.t / 180) + 1, #pages)
+  local idx = math.min(math.floor(G.t / 180) + 1, #pages)
   printw(pages[idx], 16, 60, C_WHITE, 224)
   local s = "感谢游玩 ・ " .. btnicon("menu") .. " 回到标题"
-  if flr(G.t / 20) % 2 == 0 then
-    print(s, 128 - tw(s) / 2, 220, C_GOLD)
+  if math.floor(G.t / 20) % 2 == 0 then
+    print(s, 128 - textw(s) / 2, 220, C_GOLD)
   end
   for i = 0, 8 do
     local x = (i * 53 + G.t) % 272 - 8
-    spr(TK.GEMR + (i % 2), x, 20 + flr(G.t / 30 + i) % 2 * 8)
+    spr(TK.GEMR + (i % 2), x, 20 + math.floor(G.t / 30 + i) % 2 * 8)
   end
 end
 
@@ -2182,12 +2138,12 @@ function _update()
   if float_t > 0 then float_t = float_t - 1 end
   if flash_t > 0 then flash_t = flash_t - 1 end
   if G.state == "splash" then
-    if G.t > 90 or btnp(4) or btnp(11) then G.state = "title" end
+    if G.t > 90 or btnp("a") or btnp("menu") then G.state = "title" end
   elseif G.state == "title" then
-    if dirp(2) or dirp(3) then
+    if dirp("up") or dirp("down") then
       TITLE.cur = 3 - TITLE.cur sfx(S_MENU)
     end
-    if btnp(4) then
+    if btnp("a") then
       if TITLE.cur == 1 then
         new_game()
         sfx(S_STAIR)
@@ -2201,7 +2157,7 @@ function _update()
         G.state = "dialog"
       end
     end
-    if btnp(11) then
+    if btnp("menu") then
       for s = 2, 0, -1 do
         if slot_used(s) then
           if load_game(s) then
@@ -2217,8 +2173,8 @@ function _update()
   elseif G.state == "play" then
     -- 方向：btnp 单步 + 按住重复（每 8 幀）
     local dx, dy = 0, 0
-    if dir(0) then dx = -1 elseif dir(1) then dx = 1 end
-    if dir(2) then dy = -1 elseif dir(3) then dy = 1 end
+    if dir("left") then dx = -1 elseif dir("right") then dx = 1 end
+    if dir("up") then dy = -1 elseif dir("down") then dy = 1 end
     if dx ~= 0 or dy ~= 0 then
       if dx ~= 0 and dy ~= 0 then dy = 0 end -- 优先横向
       rep_t = rep_t + 1
@@ -2229,17 +2185,17 @@ function _update()
     else
       rep_t = 0
     end
-    if btnp(10) then -- View：BGM
+    if btnp("view") then -- View：BGM
       bgm_on = not bgm_on
       if bgm_on then
         cur_bgm = -1 play_floor_bgm()
       else
-        music(-1, 300)
+        music_stop(300)
       end
     end
-    if btnp(11) then open_menu() sfx(S_MENU) end
+    if btnp("menu") then open_menu() sfx(S_MENU) end
   elseif G.state == "dialog" then
-    if btnp(4) or btnp(11) or btnp(5) then
+    if btnp("a") or btnp("menu") or btnp("b") then
       if DLG.i < #DLG.pages then
         DLG.i = DLG.i + 1
         sfx(S_MENU)
@@ -2251,17 +2207,17 @@ function _update()
       end
     end
   elseif G.state == "battle" then
-    if btnp(4) then
+    if btnp("a") then
       fight50()
-    elseif btnp(5) then
+    elseif btnp("b") then
       G.state = "play"
     end
   elseif G.state == "shop" then
-    if dirp(2) then
-      SHOP.cur = max(1, SHOP.cur - 1) sfx(S_MENU)
-    elseif dirp(3) then
-      SHOP.cur = min(#SHOP.items, SHOP.cur + 1) sfx(S_MENU)
-    elseif btnp(4) then
+    if dirp("up") then
+      SHOP.cur = math.max(1, SHOP.cur - 1) sfx(S_MENU)
+    elseif dirp("down") then
+      SHOP.cur = math.min(#SHOP.items, SHOP.cur + 1) sfx(S_MENU)
+    elseif btnp("a") then
       local it = SHOP.items[SHOP.cur]
       local cost = it[2]
       local can = true
@@ -2287,28 +2243,28 @@ function _update()
       else
         sfx(S_DENY) say(it[2] > 0 and "金币不足" or "条件不足")
       end
-    elseif btnp(5) then
+    elseif btnp("b") then
       G.state = "play"
     end
   elseif G.state == "menu" then
-    if dirp(2) then MENU.cur = max(1, MENU.cur - 1) sfx(S_MENU)
-    elseif dirp(3) then MENU.cur = min(#MENU.items, MENU.cur + 1) sfx(S_MENU)
-    elseif btnp(4) then
+    if dirp("up") then MENU.cur = math.max(1, MENU.cur - 1) sfx(S_MENU)
+    elseif dirp("down") then MENU.cur = math.min(#MENU.items, MENU.cur + 1) sfx(S_MENU)
+    elseif btnp("a") then
       G.state = "play"
       MENU.items[MENU.cur][2]()
-    elseif btnp(5) or btnp(11) then
+    elseif btnp("b") or btnp("menu") then
       G.state = "play"
     end
   elseif G.state == "manual" then
-    if dirp(2) then MANUAL.top = max(1, MANUAL.top - 8)
-    elseif dirp(3) then MANUAL.top = min(max(1, #MANUAL.list - 7), MANUAL.top + 8)
-    elseif btnp(5) then G.state = "play"
+    if dirp("up") then MANUAL.top = math.max(1, MANUAL.top - 8)
+    elseif dirp("down") then MANUAL.top = math.min(math.max(1, #MANUAL.list - 7), MANUAL.top + 8)
+    elseif btnp("b") then G.state = "play"
     end
   elseif G.state == "fly" then
     if FLY.cur == nil then FLY.cur = 0 end
-    if dirp(2) then FLY.cur = max(0, FLY.cur - 1) sfx(S_MENU)
-    elseif dirp(3) then FLY.cur = min(G.maxfloor, FLY.cur + 1) sfx(S_MENU)
-    elseif btnp(4) then
+    if dirp("up") then FLY.cur = math.max(0, FLY.cur - 1) sfx(S_MENU)
+    elseif dirp("down") then FLY.cur = math.min(G.maxfloor, FLY.cur + 1) sfx(S_MENU)
+    elseif btnp("a") then
       -- 落在该层的上楼梯旁（102 位置）或下楼梯旁
       local target = FLY.cur
       local g = nil
@@ -2317,18 +2273,18 @@ function _update()
       end
       if g == nil then g = M50_STAIRS[target + 1].ug end
       G.floor = target
-      G.x, G.y = g % 11, flr(g / 11)
+      G.x, G.y = g % 11, math.floor(g / 11)
       G.state = "play"
       sfx(S_STAIR) say("魔杖闪耀，你来到了 " .. floor_name())
-    elseif btnp(5) then
+    elseif btnp("b") then
       G.state = "play"
     end
-    if FLY.cur then FLY.top = max(0, FLY.cur - 11) end
+    if FLY.cur then FLY.top = math.max(0, FLY.cur - 11) end
   elseif G.state == "trans" then
     trans_t = trans_t - 1
     if trans_t <= 0 then apply_trans() end
   elseif G.state == "over" then
-    if btnp(4) then
+    if btnp("a") then
       local found = false
       for s = 2, 0, -1 do
         if slot_used(s) then
@@ -2336,12 +2292,12 @@ function _update()
         end
       end
       if not found then sfx(S_DENY) say("没有存档") end
-    elseif btnp(5) then
+    elseif btnp("b") then
       new_game()
       G.state = "play"
     end
   elseif G.state == "win50" then
-    if btnp(11) then G.state = "title" end
+    if btnp("menu") then G.state = "title" end
   end
 end
 
@@ -2379,7 +2335,7 @@ function _draw()
   draw_sidebar()
   draw_bottom()
   -- 低血量红闪（全屏边缘）
-  if G.hp < 300 and G.hp > 0 and flr(G.t / 16) % 2 == 0 then
+  if G.hp < 300 and G.hp > 0 and math.floor(G.t / 16) % 2 == 0 then
     rect(0, 0, 256, 256, C_RED)
     rect(1, 1, 254, 254, C_RED)
   end
@@ -2392,9 +2348,9 @@ function _draw()
   if G.state == "shop" then draw_shop() end
   if G.state == "menu" then draw_menu() end
   -- 受击闪屏
-  if flash_t > 0 and flr(flash_t / 3) % 2 == 0 then
+  if flash_t > 0 and math.floor(flash_t / 3) % 2 == 0 then
     pal(1, C_RED, 1)
-  elseif flash_t <= 0 or flr(flash_t / 3) % 2 == 1 then
+  elseif flash_t <= 0 or math.floor(flash_t / 3) % 2 == 1 then
     pal(1, 1, 1)
   end
 end

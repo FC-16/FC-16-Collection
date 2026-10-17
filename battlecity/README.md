@@ -51,7 +51,6 @@
 
 STAGE 1 - STAGE 10，布局逐半格还原原作出厂表（六砖柱、钢块要塞、水道、
 林海、冰原等经典布阵悉数在列）；通关后进入胜利结算。最高分与最远关卡经
-`dset` / `fflush` 存档（存档槽 save_id = `battlecity`）。
 
 ## 操作
 
@@ -59,8 +58,8 @@ STAGE 1 - STAGE 10，布局逐半格还原原作出厂表（六砖柱、钢块�
 |---|---|
 | ⬅⬆⬇➡ | 移动（转向时垂直轴自动吸附 8px 半格） |
 | Ⓐ | 开火 |
-| Start | 暂停 / 继续（暂停画面附操作说明） |
-| Select | 背景音乐开关 |
+| Menu | 暂停 / 继续（暂停画面附操作说明） |
+| View | 背景音乐开关 |
 
 音频：引擎待机 / 行进双态噪声长音、开火、击砖、击钢弹开、命中、爆炸、
 拾取、关卡号角、结算滴答与失败 / 过关 / 胜利旋律；BGM 为原创 A 小调进行曲
@@ -70,13 +69,14 @@ STAGE 1 - STAGE 10，布局逐半格还原原作出厂表（六砖柱、钢块�
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "坦克大战" --author "FrostMiKu" \
-  --version 1 --save-id battlecity --code battlecity/battlecity.lua \
-  --out battlecity/battlecity.fc16 --png carts/battlecity.fc16.png --cover 30
-cargo run -p fc16-host -- battlecity/battlecity.fc16
+python3 tools/build_all.py battlecity
+../FC-16/target/debug/fc16 battlecity/battlecity.fc16
 ```
 
 精灵表（玩家 4 向 × 2 履带帧、四型敌坦、砖 / 钢 / 水 / 树 / 冰、鹰基地、
 六种道具、爆炸三帧、出生闪星、子弹、面板图标）全部由 `_init` 逐像素
 `poke` 烘焙；敌坦变色（装甲掉血 / 冻结 / 道具坦克闪烁）经绘制期 `pal`
 重映射实现，不重复烘焙瓦片。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

@@ -1,0 +1,24 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "赤色之夜",
+    "author": "Fictionity",
+    "saveId": "",
+    "version": 1,
+    "flags": 0,
+    "output": "crimson_night.fc16",
+    "release": "crimson_night.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "crimson_night.lua",
+  "sections": {
+    "sprites": "sprites.bin",
+    "maps": "map.bin",
+    "sfx": "sfx_fc16.bin",
+    "waveforms": "waveforms_fc16.bin",
+    "instruments": "instruments_fc16.bin",
+    "music": "music_fc16.bin",
+    "sflags": "sflags.bin"
+  },
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

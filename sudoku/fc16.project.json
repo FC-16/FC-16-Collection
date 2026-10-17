@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "数独",
+    "author": "FrostMiKu",
+    "saveId": "",
+    "version": 1,
+    "flags": 0,
+    "output": "sudoku.fc16",
+    "release": "sudoku.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "sudoku.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

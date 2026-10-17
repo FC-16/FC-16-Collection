@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""魔塔图块转换脚本（demo/magetower/convert_art.py）
+"""魔塔图块转换脚本（magetower/convert_art.py）
 
 把 extract_art.py 从原版 SWF 解出的图块帧（_source/art24/、_source/art50/，
 本地不入库）转换成 FC-16 精灵数据，并把生成的 Lua 数据块写回
@@ -30,7 +30,7 @@ from PIL import Image, ImageDraw
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HERE))  # 仓库根：assets/palette.dat
+ROOT = os.environ.get("FC16_ROOT", os.path.join(os.path.dirname(os.path.dirname(HERE)), "FC-16"))  # 仓库根：assets/palette.dat
 SRC = os.path.join(HERE, "_source")
 # 拆分后的两个卡带源共用同一份生成美术块
 LUA_TARGETS = [os.path.join(HERE, "..", "mota24", "mota24.lua"),

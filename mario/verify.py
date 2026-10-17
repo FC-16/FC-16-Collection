@@ -1,38 +1,40 @@
 #!/usr/bin/env python3
-"""verify.py — demo/mario 卡带的无头验证驱动（开发用，不属于卡带本体）。
+"""verify.py — mario 卡带的无头验证驱动（开发用，不属于卡带本体）。
 
 为多段验证（标题 / 1-1 开局 / 奖励房 / 1-2 通关 / 1-3 全程 / 1-4 与 Boss、
 断桥、结局）生成「测试变体」卡带：把 mario.lua 复制一份并在 _init 尾部注入
 直达各关卡的启动代码（仓库正式产物 mario.fc16 不受影响），用 fc16-host
-无头模式逐段截图到 demo/mario/shots/。
+无头模式逐段截图到 mario/shots/。
 
-用法：在仓库根目录执行  python demo/mario/verify.py
+用法：在仓库根目录执行  python mario/verify.py
 """
 
 import subprocess
+import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-DEMO = ROOT / "demo" / "mario"
+ROOT = Path(__file__).resolve().parents[1]
+DEMO = ROOT / "mario"
+FC16 = Path(os.environ.get("FC16_ROOT", ROOT.parent / "FC-16"))
 TMP = ROOT / "target" / "mario_verify"
 SHOTS = DEMO / "shots"
 
 # (名称, 注入 _init 的代码, 帧数, 输入脚本行, 说明)
 CASES = [
     ("01_title", "", 150, None, "标题画面"),
-    ("02_world11_start", "", 620, "150 key 4\n160 key -\n170 key 1\n", "1-1 开局（按 A 开始并向右走）"),
+    ("02_world11_start", "", 620, "150 key a\n160 key -\n170 key right\n", "1-1 开局（按 A 开始并向右走）"),
     ("03_bonus",
      'start_game() game.lvi = 1 load_level(LEVEL_BONUS, true, 40, -24) game.state = "play" play_music()',
      320, None, "1-1 地下奖励房"),
     ("04_world12_flag",
      'start_game() game.lvi = 2 load_level(LEVEL_12, true, 133*16, 80) game.state = "play" play_music()',
-     460, "60 key 1\n", "1-2 旗杆"),
+     460, "60 key right\n", "1-2 旗杆"),
     ("05_world12_to_13",
      'start_game() game.lvi = 2 load_level(LEVEL_12, true, 133*16, 80) game.state = "play" play_music()',
-     900, "60 key 1\n", "1-2 通关后进入 1-3"),
+     900, "60 key right\n", "1-2 通关后进入 1-3"),
     ("06_world13_start",
-     'start_game() game.lvi = 3 begin_play()', 260, "150 key 1\n", "1-3 开局"),
+     'start_game() game.lvi = 3 begin_play()', 260, "150 key right\n", "1-3 开局"),
     ("07_world13_trees",
      'start_game() game.lvi = 3 begin_play() game.mario.x = 42*16 game.mario.y = 24 game.cam = 42*16-108',
      300, None, "1-3 中段树台"),
@@ -44,9 +46,9 @@ CASES = [
      300, None, "1-3 结尾大阶梯"),
     ("10_world13_flag",
      'start_game() game.lvi = 3 begin_play() game.mario.x = 145*16 game.mario.y = 100 game.cam = 145*16-108',
-     480, "60 key 1\n", "1-3 旗杆与城堡"),
+     480, "60 key right\n", "1-3 旗杆与城堡"),
     ("11_world14_start",
-     'start_game() game.lvi = 4 begin_play()', 280, "150 key 1\n", "1-4 开局走廊"),
+     'start_game() game.lvi = 4 begin_play()', 280, "150 key right\n", "1-4 开局走廊"),
     ("12_world14_firebar",
      'start_game() game.lvi = 4 begin_play() game.mario.x = 42*16 game.mario.y = 96 game.cam = 42*16-108',
      300, None, "1-4 火棒走廊"),
@@ -58,13 +60,13 @@ CASES = [
      420, None, "1-4 桥与库巴"),
     ("15_world14_axe",
      'start_game() game.lvi = 4 begin_play() game.mario.x = 139*16+8 game.mario.y = 100 game.cam = 139*16-108',
-     260, "50 key 1\n", "1-4 斧头断桥"),
+     260, "50 key right\n", "1-4 斧头断桥"),
     ("16_world14_rescue",
      'start_game() game.lvi = 4 begin_play() game.mario.x = 139*16+8 game.mario.y = 100 game.cam = 139*16-108',
-     700, "50 key 1\n", "救出公主"),
+     700, "50 key right\n", "救出公主"),
     ("17_world14_clear",
      'start_game() game.lvi = 4 begin_play() game.mario.x = 139*16+8 game.mario.y = 100 game.cam = 139*16-108',
-     1260, "50 key 1\n", "通关庆祝"),
+     1260, "50 key right\n", "通关庆祝"),
 ]
 
 INJECT_ANCHOR = '  if game.music_on then music(0, 500, 240) end\nend'
@@ -93,12 +95,12 @@ def main():
         vlua = TMP / (name + ".lua")
         vlua.write_text(variant, encoding="utf-8")
         vcart = TMP / (name + ".fc16")
-        if not run(["target/debug/fc16mk.exe", "--name", "验证", "--author", "t",
+        if not run([str(FC16 / "target/debug" / ("fc16mk.exe" if os.name == "nt" else "fc16mk")), "--name", "验证", "--author", "t",
                     "--version", "1", "--save-id", "mario_verify",
                     "--code", str(vlua.relative_to(ROOT)), "--out", str(vcart.relative_to(ROOT))]):
             failures.append(name)
             continue
-        cmd = ["target/debug/fc16.exe", str(vcart.relative_to(ROOT)),
+        cmd = [str(FC16 / "target/debug" / ("fc16.exe" if os.name == "nt" else "fc16")), str(vcart.relative_to(ROOT)),
                "--frames", str(frames),
                "--screenshot", str((SHOTS / (name + ".png")).relative_to(ROOT))]
         if script:
@@ -113,7 +115,7 @@ def main():
     if failures:
         print("失败用例：", ", ".join(failures))
         sys.exit(1)
-    print("全部通过；截图见 demo/mario/shots/")
+    print("全部通过；截图见 mario/shots/")
 
 
 if __name__ == "__main__":

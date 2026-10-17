@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""魔塔 BGM/SFX 写谱器（demo/magetower/compose_music.py）
+"""魔塔 BGM/SFX 写谱器（magetower/compose_music.py）
 
 FC-16 是 8 通道芯片合成器（SPEC §5，无采样回放），原版 SWF 里的流媒体
 MP3 无法直接播放——卡带音乐由 transcribe_music.py 从原曲音频自动转录，
 本文件只负责把"曲目 → SFX/Pattern"按 SPEC §5.2 布局写回目标卡带
-.lua 的标记区间（默认 demo/mota24/mota24.lua，可由调用方传入路径）：
+.lua 的标记区间（默认 mota24/mota24.lua，可由调用方传入路径）：
 
   -- BEGIN GENERATED MUSIC (compose_music.py) / -- END GENERATED MUSIC
 
@@ -16,7 +16,7 @@ MP3 无法直接播放——卡带音乐由 transcribe_music.py 从原曲音频�
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LUA = os.path.join(HERE, "magetower.lua")
+LUA = os.path.join(HERE, "..", "mota24", "mota24.lua")
 BEGIN = "-- BEGIN GENERATED MUSIC (compose_music.py)"
 END = "-- END GENERATED MUSIC"
 
@@ -172,10 +172,6 @@ def write_all(parts, lua_path=None):
     all_music = [(i, sp, st) for i, sp, st in all_sfx]
     everything = [(i, sp, st) for (i, sp, st) in game_sfx] + all_music
 
-    def flags(pats):
-        return ["3" if i == len(pats) - 1 else ("1" if i == 0 else "0")
-                for i in range(len(pats))]
-
     lines = [
         BEGIN,
         "-- 由 transcribe_music.py 从原曲音频转录生成（_source/audio/ 留档），勿手改。",
@@ -183,25 +179,47 @@ def write_all(parts, lua_path=None):
         "-- 各曲速度/小节数见 transcribe_music.py 的 TRACKS 与运行输出。",
         "local function u8(a, v) poke(a, v % 256) end",
         "",
-        "-- steps: {{音高, 波形, 音量, 效果?}, ...}；音高 0 = 休止；1-96 = C0-B7",
-        "local function sfx_steps(id, speed, steps)",
-        "  local base = 0x060000 + id * 112",
-        "  u8(base, speed)",
-        "  u8(base + 1, #steps)",
-        "  for i = 0, 31 do",
-        "    local a = base + 16 + i * 3",
-        "    local st = steps[i + 1]",
-        "    if st then",
-        "      u8(a, st[1] or 0)",
-        "      u8(a + 1, (st[2] or 0) * 16 + (st[3] or 0))",
-        "      u8(a + 2, st[4] or 0)",
-        "    else",
-        "      u8(a, 0)",
-        "      u8(a + 1, 0)",
-        "    end",
-        "  end",
-        "end",
-        "",
+        'local WAVEFORM_DATA = {',
+        '  -- 0: ROUND',
+        '  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},',
+        '  -- 1: DOUBLE SAW',
+        '  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},',
+        '  -- 2: BELL',
+        '  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},',
+        '  -- 3: BASS',
+        '  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},',
+        '  -- 4: HOLLOW',
+        '  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},',
+        '  -- 5: BIT',
+        '  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},',
+        '  -- 6: PULSE 12',
+        '  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},',
+        '  -- 7: REED',
+        '  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},',
+        '}',
+        '',
+        'local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）',
+        '',
+        'local function init_waveforms()',
+        '  for id = 0, 7 do',
+        '    local base = WAVEFORM_BASE + id * 80',
+        '    local t = WAVEFORM_DATA[id + 1]',
+        '    for i = 0, 63 do poke(base + 16 + i, t[i + 1] % 256) end',
+        '  end',
+        'end',
+        '',
+        '',
+        '-- 乐谱中的半音与音色编号在生成时转为当前 SFX 数据。',
+        'local function sfx_steps(id, speed, steps)',
+        '  local base = 0x0C0000 + id * 144',
+        '  poke2(base, speed * 4)',
+        '  u8(base + 2, #steps)',
+        '  for i = 0, 31 do',
+        '    local a = base + 16 + i * 4',
+        '    local st = steps[i + 1] or {0, 0, 0, 0}',
+        '    for j = 0, 3 do u8(a + j, st[j + 1] or 0) end',
+        '  end',
+        'end',
         "local S_STEP, S_DOOR, S_PICK, S_GEM, S_FIGHT, S_KILL, S_DENY = 0, 1, 2, 3, 4, 5, 6",
         "local S_BOSS, S_WIN, S_LOSE, S_SAVE, S_MENU, S_BUY, S_STAIR = 7, 8, 9, 10, 11, 12, 13",
         "",
@@ -214,23 +232,23 @@ def write_all(parts, lua_path=None):
             for (g, song, _n), (_d, table) in zip(parts, tables)),
         "",
         "local function init_audio()",
+        "  init_waveforms()",
     ]
     for i, sp, st in everything:
-        lines.append("  sfx_steps(%d, %d, %s)" % (i, sp, lua_rows(st)))
-    pat_lines = ["  local mb = 0x063800\n"]
+        lines.append("  sfx_steps(%d, %d, %s)" % (i, sp, lua_rows([[max(0, row[0] - 1), [0,1,2,3,4,14,5,15,8,9,10,11,12,13,6,6][row[1]], row[2] if row[0] else 0, *row[3:]] if row else None for row in st])))
+    pat_lines = ["  local mb = 0x0C5380", "  u8(mb, %d)" % sum(len(table) for _, table in tables),
+                 "  for row=0,63 do for ch=0,7 do u8(mb+32+row*32+ch,255) end end"]
 
     def emit(table, base_pat):
-        fl = flags(table)
         for i, row in enumerate(table):
+            offset = 32 + (base_pat + i) * 32
             for ch in range(8):
                 if row[ch]:
-                    pat_lines.append("  u8(mb + %d * 16 + %d, %d)  -- ch%d ← SFX %d"
-                                     % (base_pat + i, ch, row[ch] + 1, ch, row[ch]))
-            pat_lines.append("  u8(mb + %d * 16 + 8, %s)  -- %s"
-                             % (base_pat + i, fl[i],
-                                "BEGIN|END 回环" if fl[i] == "3" else
-                                ("BEGIN" if fl[i] == "1" else
-                                 "END" if fl[i] == "2" else "")))
+                    pat_lines.append("  u8(mb + %d, %d)" % (offset + ch, row[ch]))
+            if i == 0:
+                pat_lines.append("  u8(mb + %d, 1)" % (offset + 16))
+            if i == len(table) - 1:
+                pat_lines.append("  u8(mb + %d, 1)" % (offset + 17))
 
     for (gname, _, _npats), (_defs, table) in zip(parts, tables):
         emit(table, bases[gname])

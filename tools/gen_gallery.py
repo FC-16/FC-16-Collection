@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""生成 GitHub Pages 首页 index.html：平铺展示 carts/ 全部卡带封面 + 实时搜索。
+"""生成 GitHub Pages 首页 index.html：平铺展示 全部卡带封面 + 实时搜索。
 
-数据源：tools/carts_meta.json（卡带名/作者）+ 本文件里的分类与简介表。
+数据源：各游戏 fc16.project.json（卡带名/作者）+ 本文件里的分类与简介表。
 重跑即可在封面更新后刷新页面。
 """
 import json
@@ -11,6 +11,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # 分类与一句话简介（dir 名 → (分类, 简介)）
 GAMES = {
+    'balatro': ('棋牌', '小丑牌，扑克与构筑组合'),
+    'cave-story': ('动作', '洞穴物语，探索与平台射击'),
+    'celeste2': ('动作', 'Celeste Classic 2，钩索攀登'),
     '2048':          ('益智', '滑动合成，冲向 2048'),
     'angrybirds':    ('休闲', '弹弓物理破坏，拆塔砸猪'),
     'ballbattle':    ('动作', '大球吞小球，质量即正义'),
@@ -149,7 +152,7 @@ TPL = '''<!DOCTYPE html>
   </div>
 </dialog>
 <footer>FC-16 · FrostMiKu's Console —
-<a href="https://github.com/FrostMiKu/FC-16-Collection" target="_blank">GitHub 仓库</a>
+<a href="https://github.com/FC-16/FC-16-Collection" target="_blank">GitHub 仓库</a>
 · 卡带需 FC-16 宿主运行</footer>
 <script>
 const DATA = __DATA__;
@@ -177,16 +180,16 @@ function card(d) {
   const el = document.createElement('div');
   el.className = 'card';
   el.innerHTML = `
-    <img loading="lazy" src="${d.cover || `carts/${d.dir}.fc16.png`}" alt="${d.name}">
+    <img loading="lazy" src="${d.cover || `${d.dir}/${d.dir}.fc16.png`}" alt="${d.name}">
     <div class="meta">
       <div class="name">${d.name}</div>
       <div class="sub"><span class="tag">${d.genre}</span><span>${d.author}</span></div>
     </div>`;
   el.onclick = () => {
-    dlg_img.src = d.cover || `carts/${d.dir}.fc16.png`;
+    dlg_img.src = d.cover || `${d.dir}/${d.dir}.fc16.png`;
     dlg_name.textContent = d.name;
     dlg_desc.textContent = d.desc;
-    dlg_dl.href = d.cover || `carts/${d.dir}.fc16.png`;
+    dlg_dl.href = d.cover || `${d.dir}/${d.dir}.fc16.png`;
     dlg.showModal();
   };
   return el;
@@ -219,16 +222,17 @@ render();
 
 
 def main():
-    meta = json.loads((ROOT / 'tools' / 'carts_meta.json').read_text())
+    meta = {p.parent.name: json.loads(p.read_text())['cart']
+            for p in ROOT.glob('*/fc16.project.json')}
     data = []
     for d, (genre, desc) in sorted(GAMES.items()):
-        cover = ROOT / 'carts' / f'{d}.fc16.png'
+        cover = ROOT / d / meta[d]['release']
         cart = ROOT / d / f'{d}.fc16'
         assert cover.exists(), cover
         assert cart.exists(), cart
         data.append({
             'dir': d, 'name': meta[d]['name'], 'author': meta[d]['author'],
-            'genre': genre, 'desc': desc,
+            'genre': genre, 'desc': desc, 'cover': f"{d}/{meta[d]['release']}",
         })
     data += EXTERNAL
     html = (TPL.replace('__DATA__', json.dumps(data, ensure_ascii=False))

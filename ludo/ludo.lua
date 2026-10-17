@@ -1,4 +1,10 @@
--- FC-16 飞行棋（demo/ludo）
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {games = 0, wins = {0, 0, 0, 0}, music_on = true}
+end
+
+-- FC-16 飞行棋（ludo）
 -- 经典中式四色飞行棋：52 格环形跑道（每色 13 格）＋各色 6 格终点跑道＋虚线飞行捷径
 -- 简化与约定（详见 README.md）：
 --   ・每次移动至多触发一次同色跳跃（+4）或捷径飞跃（+12），二者不连环
@@ -113,12 +119,12 @@ local function segd(px, py, ax, ay, bx, by)
     if t < 0 then t = 0 elseif t > 1 then t = 1 end
   end
   local qx, qy = ax + dx * t, ay + dy * t
-  return sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy))
+  return math.sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy))
 end
 
 local function plane_solid(x, y)
   if x >= 3.5 and x <= 12.6 and y >= 6.8 and y <= 9.2 then return true end      -- 机身
-  if x >= 12.6 and x <= 15 and abs(y - 8) <= (15 - x) * 0.62 + 0.35 then return true end -- 机头
+  if x >= 12.6 and x <= 15 and math.abs(y - 8) <= (15 - x) * 0.62 + 0.35 then return true end -- 机头
   if tri_in(x, y, 10.2, 7.2, 3.2, 2.5, 4.0, 7.5) then return true end          -- 上主翼
   if tri_in(x, y, 10.2, 8.8, 3.2, 13.5, 4.0, 8.5) then return true end         -- 下主翼
   if tri_in(x, y, 4.0, 7.4, 1.2, 4.6, 1.8, 7.7) then return true end           -- 上尾翼
@@ -168,32 +174,32 @@ local function plane_tile(p, face) return 1 + (p - 1) * 4 + (face % 4) end
 
 local function draw_plane(p, face, x, y, s)
   local id = plane_tile(p, face)
-  sspr((id % 16) * 16, flr(id / 16) * 16, 16, 16,
-       flr(x - s / 2), flr(y - s / 2), s, s)
+  sspr((id % 16) * 16, math.floor(id / 16) * 16, 16, 16,
+       math.floor(x - s / 2), math.floor(y - s / 2), s, s)
 end
 
 -- ================================================================ 音频（SPEC §5.2 布局）
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -207,24 +213,24 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 
 -- init_sfx(id, notes, wave, vol, speed, eff)
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function init_sfx(id, notes, wave, vol, speed, eff)
   local sp = speed or 2
   local base = 0x0C0000 + id * 144
-  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   for i = 0, 31 do
     local a = base + 16 + i * 4
     local p = notes[i + 1]
     if p and p > 0 then
       u8(a, p - 1)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, vol)
       u8(a + 3, eff or 0)
     else
@@ -442,8 +448,8 @@ local function burst(x, y, n, cols, sp)
   for _ = 1, n do
     local a = rnd(1)
     local v = rnd(0.3, 1) * (sp or 2)
-    add_part(x, y, cos(a) * v, sin(a) * v, 0.06, 30 + flr(rnd(30)),
-      cols[flr(rnd(#cols)) + 1])
+    add_part(x, y, cos(a) * v, sin(a) * v, 0.06, 30 + math.floor(rnd(30)),
+      cols[math.floor(rnd(#cols)) + 1])
   end
 end
 
@@ -460,8 +466,8 @@ local function bez(ax, ay, bx, by, cx, cy, u)
 end
 
 local function dir4(dx, dy)
-  if abs(dx) > abs(dy) then return dx > 0 and 0 or 2 end
-  return dy > 0 and 1 or 3
+  if math.abs(dx) > math.abs(dy) then return dx > 0 and "left" or "up" end
+  return dy > 0 and "right" or "down"
 end
 
 -- 逐格步行（含终点回退）：plan 为逐个途经的位置
@@ -504,7 +510,7 @@ local function actor_arc(p, k, ax, ay, bx, by, dur, snd, trail, fin, face_to)
     self.t = self.t + 1
     local u = self.t / dur
     local x, y = bez(ax, ay, cx, cy, bx, by, u)
-    local x2, y2 = bez(ax, ay, cx, cy, bx, by, min(1, u + 0.04))
+    local x2, y2 = bez(ax, ay, cx, cy, bx, by, math.min(1, u + 0.04))
     ov_set(p, k, x, y, face_to or dir4(x2 - x, y2 - y), 13)
     if trail and self.t % 2 == 0 then
       add_part(x, y, 0, 0, 0, 12, PC[p][4])
@@ -552,8 +558,8 @@ local function actor_return(p, k, ax, ay)
     self.t = self.t + 1
     local u = self.t / self.dur
     local x, y = bez(ax, ay, mx, my, pad[1], pad[2], u)
-    local s = 13 - abs(sin(u)) * 6
-    ov_set(p, k, x, y, flr(u * 8) % 4, s)
+    local s = 13 - math.abs(sin(u)) * 6
+    ov_set(p, k, x, y, math.floor(u * 8) % 4, s)
     if self.t % 3 == 0 then add_part(x, y, 0, 0.1, 0, 10, PC[p][2]) end
     if self.t >= self.dur then
       G.P[p].face[k] = LDIR[p]
@@ -668,10 +674,10 @@ local function post_move(m)
       G.ranking[#G.ranking + 1] = p
       G.games = G.games + 1
       G.wins[p] = G.wins[p] + 1
-      dset(0, G.games)
-      dset(p, G.wins[p])
-      fflush()
-      music(-1, 300)
+      progress.games = G.games; assert(save(progress))
+      progress.wins[p] = G.wins[p]; assert(save(progress))
+
+      music_stop(300)
       sfx(8)
       G.phase = "celebrate"
       G.phase_t = 0
@@ -743,8 +749,8 @@ local function resolve_roll()
 end
 
 local function do_roll()
-  G.dice = flr(rnd(6)) + 1
-  G.dface = flr(rnd(6)) + 1
+  G.dice = math.floor(rnd(6)) + 1
+  G.dface = math.floor(rnd(6)) + 1
   G.phase = "rollanim"
   G.phase_t = 0
   sfx(0)
@@ -790,18 +796,18 @@ local DICEF = 34
 
 local function update_play()
   local ph = G.P[G.cur]
-  if btnp(11) then to_title() return end
-  if btnp(10) then
+  if btnp("menu") then to_title() return end
+  if btnp("view") then
     G.music_on = not G.music_on
-    dset(5, G.music_on and 0 or 1)
-    fflush()
-    if G.music_on then music(0, 334, 0x70) else music(-1, 200) end
+    progress.music_on = G.music_on; assert(save(progress))
+
+    if G.music_on then music(0, 334, 0x70) else music_stop(200) end
   end
 
   local st = G.phase
   if st == "roll" then
     if ph.human then
-      if btnp(4) then do_roll() end
+      if btnp("a") then do_roll() end
     else
       G.phase_t = G.phase_t + 1
       if G.phase_t >= AI_ROLL_T then do_roll() end
@@ -810,7 +816,7 @@ local function update_play()
   elseif st == "rollanim" then
     G.phase_t = G.phase_t + 1
     if G.phase_t % 6 == 0 then sfx(0) end
-    if G.phase_t % 3 == 0 and G.phase_t < DICEF - 7 then G.dface = flr(rnd(6)) + 1 end
+    if G.phase_t % 3 == 0 and G.phase_t < DICEF - 7 then G.dface = math.floor(rnd(6)) + 1 end
     if G.phase_t >= DICEF - 7 then G.dface = G.dice end
     if G.phase_t >= DICEF then
       sfx(1)
@@ -835,25 +841,25 @@ local function update_play()
         G.msel = ((G.msel - 1 + d) % #G.mov) + 1
         sfx(9)
       end
-      if dirp(0) or dirp(2) then
-        G.holdd = dirp(0) and 0 or 2
+      if dirp("left") or dirp("up") then
+        G.holdd = dirp("left") and "left" or "up"
         G.holdt = 0
         shift(-1)
-      elseif dirp(1) or dirp(3) then
-        G.holdd = dirp(1) and 1 or 3
+      elseif dirp("right") or dirp("down") then
+        G.holdd = dirp("right") and "right" or "down"
         G.holdt = 0
         shift(1)
-      elseif G.holdd and btn(G.holdd) then
+      elseif G.holdd and dir(G.holdd) then
         G.holdt = G.holdt + 1
         if G.holdt > 12 and G.holdt % 5 == 0 then
-          shift(G.holdd < 2 and -1 or 1)
+          shift((G.holdd == "left" or G.holdd == "up") and -1 or 1)
         end
       else
         G.holdd = nil
       end
-      if btnp(4) then
+      if btnp("a") then
         begin_move(G.msel)
-      elseif btnp(5) then
+      elseif btnp("b") then
         note(NAME[G.cur] .. "方放弃移动", 9, 55)
         G.phase = "skipwait"
         G.phase_t = 0
@@ -889,22 +895,22 @@ local function update_play()
 end
 
 local function update_title()
-  if dirp(0) or dirp(2) then
+  if dirp("left") or dirp("up") then
     G.humans = (G.humans - 2) % 4 + 1
     sfx(9)
-  elseif dirp(1) or dirp(3) then
+  elseif dirp("right") or dirp("down") then
     G.humans = G.humans % 4 + 1
     sfx(9)
   end
-  if btnp(4) or btnp(11) then
+  if btnp("a") or btnp("menu") then
     sfx(7)
     start_game()
   end
-  if btnp(10) then
+  if btnp("view") then
     G.music_on = not G.music_on
-    dset(5, G.music_on and 0 or 1)
-    fflush()
-    if G.music_on then music(0, 334, 0x70) else music(-1, 200) end
+    progress.music_on = G.music_on; assert(save(progress))
+
+    if G.music_on then music(0, 334, 0x70) else music_stop(200) end
   end
 end
 
@@ -929,7 +935,7 @@ function _update()
     if ANIMS[i]:up(ANIMS[i]) then table.remove(ANIMS, i) end
   end
   if G.mode == "splash" then
-    if G.t > 90 or btnp(4) or btnp(11) then G.mode = "title" end
+    if G.t > 90 or btnp("a") or btnp("menu") then G.mode = "title" end
   elseif G.mode == "title" then
     update_title()
   elseif G.mode == "play" then
@@ -941,7 +947,7 @@ function _update()
       firework()
       G.fw_t = 21
     end
-    if btnp(4) or btnp(11) then
+    if btnp("a") or btnp("menu") then
       sfx(9)
       to_title()
     end
@@ -974,7 +980,8 @@ local function draw_board()
   -- 底纹
   cls(51)
   fillp(0x1041)
-  rectfill(0, 0, 256, 256, 52 * 256 + 51)
+  fillp(0x1041, 52)
+  rectfill(0, 0, 256, 256, 51)
   fillp()
 
   -- 机场
@@ -984,7 +991,7 @@ local function draw_board()
     rrectfill(ax + 2, ay + 2, 86, 86, 10, cp[3])
     rrect(ax + 2, ay + 2, 86, 86, 10, cp[2])
     if G.cur == p and G.phase ~= "celebrate" then
-      if flr(G.t / 4) % 2 == 0 then
+      if math.floor(G.t / 4) % 2 == 0 then
         rrect(ax - 1, ay - 1, 92, 92, 12, cp[1])
       end
     end
@@ -1062,10 +1069,10 @@ local function draw_board()
     local b = RING[(START0[p] + FLY_DST) % 52 + 1]
     local ax, ay = ccx(a[1]), ccy(a[2])
     local bx, by = ccx(b[1]), ccy(b[2])
-    local n = flr(sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay)) / 5)
+    local n = math.floor(math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay)) / 5)
     for i = 0, n do
       if i % 2 == 0 then
-        local u = i / max(n, 1)
+        local u = i / math.max(n, 1)
         pset(ax + (bx - ax) * u, ay + (by - ay) * u, PC[p][4])
       end
     end
@@ -1086,10 +1093,10 @@ local function draw_planes()
       else
         x, y = pos_xy(p, G.P[p].pos[k], k)
       end
-      if flr(G.t / 3) % 2 == 0 then circ(x, y, 8, 7) end
+      if math.floor(G.t / 3) % 2 == 0 then circ(x, y, 8, 7) end
       local r = resolve_landing(p, k, G.dice)
       local gx, gy = pos_xy(p, r.final, k)
-      circ(gx, gy, 5 + flr(G.t / 8) % 2, 7)
+      circ(gx, gy, 5 + math.floor(G.t / 8) % 2, 7)
       if r.fly then chevron(gx, gy - 8, 1, 31) end
     end
   end
@@ -1156,9 +1163,9 @@ local function draw_dice()
   local v = G.dface
   local s = 17
   if G.phase == "rollanim" then
-    s = 19 + flr(abs(sin(G.t * 0.2)) * 2)
-    cx = cx + flr(rnd(3)) - 1
-    cy = cy + flr(rnd(3)) - 1
+    s = 19 + math.floor(math.abs(sin(G.t * 0.2)) * 2)
+    cx = cx + math.floor(rnd(3)) - 1
+    cy = cy + math.floor(rnd(3)) - 1
   end
   local cp = PC[G.cur]
   rrectfill(cx - 13, cy - 13, 26, 26, 4, cp[3])
@@ -1177,7 +1184,7 @@ local function draw_hud()
     local done = count_goal(p)
     local is_cur = G.cur == p
     local col = is_cur and 7 or 10
-    if is_cur and flr(G.t / 4) % 2 == 0 then col = 31 end
+    if is_cur and math.floor(G.t / 4) % 2 == 0 then col = 31 end
     print(done .. "/4", x + 11, 0, col)
     local ph = G.P[p]
     if ph then
@@ -1208,19 +1215,19 @@ local function draw_bottom()
   line(0, 240, 255, 240, 12)
   if G.banner then
     local b = G.banner
-    local bw = tw(b.txt) + 14
+    local bw = textw(b.txt) + 14
     rrectfill(128 - bw / 2, 118, bw, 20, 4, 14)
     rrect(128 - bw / 2, 118, bw, 20, 4, PC[G.cur][1])
-    print(b.txt, 128 - tw(b.txt) / 2, 122, b.col)
+    print(b.txt, 128 - textw(b.txt) / 2, 122, b.col)
   end
   local s = prompt_text()
-  if s then print(s, (256 - tw(s)) / 2, 240, 7) end
+  if s then print(s, (256 - textw(s)) / 2, 240, 7) end
 end
 
 local function draw_parts()
   for i = 1, #PARTS do
     local pa = PARTS[i]
-    if pa.life > 6 or flr(pa.life / 2) % 2 == 0 then
+    if pa.life > 6 or math.floor(pa.life / 2) % 2 == 0 then
       pset(pa.x, pa.y, pa.c)
     end
   end
@@ -1242,22 +1249,23 @@ end
 local function draw_splash()
   cls(51)
   fillp(0x1041)
-  rectfill(0, 0, 256, 256, 52 * 256 + 51)
+  fillp(0x1041, 52)
+  rectfill(0, 0, 256, 256, 51)
   fillp()
   for i = 1, #G.stars do
     local st = G.stars[i]
-    local twk = (flr(G.t / 20) + i) % 7 == 0
+    local twk = (math.floor(G.t / 20) + i) % 7 == 0
     pset(st[1], st[2], twk and 7 or st[3])
   end
   -- 大 logo（scale 4：黑影 + 红/黄/蓝三色，呼应四色棋）
   local chars, cols = { "飞", "行", "棋" }, { 58, 30, 41 }
-  local cw = tw("飞") * 4
+  local cw = textw("飞") * 4
   for i = 1, 3 do
-    local x = flr(128 - cw * 1.5) + (i - 1) * (cw + 6)
+    local x = math.floor(128 - cw * 1.5) + (i - 1) * (cw + 6)
     print(chars[i], x + 3, 25, 1, 4)
     print(chars[i], x, 21, cols[i], 4)
   end
-  print("FC-16 LUDO", (256 - tw("FC-16 LUDO")) / 2, 78, 10)
+  print("FC-16 LUDO", (256 - textw("FC-16 LUDO")) / 2, 78, 10)
   -- 跑道（底部装饰）
   rectfill(0, 238, 256, 18, 52)
   line(0, 238, 255, 238, 12)
@@ -1286,11 +1294,12 @@ end
 local function draw_title()
   cls(51)
   fillp(0x1041)
-  rectfill(0, 0, 256, 256, 52 * 256 + 51)
+  fillp(0x1041, 52)
+  rectfill(0, 0, 256, 256, 51)
   fillp()
   for i = 1, #G.stars do
     local st = G.stars[i]
-    local twk = (flr(G.t / 20) + i) % 7 == 0
+    local twk = (math.floor(G.t / 20) + i) % 7 == 0
     pset(st[1], st[2], twk and 7 or st[3])
   end
   -- 棋盘四角机场 + 顶视飞机（封面构图）
@@ -1307,15 +1316,15 @@ local function draw_title()
     draw_plane(p, LDIR[p], x + 31, y + 34, 20)
     print(NAME[p], x + 6, y + 5, cp[4])
   end
-  big_text("飞行棋", 128 - tw("飞行棋") / 2, 36, 31)
-  print("FC-16 LUDO", 128 - tw("FC-16 LUDO") / 2, 62, 10)
+  big_text("飞行棋", 128 - textw("飞行棋") / 2, 36, 31)
+  print("FC-16 LUDO", 128 - textw("FC-16 LUDO") / 2, 62, 10)
 
   -- 玩家数选择
   local py = 86
   rrectfill(66, py, 124, 74, 6, 13)
   rrect(66, py, 124, 74, 6, 12)
   local ls = btnicon("left") .. btnicon("right") .. " 玩家数"
-  print(ls, 128 - tw(ls) / 2, py + 5, 7)
+  print(ls, 128 - textw(ls) / 2, py + 5, 7)
   big_text(tostring(G.humans), 80, py + 26, 31)
   print("人", 97, py + 30, 7)
   for p = 1, 4 do
@@ -1328,25 +1337,26 @@ local function draw_title()
     print(lab, x - 4, py + 42, p <= G.humans and 7 or 10)
   end
   local gs = "战绩 " .. G.games .. " 局"
-  print(gs, 128 - tw(gs) / 2, py + 58, 10)
+  print(gs, 128 - textw(gs) / 2, py + 58, 10)
 
   -- 开始提示（常亮稳定）与音乐开关
   local s = "按 " .. btnicon("a") .. " 开始"
-  print(s, 128 - tw(s) / 2 + 1, 177, 1)
-  print(s, 128 - tw(s) / 2, 176, 31)
+  print(s, 128 - textw(s) / 2 + 1, 177, 1)
+  print(s, 128 - textw(s) / 2, 176, 31)
   s = btnicon("view") .. " 音乐：" .. (G.music_on and "开" or "关")
-  print(s, 128 - tw(s) / 2, 196, 10)
-  print("掷 6 起飞", 128 - tw("掷 6 起飞") / 2, 214, 48)
-  print("FrostMiKu", 128 - tw("FrostMiKu") / 2, 236, 10)
+  print(s, 128 - textw(s) / 2, 196, 10)
+  print("掷 6 起飞", 128 - textw("掷 6 起飞") / 2, 214, 48)
+  print("FrostMiKu", 128 - textw("FrostMiKu") / 2, 236, 10)
 end
 
 local function draw_end()
   fillp(0x5a5a)
-  rectfill(0, 0, 256, 256, 14 * 256 + 51)
+  fillp(0x5a5a, 14)
+  rectfill(0, 0, 256, 256, 51)
   fillp()
   local w = G.ranking[1]
   local ws = NAME[w] .. "方夺冠！"
-  big_text(ws, 128 - tw(ws) / 2, 44, PC[w][4])
+  big_text(ws, 128 - textw(ws) / 2, 44, PC[w][4])
 
   -- 名次：冠军之后按完赛架数与总进度排
   local function prog(p)
@@ -1384,11 +1394,11 @@ local function draw_end()
     draw_plane(p, LDIR[p], 116, y + 8, 13)
     print(NAME[p] .. "方 " .. g .. "/4", 132, y, PC[p][4])
   end
-  if flr(G.t / 20) % 2 == 0 then
-    print(btnicon("a") .. " 回到标题", 128 - tw(btnicon("a") .. " 回到标题") / 2, 176, 31)
+  if math.floor(G.t / 20) % 2 == 0 then
+    print(btnicon("a") .. " 回到标题", 128 - textw(btnicon("a") .. " 回到标题") / 2, 176, 31)
   end
   local gs = "累计 " .. G.games .. " 局"
-  print(gs, 128 - tw(gs) / 2, 196, 10)
+  print(gs, 128 - textw(gs) / 2, 196, 10)
 end
 
 function _draw()
@@ -1403,7 +1413,7 @@ function _draw()
     return
   end
   if G.shake > 0 then
-    camera(flr(rnd(5)) - 2, flr(rnd(5)) - 2)
+    camera(math.floor(rnd(5)) - 2, math.floor(rnd(5)) - 2)
   else
     camera(0, 0)
   end
@@ -1426,11 +1436,11 @@ function _init()
   init_all_sfx()
   local scols = {10, 11, 12, 48}
   for i = 1, 46 do
-    G.stars[i] = {flr(rnd(4, 252)), flr(rnd(4, 250)), scols[i % 4 + 1]}
+    G.stars[i] = {math.floor(rnd(4, 252)), math.floor(rnd(4, 250)), scols[i % 4 + 1]}
   end
-  -- dget 恒为 Lua 浮点（Q16.16 解包）；v0.177 起 flr 对数学整数保留整数显示，拼接不会变成 "0.0"
-  G.games = flr(dget(0))
-  for p = 1, 4 do G.wins[p] = flr(dget(p)) end
-  G.music_on = dget(5) == 0
+  -- 存档使用结构化数据（SPEC §13）。
+  G.games = math.floor(progress.games)
+  for p = 1, 4 do G.wins[p] = math.floor(progress.wins[p]) end
+  G.music_on = progress.music_on
   if G.music_on then music(0, 500, 0x70) end
 end

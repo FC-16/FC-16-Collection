@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """extract_chr.py — 从 iNES 格式 ROM 提取 CHR 图形并映射到 FC-16 调色板
-（ENDESGA-64，SPEC §2.2），生成可直接粘进 demo/mario/mario.lua 的
+（ENDESGA-64，SPEC §2.2），生成可直接粘进 mario/mario.lua 的
 「BEGIN/END GENERATED CHR」标记段。
 
 使用步骤：
-  1. 把自备的日版/美版《超级马里奥兄弟》ROM 放到 demo/mario/_source/smb.nes
+  1. 把自备的日版/美版《超级马里奥兄弟》ROM 放到 mario/_source/smb.nes
      （_source/ 已 gitignore，ROM 不入库）；
   2. python3 extract_chr.py            # 生成标记段写入 mario.lua（精灵表 512-1023 号瓦片）
      python3 extract_chr.py --selftest # 用合成 CHR 数据自测解析/解码/映射正确性

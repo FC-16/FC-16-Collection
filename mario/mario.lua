@@ -1,9 +1,15 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {best = 0, best_level = 1, music_on = true}
+end
+
 -- 超级马里奥（FC-16 致敬卡带）
 -- 横版平台跳跃：World 1-1/1-2/1-3/1-4 布局与敌人布点按参考反汇编
 -- （MitchellSternke/SuperMarioBros-C，docs/smbdis.asm）忠实转写；
 -- 物理常量逐项换算自参考仓库的亚像素表（1 亚像素 = 1/256 px，60fps，见文件尾换算表）。
--- 音乐：原曲音符表经 demo/mario/convert_music.py 转写为 FC-16 tracker（生成段见下方标记）。
--- 像素美术为原创自绘；如需原版观感，可用 demo/mario/extract_chr.py 从自备 ROM 提取
+-- 音乐：原曲音符表经 mario/convert_music.py 转写为 FC-16 tracker（生成段见下方标记）。
+-- 像素美术为原创自绘；如需原版观感，可用 mario/extract_chr.py 从自备 ROM 提取
 -- CHR 并映射 ENDESGA-64（管线自测通过；未放 ROM 时使用现有致敬美术）。
 --
 -- 操作：←→ 移动（Ⓑ=J 跑）  Ⓐ=K 跳（按住跳更高）  ↓ 蹲 / 进管道  Ⓑ 发火球（火力态）
@@ -41,7 +47,7 @@ local SHELL_WAKE = 340      -- 龟壳苏醒时间
 local RUN_GRACE = 10        -- 松开 B 后保持跑动上限的幀数
 
 -- 输入键位（SPEC §6）
-local KEY = { L = 0, R = 1, U = 2, D = 3, A = 4, B = 5, SEL = 10, STA = 11 }
+local KEY = { L = "left", R = "right", U = "up", D = "down", A = "a", B = "b", SEL = "view", STA = "menu" }
 
 -- 调色板索引（SPEC §2.2，固定 FC-16 顺序；明暗均为手选色号，不做算术推导）
 local C = { SKY = 41, BLACK = 1, DARK = 2, RED = 59, REDD = 60,
@@ -78,24 +84,24 @@ local MUS = { GROUND = 0, UNDER = 20, CASTLE = 29, STAR = 33, WARN = 36,
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -109,8 +115,8 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- ---------------------------------------------------------------- 音频
 
@@ -120,7 +126,7 @@ local function init_sfx(id, notes, wave, vol, speed, o)
   o = o or {}
   local sp = speed or 2
   local base = 0x0C0000 + id * 144
-  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   if o.loop then u8(base + 3, o.loop) u8(base + 4, #notes - 1) u8(base + 5, 1) end
   for i = 0, 31 do
@@ -128,32 +134,13 @@ local function init_sfx(id, notes, wave, vol, speed, o)
     local m = i < #notes and notes[i + 1] or 0
     if m > 0 then
       u8(a, m - 12)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, vol)
       u8(a + 3, o.effect or 0)
     else
       u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0)
     end
   end
-end
-
-local function init_all_audio()
-  init_sfx(FX.JUMP,  { 62, 74 }, 3, 10, 1, { effect = 4 })        -- 小跳：上扫
-  init_sfx(FX.JUMPB, { 55, 67 }, 3, 11, 1, { effect = 4 })        -- 大跳：更低
-  init_sfx(FX.COIN,  { 83, 88 }, 3, 11, 1)                        -- 金币：双音上行
-  init_sfx(FX.STOMP, { 45, 33 }, 15, 12, 1)                       -- 踩敌：噪声下砸
-  init_sfx(FX.BUMP,  { 34, 30 }, 2, 12, 1)                        -- 顶块闷响
-  init_sfx(FX.BREAK, { 60, 40, 25 }, 14, 13, 1)                   -- 碎砖
-  init_sfx(FX.RISE,  { 60, 64, 67, 72 }, 8, 8, 2)                 -- 道具出块
-  init_sfx(FX.POWER, { 60, 64, 67, 72, 76, 79, 84 }, 3, 11, 1)    -- 变身快琶音
-  init_sfx(FX.KICK,  { 70, 58 }, 3, 12, 1)                        -- 踢壳
-  init_sfx(FX.FIRE,  { 84, 66 }, 2, 10, 1)                        -- 发弹
-  init_sfx(FX.ONEUP, { 72, 76, 79, 84, 88 }, 3, 11, 3)            -- 1UP
-  init_sfx(FX.FLAG,  { 55, 59, 62, 67, 71, 74, 79, 83 }, 3, 10, 2)-- 旗杆上滑
-  init_sfx(FX.PIPE,  { 64, 52, 43 }, 2, 11, 2)                    -- 管道
-  init_sfx(FX.TICK,  { 90 }, 3, 7, 1)                             -- 计时滴答
-  init_sfx(FX.PAUSE, { 74, 78 }, 3, 9, 2)                         -- 暂停
-  music_gen()  -- 原曲音符表转写（下方生成段，convert_music.py 可一键重建）
 end
 
 -- BEGIN GENERATED MUSIC (from smbdis via convert_music.py)
@@ -164,13 +151,13 @@ end
 local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 local function drum_sfx(id, steps, speed)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #steps)
   for s = 0, 31 do
     local a = base + 16 + s * 4
     local st = steps[s + 1]
     if st and (st[1] or 0) > 0 then
-      u8(a, st[1] - 1) u8(a + 1, WMAP[st[2]]) u8(a + 2, st[3]) u8(a + 3, 0)
+      u8(a, st[1] - 1) u8(a + 1, TIMBRE_SOURCE[st[2]]) u8(a + 2, st[3]) u8(a + 3, 0)
     else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end
   end
 end
@@ -2087,8 +2074,8 @@ local function build_level(lv)
       for i = 1, w - 2 do mset(tx + i, lv.strip + ty, T.TREE_M) end
       mset(tx + w - 1, lv.strip + ty, T.TREE_R)
       for r = ty + 1, 14 do
-        if mget(tx + flr(w / 2), lv.strip + r) == T.EMPTY then
-          mset(tx + flr(w / 2), lv.strip + r, T.TRUNK)
+        if mget(tx + math.floor(w / 2), lv.strip + r) == T.EMPTY then
+          mset(tx + math.floor(w / 2), lv.strip + r, T.TRUNK)
         end
       end
     end
@@ -2127,7 +2114,7 @@ local function build_level(lv)
   for _, s in ipairs(lv.stairs or {}) do
     local tx, n = s[1], s[2]
     for i = 0, n - 1 do
-      local h = min(i + 1, n - 1)
+      local h = math.min(i + 1, n - 1)
       for r = 0, h - 1 do mset(tx + i, lv.strip + 11 - r, T.SOLID) end
     end
   end
@@ -2242,7 +2229,7 @@ end
 
 local function solid_px(px, py)
   if py < 0 then return false end
-  return fget(tile_at(flr(px / 16), flr(py / 16)), 0) == true
+  return fget(tile_at(math.floor(px / 16), math.floor(py / 16)), 0) == true
 end
 
 -- 隐藏块（H）只在上升碰撞时视为实心
@@ -2269,7 +2256,7 @@ local function spawn_chunks(tx, ty)
   for i = 1, 4 do
     spawn_ent({
       kind = "chunk",
-      x = tx * 16 + 4 + (i % 2) * 8, y = ty * 16 + 4 + flr((i - 1) / 2) * 8,
+      x = tx * 16 + 4 + (i % 2) * 8, y = ty * 16 + 4 + math.floor((i - 1) / 2) * 8,
       vx = (i % 2 == 0) and 1 or -1, vy = i <= 2 and -5 or -3.5, t = 0,
     })
   end
@@ -2304,7 +2291,7 @@ local function bump_block(tx, ty)
     if e.kind == "goomba" or e.kind == "koopa" or e.kind == "parakoopa" or e.kind == "mush"
       or e.kind == "oneup" or e.kind == "star" or e.kind == "shell" then
       local ex, ey = e.x, e.y + (e.h or 14)
-      if abs(ex - (tx * 16 + 8)) < 14 and abs(ey - ty * 16) < 4 then
+      if math.abs(ex - (tx * 16 + 8)) < 14 and math.abs(ey - ty * 16) < 4 then
         if e.kind == "mush" or e.kind == "oneup" or e.kind == "star" then
           e.vx = -e.vx e.vy = -3 -- 道具被弹起反向
         else
@@ -2395,7 +2382,7 @@ end
 -- ---------------------------------------------------------------- 玩家
 
 local function jump_group(vx)
-  local a = abs(vx)
+  local a = math.abs(vx)
   if a < 0.5625 then return 1 end
   if a < 1.0 then return 2 end
   if a < 1.5625 then return 3 end
@@ -2432,7 +2419,7 @@ local function mario_tile_collide(m)
     local edge = m.x + dir * hw
     for _, oy in ipairs({ 2, h / 2, h - 2 }) do
       if solid_px(edge, m.y + oy) then
-        local tx = flr(edge / 16)
+        local tx = math.floor(edge / 16)
         m.x = dir == 1 and tx * 16 - hw or (tx + 1) * 16 + hw
         m.vx = 0
         break
@@ -2447,14 +2434,14 @@ local function mario_tile_collide(m)
   if m.vy >= 0 then
     local fy = m.y + h
     if solid_px(m.x - hw + 1, fy) or solid_px(m.x + hw - 1, fy) then
-      m.y = flr(fy / 16) * 16 - h
+      m.y = math.floor(fy / 16) * 16 - h
       m.vy = 0
       m.on_ground = true
       game.chain = 0
     end
   else
-    local ty = flr(m.y / 16)
-    local lx, rx = flr((m.x - hw + 1) / 16), flr((m.x + hw - 1) / 16)
+    local ty = math.floor(m.y / 16)
+    local lx, rx = math.floor((m.x - hw + 1) / 16), math.floor((m.x + hw - 1) / 16)
     local lhit = solid_or_hidden(lx, ty, true)
     local rhit = solid_or_hidden(rx, ty, true)
     if lhit or rhit then
@@ -2497,9 +2484,9 @@ end
 
 local function update_mario()
   local m = game.mario
-  local press = (btn(KEY.R) and 1 or 0) - (btn(KEY.L) and 1 or 0)
+  local press = (dir(KEY.R) and 1 or 0) - (dir(KEY.L) and 1 or 0)
   if m.big > 0 then
-    m.crouch = m.on_ground and btn(KEY.D)
+    m.crouch = m.on_ground and dir(KEY.D)
   end
   local run = btn(KEY.B)
   if run and press ~= 0 and press == (m.vx == 0 and press or sgn(m.vx)) then
@@ -2511,10 +2498,10 @@ local function update_mario()
   if m.on_ground then
     if press ~= 0 then
       if m.vx * press < -0.01 then -- 打滑
-        local rate = abs(m.vx) >= 1.75 and SKID_RUN or SKID_WALK
-        if abs(m.vx) <= rate then m.vx = 0 else m.vx = m.vx - rate * press end
+        local rate = math.abs(m.vx) >= 1.75 and SKID_RUN or SKID_WALK
+        if math.abs(m.vx) <= rate then m.vx = 0 else m.vx = m.vx - rate * press end
         m.face = press
-        m.skid = abs(m.vx) > 0.7
+        m.skid = math.abs(m.vx) > 0.7
       else
         m.skid = false
         local maxs, rate
@@ -2524,28 +2511,28 @@ local function update_mario()
           maxs, rate = MAX_WALK, ACC_WALK
         end
         m.vx = m.vx + rate * press
-        if abs(m.vx) > maxs then m.vx = maxs * press end
+        if math.abs(m.vx) > maxs then m.vx = maxs * press end
         m.face = press
       end
     else
       m.skid = false
       if m.vx ~= 0 then
-        local rate = abs(m.vx) >= 1.75 and DEC_RUN or ACC_WALK
-        if abs(m.vx) <= rate then m.vx = 0 else m.vx = m.vx - rate * sgn(m.vx) end
+        local rate = math.abs(m.vx) >= 1.75 and DEC_RUN or ACC_WALK
+        if math.abs(m.vx) <= rate then m.vx = 0 else m.vx = m.vx - rate * sgn(m.vx) end
       end
     end
   else
     m.skid = false
     if press ~= 0 then
       local maxs, rate
-      if abs(m.vx) >= 1.5625 or run then
+      if math.abs(m.vx) >= 1.5625 or run then
         maxs, rate = MAX_RUN, ACC_RUN
       else
         maxs, rate = MAX_WALK, ACC_WALK
       end
-      if abs(m.vx) < maxs then
+      if math.abs(m.vx) < maxs then
         m.vx = m.vx + rate * press
-        if abs(m.vx) > maxs then m.vx = maxs * press end
+        if math.abs(m.vx) > maxs then m.vx = maxs * press end
       end
       m.face = press
     end
@@ -2597,7 +2584,7 @@ local function update_mario()
   end
   if m.invuln > 0 then m.invuln = m.invuln - 1 end
   -- 行走动画
-  local spd = abs(m.vx)
+  local spd = math.abs(m.vx)
   local rate = spd >= 1.75 and 3 or (spd >= 0.875 and 5 or 8)
   if spd > 0.05 and m.on_ground then
     m.anim_t = (m.anim_t or 0) + 1
@@ -2612,9 +2599,9 @@ local function update_mario()
   local cammax = game.lv.w * 16 - 256
   if game.lv.princess then
     -- 滚动锁（原版 scrollLock）：公主房间完整入画后镜头停住
-    cammax = min(cammax, game.lv.princess * 16 + 16 - 256)
+    cammax = math.min(cammax, game.lv.princess * 16 + 16 - 256)
   end
-  if target > game.cam then game.cam = min(target, cammax) end
+  if target > game.cam then game.cam = math.min(target, cammax) end
 end
 
 -- ---------------------------------------------------------------- 实体更新
@@ -2636,7 +2623,7 @@ local function ent_gravity(e)
   e.y = e.y + e.vy
   local h = e.h or 14
   if e.vy >= 0 and (solid_px(e.x - e.w / 2 + 1, e.y + h) or solid_px(e.x + e.w / 2 - 1, e.y + h)) then
-    e.y = flr((e.y + h) / 16) * 16 - h
+    e.y = math.floor((e.y + h) / 16) * 16 - h
     e.vy = 0
     e.ground = true
   else
@@ -2675,12 +2662,12 @@ end
 local function shell_hits_enemies(sh)
   for _, e in ipairs(game.ents) do
     if e ~= sh and (e.kind == "goomba" or e.kind == "koopa" or e.kind == "parakoopa") then
-      if abs(e.x - sh.x) < 14 and abs(e.y - sh.y) < 16 then
+      if math.abs(e.x - sh.x) < 14 and math.abs(e.y - sh.y) < 16 then
         flip_kill(e, nil)
         shell_chain(sh, e.x, e.y - 8)
       end
     elseif e ~= sh and e.kind == "shell" and e.vx == 0
-      and abs(e.x - sh.x) < 14 and abs(e.y - sh.y) < 16 then
+      and math.abs(e.x - sh.x) < 14 and math.abs(e.y - sh.y) < 16 then
       flip_kill(e, nil)
       shell_chain(sh, e.x, e.y - 8)
     end
@@ -2706,7 +2693,7 @@ local function update_ents()
         for _, o in ipairs(game.ents) do
           if o ~= e and (o.kind == "goomba" or o.kind == "koopa"
             or o.kind == "parakoopa" or (o.kind == "shell" and o.vx == 0))
-            and abs(o.x - e.x) < 12 and abs(o.y - e.y) < 14 then
+            and math.abs(o.x - e.x) < 12 and math.abs(o.y - e.y) < 14 then
             e.vx = -e.vx o.vx = (o.kind == "shell") and o.vx or -o.vx
           end
         end
@@ -2719,7 +2706,7 @@ local function update_ents()
       if e.ground then e.vy = -3.2 end
       for _, o in ipairs(game.ents) do
         if o ~= e and (o.kind == "goomba" or o.kind == "koopa" or o.kind == "parakoopa")
-          and abs(o.x - e.x) < 12 and abs(o.y - e.y) < 14 then
+          and math.abs(o.x - e.x) < 12 and math.abs(o.y - e.y) < 14 then
           e.vx = -e.vx o.vx = -o.vx
         end
       end
@@ -2729,7 +2716,7 @@ local function update_ents()
       ent_gravity(e)
       for _, o in ipairs(game.ents) do
         if o ~= e and (o.kind == "goomba" or o.kind == "koopa" or o.kind == "parakoopa")
-          and abs(o.x - e.x) < 12 and abs(o.y - e.y) < 14 then
+          and math.abs(o.x - e.x) < 12 and math.abs(o.y - e.y) < 14 then
           e.vx = -e.vx o.vx = -o.vx
         end
       end
@@ -2738,8 +2725,8 @@ local function update_ents()
         e.x = e.x + e.vx
         if ent_tile_side(e) then
           -- 撞砖则击碎继续，实心反向
-          local tx = flr((e.x + (e.vx > 0 and 8 or -8)) / 16)
-          local ty = flr((e.y + 7) / 16)
+          local tx = math.floor((e.x + (e.vx > 0 and 8 or -8)) / 16)
+          local ty = math.floor((e.y + 7) / 16)
           if game.contents[tx .. "," .. ty] == "B" then
             game.contents[tx .. "," .. ty] = nil
             mset(tx, game.lv.strip + ty, T.EMPTY)
@@ -2808,7 +2795,7 @@ local function update_ents()
       e.vy = e.vy + FIRE_GRAV
       e.y = e.y + e.vy
       if e.vy > 0 and (solid_px(e.x, e.y + 6) or solid_px(e.x, e.y + 8)) then
-        e.y = flr((e.y + 8) / 16) * 16 - 8
+        e.y = math.floor((e.y + 8) / 16) * 16 - 8
         e.vy = FIRE_BOUNCE
       end
       if ent_tile_side({ x = e.x, y = e.y, vx = e.vx, w = 8, h = 8 }) then
@@ -2818,12 +2805,12 @@ local function update_ents()
         for _, o in ipairs(game.ents) do
           if (o.kind == "goomba" or o.kind == "koopa" or o.kind == "parakoopa"
             or o.kind == "shell")
-            and abs(o.x - e.x) < 12 and abs(o.y - e.y) < 16 then
+            and math.abs(o.x - e.x) < 12 and math.abs(o.y - e.y) < 16 then
             flip_kill(o, o.kind == "goomba" and 100 or 200, o.x, o.y)
             e.kind = "boom" e.t = 0
             break
           elseif o.kind == "bowser" and not o.dead and o.hurt <= 0
-            and abs(o.x - e.x) < 20 and e.y > o.y - 4 and e.y < o.y + 28 then
+            and math.abs(o.x - e.x) < 20 and e.y > o.y - 4 and e.y < o.y + 28 then
             -- 火球击中库巴：5 发击破（原版 BowserHitPoints）
             o.hp = o.hp - 1
             o.hurt = 30
@@ -2845,7 +2832,7 @@ local function update_ents()
       if e.t > 10 then dead = true end
     elseif e.kind == "coin" then
       -- 静态金币：碰撞收集
-      if abs(e.x - m.x) < (10 + mw) / 2 and abs(e.y + 7 - (m.y + mh / 2)) < (14 + mh) / 2 then
+      if math.abs(e.x - m.x) < (10 + mw) / 2 and math.abs(e.y + 7 - (m.y + mh / 2)) < (14 + mh) / 2 then
         add_coin(e.x, e.y)
         dead = true
       end
@@ -2871,7 +2858,7 @@ local function update_ents()
         local bx = cx + cos(e.ang / 32) * i * 8
         local by = cy + sin(e.ang / 32) * i * 8
         e["bx" .. i], e["by" .. i] = bx, by
-        if abs(bx - m.x) < 11 and by > my1 - 4 and by < my1 + mh + 4 then
+        if math.abs(bx - m.x) < 11 and by > my1 - 4 and by < my1 + mh + 4 then
           if m.invuln <= 0 then hurt_mario() end
         end
       end
@@ -2887,7 +2874,7 @@ local function update_ents()
           e.y = e.base + 48 e.vy = 0 e.t = 0
         end
       end
-      if abs(e.x - m.x) < 12 and e.y + 14 > my1 and e.y < my1 + mh
+      if math.abs(e.x - m.x) < 12 and e.y + 14 > my1 and e.y < my1 + mh
         and m.invuln <= 0 then
         hurt_mario()
       end
@@ -2896,7 +2883,7 @@ local function update_ents()
       e.t = e.t + 1
       if e.kind == "bflame" then e.y = e.y + sin(e.t / 16) * 0.6 end
       if e.x < game.cam - 48 then dead = true end
-      if abs(e.x - m.x) < 12 and e.y + 8 > my1 and e.y < my1 + mh
+      if math.abs(e.x - m.x) < 12 and e.y + 8 > my1 and e.y < my1 + mh
         and m.invuln <= 0 then
         hurt_mario()
       end
@@ -2914,23 +2901,23 @@ local function update_ents()
         e.hop_t = e.hop_t - 1
         if e.hop_t <= 0 and e.y >= bridge_y - 32 then
           e.vy = -3.6
-          e.hop_t = 130 + flr(rnd(60))
+          e.hop_t = 130 + math.floor(rnd(60))
         end
         if e.vy ~= 0 or e.y < bridge_y - 32 then
           e.vy = e.vy + 0.22
-          e.y = min(e.y + e.vy, bridge_y - 32)
+          e.y = math.min(e.y + e.vy, bridge_y - 32)
           if e.y >= bridge_y - 32 then e.vy = 0 end
         end
         e.fire_t = e.fire_t - 1
-        if e.fire_t <= 0 and abs(m.x - e.x) < 200 then
-          e.fire_t = 160 + flr(rnd(80))
+        if e.fire_t <= 0 and math.abs(m.x - e.x) < 200 then
+          e.fire_t = 160 + math.floor(rnd(80))
           spawn_ent({ kind = "bfire", x = e.x + e.face * 14, y = e.y + 12,
             vx = 2.1 * e.face, t = 0 })
           sfx(FX.FIRE)
         end
         if e.hurt > 0 then e.hurt = e.hurt - 1 end
         -- 与马里奥接触：踩头安全反弹，侧碰受伤（原版规则）
-        if abs(e.x - m.x) < 22 and e.y + 28 > my1 and e.y < my1 + mh then
+        if math.abs(e.x - m.x) < 22 and e.y + 28 > my1 and e.y < my1 + mh then
           if m.vy > 0 and (m.y + mh) - e.y < 14 then
             m.vy = STOMP_BOUNCE
             m.jumping = btn(KEY.A)
@@ -2945,19 +2932,19 @@ local function update_ents()
       end
     elseif e.kind == "axe" then
       -- 斧头：触碰即断桥（原版桥面从斧头侧逐格塌落）
-      if abs(e.x - m.x) < 14 and abs(e.y - (m.y + mh / 2)) < 20 then
+      if math.abs(e.x - m.x) < 14 and math.abs(e.y - (m.y + mh / 2)) < 20 then
         dead = true
         game.state = "bridge" game.st = 0
         game.bridge_k = 0
         add_score(5000)
-        music(-1)
+        music_stop()
       end
     elseif e.kind == "princess" then
       e.t = e.t + 1
     end
     -- 道具拾取
     if not dead and (e.kind == "mush" or e.kind == "flower" or e.kind == "star" or e.kind == "oneup") then
-      if abs(e.x - m.x) < (12 + mw) / 2 and e.y + 16 > my1 and e.y < my1 + mh then
+      if math.abs(e.x - m.x) < (12 + mw) / 2 and e.y + 16 > my1 and e.y < my1 + mh then
         dead = true
         if e.kind == "mush" then
           add_score(1000) add_pop(e.x, e.y, "1000")
@@ -2992,7 +2979,7 @@ local function update_ents()
       or e.kind == "parakoopa" or e.kind == "shell") then
       -- 玩家与敌人（已扁的 goomba 不再判定）
       if not (e.kind == "goomba" and e.flat)
-        and abs(e.x - m.x) < (12 + mw) / 2
+        and math.abs(e.x - m.x) < (12 + mw) / 2
         and e.y + (e.h or 14) > my1 and e.y < my1 + mh then
         if m.star > 0 then
           flip_kill(e, e.kind == "goomba" and 100 or 200, e.x, e.y)
@@ -3066,7 +3053,7 @@ local function load_level(lv, fresh, mx, my)
     game.rt[lv] = rt
     for _, p in ipairs(lv.plats or {}) do
       rt.ents[#rt.ents + 1] = { kind = "plat", x = p[1] * 16 + 8,
-        cy = p[2] * 16, y = p[2] * 16, amp = p[3] * 16, dy = 0, dx = 0, t = flr(rnd(60)) }
+        cy = p[2] * 16, y = p[2] * 16, amp = p[3] * 16, dy = 0, dx = 0, t = math.floor(rnd(60)) }
     end
     -- 1-3 / 1-4 新增实体（升降平台、火棒、火柱、龙火、库巴、斧头、公主）
     for _, d in ipairs(lv.ents or {}) do
@@ -3077,10 +3064,10 @@ local function load_level(lv, fresh, mx, my)
           y = ty * 16, amp = 32, dy = 0, dx = 0, t = (kind == "liftv") and 0 or 40 }
       elseif kind == "fire" then
         rt.ents[#rt.ents + 1] = { kind = "firebar", x = tx * 16 + 8, y = ty * 16 + 8,
-          ang = flr(rnd(32)), spd = (d[4] == 0) and 56 or 40, dir = d[5] or -1, t = 0 }
+          ang = math.floor(rnd(32)), spd = (d[4] == 0) and 56 or 40, dir = d[5] or -1, t = 0 }
       elseif kind == "podo" then
         rt.ents[#rt.ents + 1] = { kind = "podo", x = tx * 16 + 8, base = ty * 16,
-          y = ty * 16 + 40, vy = 0, t = flr(rnd(160)) }
+          y = ty * 16 + 40, vy = 0, t = math.floor(rnd(160)) }
       elseif kind == "bflame" then
         rt.ents[#rt.ents + 1] = { kind = "bflame", x = tx * 16, y = ty * 16,
           vx = -1.3, t = 0 }
@@ -3112,7 +3099,7 @@ local function load_level(lv, fresh, mx, my)
     if game.mario.big > 0 then game.mario.y = my - 30 end
   end
   game.cam = mid(game.mario.x - 108, 0, lv.w * 16 - 256)
-  game.cam = max(game.cam, 0)
+  game.cam = math.max(game.cam, 0)
   if lv.time and lv.time > 0 then
     game.time = lv.time
     game.hurry = false
@@ -3140,7 +3127,7 @@ local function start_game()
   game.score = 0 game.coins = 0 game.lives = 3 game.lvi = 1
   game.rt = {}
   game.state = "inter" game.st = 0
-  music(-1)
+  music_stop()
 end
 
 local function begin_play()
@@ -3156,13 +3143,13 @@ local function next_level()
     game.lvi = game.lvi + 1
     if game.lvi > game.bestlv then
       game.bestlv = game.lvi
-      dset(1, game.bestlv) fflush()
+      progress.best_level = game.bestlv; assert(save(progress))
     end
     game.state = "inter" game.st = 0
   else
     game.state = "clear" game.st = 0
-    music(-1)
-    dset(0, game.best) dset(1, game.bestlv) fflush()
+    music_stop()
+    progress.best = game.best; assert(save(progress)) progress.best_level = game.bestlv; assert(save(progress))
   end
 end
 
@@ -3170,7 +3157,7 @@ local function mario_die_end()
   game.lives = game.lives - 1
   if game.lives <= 0 then
     game.state = "over" game.st = 0
-    dset(0, game.best) fflush()
+    progress.best = game.best; assert(save(progress))
     if game.music_on then music(MUS.OVER, 60, 240) end
   else
     game.state = "inter" game.st = 0
@@ -3231,13 +3218,13 @@ local function update_play()
     m.face = 1
     game.state = "flag" game.st = 0
     game.flag_y = 40
-    music(-1)
+    music_stop()
     sfx(FX.FLAG)
     return
   end
   -- 进管道（站在可进管道顶按 ↓）
-  if m.on_ground and btn(KEY.D) and not game.warp_used then
-    local ftx = flr(m.x / 16)
+  if m.on_ground and dir(KEY.D) and not game.warp_used then
+    local ftx = math.floor(m.x / 16)
     for _, p in ipairs(lv.pipes or {}) do
       if p[3] and (ftx == p[1] or ftx == p[1] + 1)
         and m.y + (m.big > 0 and 30 or 15) >= (12 - p[2]) * 16
@@ -3246,7 +3233,7 @@ local function update_play()
         game.pipe_to = "bonus"
         game.warp_used = true
         sfx(FX.PIPE)
-        music(-1)
+        music_stop()
         return
       end
     end
@@ -3256,7 +3243,7 @@ local function update_play()
     game.state = "pipe" game.st = 0
     game.pipe_to = "main"
     sfx(FX.PIPE)
-    music(-1)
+    music_stop()
     return
   end
 end
@@ -3274,11 +3261,11 @@ local function update_states()
   end
   if st == "play" then
     if btnp(KEY.STA) then
-      game.state = "pause" sfx(FX.PAUSE) music(-1, 200)
+      game.state = "pause" sfx(FX.PAUSE) music_stop(200)
     elseif btnp(KEY.SEL) then
       game.music_on = not game.music_on
-      dset(2, game.music_on and 0 or 1)
-      if game.music_on then play_music() else music(-1, 200) end
+      progress.music_on = game.music_on; assert(save(progress))
+      if game.music_on then play_music() else music_stop(200) end
     else
       update_play()
     end
@@ -3325,7 +3312,7 @@ local function update_states()
     end
   elseif st == "flag" then
     m.y = m.y + 2
-    game.flag_y = min((game.flag_y or 40) + 2, 160)
+    game.flag_y = math.min((game.flag_y or 40) + 2, 160)
     local h = m.big > 0 and 30 or 15
     if m.y >= 176 - h then
       m.y = 176 - h
@@ -3340,7 +3327,7 @@ local function update_states()
     m.y = m.y + m.vy
     local h = m.big > 0 and 30 or 15
     if m.vy > 0 and solid_px(m.x - 4, m.y + h) then
-      m.y = flr((m.y + h) / 16) * 16 - h
+      m.y = math.floor((m.y + h) / 16) * 16 - h
       m.vy = 0
       game.state = "walk" game.st = 0
       m.face = 1
@@ -3353,7 +3340,7 @@ local function update_states()
     m.y = m.y + m.vy
     local h = m.big > 0 and 30 or 15
     if m.vy >= 0 and solid_px(m.x, m.y + h) then
-      m.y = flr((m.y + h) / 16) * 16 - h
+      m.y = math.floor((m.y + h) / 16) * 16 - h
       m.vy = 0
     end
     if game.lv.castle and m.x >= game.lv.castle * 16 + 2 * 16 + 4 then
@@ -3398,7 +3385,7 @@ local function update_states()
         game.parts[#game.parts + 1] = {
           x = m.x - 128 + rnd(256), y = 40 + rnd(80),
           vx = cos(a) * 1.5, vy = sin(a) * 1.5, life = 30,
-          c = ({ 30, 43, 59 })[flr(rnd(3)) + 1] }
+          c = ({ 30, 43, 59 })[math.floor(rnd(3)) + 1] }
       end
     end
     for i = #game.parts, 1, -1 do
@@ -3445,8 +3432,8 @@ local function update_states()
     if btnp(KEY.A) then start_game() end
     if btnp(KEY.SEL) then
       game.music_on = not game.music_on
-      dset(2, game.music_on and 0 or 1)
-      if game.music_on then music(0, 500, 240) else music(-1, 200) end
+      progress.music_on = game.music_on; assert(save(progress))
+      if game.music_on then music(0, 500, 240) else music_stop(200) end
     end
   end
 end
@@ -3490,7 +3477,7 @@ end
 -- 各自 % 768 周期无限平铺；玩法元素（地面/砖块/敌人）仍在世界坐标
 local function draw_scenery()
   local cam = game.cam
-  local off = flr(cam * 0.3) % 768 -- 远层云
+  local off = math.floor(cam * 0.3) % 768 -- 远层云
   for k = -1, 1 do
     local bx = k * 768 - off
     cloud(bx + 96, 40, false)
@@ -3498,7 +3485,7 @@ local function draw_scenery()
     cloud(bx + 560, 32, false)
     cloud(bx + 660, 64, true)
   end
-  off = flr(cam * 0.6) % 768 -- 近层山丘与灌木
+  off = math.floor(cam * 0.6) % 768 -- 近层山丘与灌木
   for k = -1, 1 do
     local bx = k * 768 - off
     hill(bx, 192, 80, 40)
@@ -3510,34 +3497,34 @@ local function draw_scenery()
 end
 
 local function draw_map()
-  local cx0 = flr(game.cam / 16)
+  local cx0 = math.floor(game.cam / 16)
   -- tx,ty 为世界像素坐标（SPEC §2.3：camera 对 map 只生效一次）
   map(cx0, game.lv.strip, cx0 * 16, 0, 17, 16)
 end
 
 local function draw_bumps()
   for _, b in ipairs(game.bumps) do
-    local dy = -flr(sin(b.t / 12) * 8 + 0.5)
+    local dy = -math.floor(sin(b.t / 12) * 8 + 0.5)
     spr(b.tile, b.tx * 16, b.ty * 16 + dy)
   end
 end
 
 local function draw_ent(e)
-  local x, y = flr(e.x - 8), flr(e.y)
+  local x, y = math.floor(e.x - 8), math.floor(e.y)
   if e.kind == "goomba" then
     if e.flat then
       spr(S.GOOMBA_FLAT, x, y)
     else
-      spr(flr(e.t / 8) % 2 == 0 and S.GOOMBA or S.GOOMBA2, x, y)
+      spr(math.floor(e.t / 8) % 2 == 0 and S.GOOMBA or S.GOOMBA2, x, y)
     end
   elseif e.kind == "koopa" then
-    local f = flr(e.t / 8) % 2
+    local f = math.floor(e.t / 8) % 2
     spr(S.KOOPA_T + f, x, y, 1, 1, e.vx > 0)
     spr(S.KOOPA_B + f, x, y + 16, 1, 1, e.vx > 0)
   elseif e.kind == "shell" then
     if e.vx ~= 0 then
-      spr(flr(e.t / 3) % 2 == 0 and S.SHELL or S.SHELL_W, x, y)
-    elseif e.wake and e.wake < 90 and flr(e.t / 6) % 2 == 0 then
+      spr(math.floor(e.t / 3) % 2 == 0 and S.SHELL or S.SHELL_W, x, y)
+    elseif e.wake and e.wake < 90 and math.floor(e.t / 6) % 2 == 0 then
       spr(S.SHELL_W, x, y)
     else
       spr(S.SHELL, x, y)
@@ -3563,21 +3550,21 @@ local function draw_ent(e)
   elseif e.kind == "star" then
     spr(S.STAR, x, y)
   elseif e.kind == "coinp" or e.kind == "coin" then
-    spr(S.COIN + flr(e.t / 6) % 4, x, y)
+    spr(S.COIN + math.floor(e.t / 6) % 4, x, y)
   elseif e.kind == "chunk" then
     spr(S.CHUNK, x, y)
   elseif e.kind == "fb" then
-    spr(flr(e.t / 4) % 2 == 0 and S.FIRE or S.FIRE2, x, y)
+    spr(math.floor(e.t / 4) % 2 == 0 and S.FIRE or S.FIRE2, x, y)
   elseif e.kind == "boom" then
     spr(S.BOOM, x, y)
   elseif e.kind == "plat" then
-    rectfill(flr(e.x) - 24, flr(e.y), 48, 8, C.GREENL)
-    rectfill(flr(e.x) - 24, flr(e.y), 48, 2, C.GREEN)
-    for i = -1, 1 do pset(flr(e.x) + i * 16, flr(e.y) + 5, C.GREEND) end
+    rectfill(math.floor(e.x) - 24, math.floor(e.y), 48, 8, C.GREENL)
+    rectfill(math.floor(e.x) - 24, math.floor(e.y), 48, 2, C.GREEN)
+    for i = -1, 1 do pset(math.floor(e.x) + i * 16, math.floor(e.y) + 5, C.GREEND) end
   elseif e.kind == "firebar" then
     -- 火棒：中心 + 5 颗火球沿 1/32 圈步进旋转（原版 FirebarObj）
     for i = 0, 5 do
-      local bx, by = flr(e.x + cos(e.ang / 32) * i * 8), flr(e.y + sin(e.ang / 32) * i * 8)
+      local bx, by = math.floor(e.x + cos(e.ang / 32) * i * 8), math.floor(e.y + sin(e.ang / 32) * i * 8)
       circfill(bx, by, 3, C.RED)
       circfill(bx, by, 1, C.QD)
     end
@@ -3591,8 +3578,8 @@ local function draw_ent(e)
     end
   elseif e.kind == "bowser" then
     -- 32x32：左半 tile0/1，右半 tile2/3；受击闪烁
-    if not (e.hurt > 0 and flr(e.hurt / 4) % 2 == 0) then
-      local f = (flr(e.t / 12) % 2 == 0) and 0 or 4
+    if not (e.hurt > 0 and math.floor(e.hurt / 4) % 2 == 0) then
+      local f = (math.floor(e.t / 12) % 2 == 0) and 0 or 4
       if e.dead then
         spr(S.BOWSER + f, x, y, 1, 1, false, true)
         spr(S.BOWSER + f + 1, x, y + 16, 1, 1, false, true)
@@ -3617,15 +3604,15 @@ local STAR_FLASH = { { 43, 30 }, { 44, 31 }, { 46, 29 }, { 30, 43 } }
 local function draw_mario()
   local m = game.mario
   if game.state == "count" or game.state == "clear" then return end
-  if m.invuln > 0 and game.state == "play" and flr(m.invuln / 4) % 2 == 1 then return end
-  local x = flr(m.x - 8)
-  local y = flr(m.y)
+  if m.invuln > 0 and game.state == "play" and math.floor(m.invuln / 4) % 2 == 1 then return end
+  local x = math.floor(m.x - 8)
+  local y = math.floor(m.y)
   local frame
   local growing = game.state == "grow" or game.state == "shrink"
   local big = m.big
   if growing then
-    big = flr(game.st / 6) % 2 == 0 and m.big or (m.big > 0 and 0 or 1)
-    if game.state == "grow" and m.big == 2 then big = flr(game.st / 6) % 2 == 0 and 1 or 2 end
+    big = math.floor(game.st / 6) % 2 == 0 and m.big or (m.big > 0 and 0 or 1)
+    if game.state == "grow" and m.big == 2 then big = math.floor(game.st / 6) % 2 == 0 and 1 or 2 end
   end
   if game.state == "dying" then
     spr(S.MS_DEAD, x, y)
@@ -3668,7 +3655,7 @@ local function draw_mario()
         pal(C.RED, C.WHITE) pal(C.BLUE, C.RED)
       end
       if m.star > 0 then
-        local f = STAR_FLASH[flr(frame() / 4) % 4 + 1]
+        local f = STAR_FLASH[math.floor(frame() / 4) % 4 + 1]
         pal(C.RED, f[1]) pal(C.BLUE, f[2])
       end
       spr(top, x, y, 1, 1, fh)
@@ -3694,9 +3681,9 @@ local function draw_world()
   -- 视差装饰层：相机生效前绘制（自带 0.3/0.6 系数平移）
   if not (game.lv.under or game.lv.dungeon) then draw_scenery() end
   if game.shake > 0 then
-    camera(flr(game.cam) + flr(rnd(5)) - 2, flr(rnd(3)) - 1)
+    camera(math.floor(game.cam) + math.floor(rnd(5)) - 2, math.floor(rnd(3)) - 1)
   else
-    camera(flr(game.cam), 0)
+    camera(math.floor(game.cam), 0)
   end
   draw_map()
   draw_bumps()
@@ -3708,7 +3695,7 @@ local function draw_world()
   draw_mario()
   -- 分数飘字
   for _, p in ipairs(game.pops) do
-    print(p.txt, p.x - tw(p.txt) / 2, p.y, C.WHITE)
+    print(p.txt, p.x - textw(p.txt) / 2, p.y, C.WHITE)
   end
   -- 烟花粒子（rescue / clear 状态）
   for _, p in ipairs(game.parts) do
@@ -3722,9 +3709,9 @@ local function draw_rescue()
   rectfill(48, 88, 160, 56, C.BLACK)
   rect(48, 88, 160, 56, C.WHITE)
   local t1 = "谢谢你马里奥！"
-  print(t1, flr((256 - tw(t1)) / 2), 100, C.WHITE)
+  print(t1, math.floor((256 - textw(t1)) / 2), 100, C.WHITE)
   local t2 = "旅程结束了"
-  print(t2, flr((256 - tw(t2)) / 2), 120, C.WHITE)
+  print(t2, math.floor((256 - textw(t2)) / 2), 120, C.WHITE)
 end
 
 local function draw_hud()
@@ -3738,7 +3725,7 @@ local function draw_hud()
   print("TIME", 216, 2, C.WHITE)
   if game.lv and game.lv.time and game.lv.time > 0 then
     print(string.format("%03d", game.time), 216, 10,
-      game.hurry and (flr(frame() / 8) % 2 == 0 and C.RED or C.WHITE) or C.WHITE)
+      game.hurry and (math.floor(frame() / 8) % 2 == 0 and C.RED or C.WHITE) or C.WHITE)
   else
     print("  -", 216, 10, C.WHITE)
   end
@@ -3758,9 +3745,9 @@ local function draw_title()
   rrect(28, 48, 200, 88, 10, C.REDD)
   rrect(31, 51, 194, 82, 8, C.BLACK)
   local t1 = "超级马里奥兄弟"
-  print(t1, flr((256 - tw(t1)) / 2), 58, C.WHITE)
+  print(t1, math.floor((256 - textw(t1)) / 2), 58, C.WHITE)
   local t2 = "SUPER MARIO TRIBUTE"
-  print(t2, flr((256 - tw(t2)) / 2), 108, C.COINL)
+  print(t2, math.floor((256 - textw(t2)) / 2), 108, C.COINL)
   -- 主题装饰：大马里奥立像与敌人（_init 烘焙，frame 0 完整呈现）
   spr(S.MB_TOP, 72, 144)
   spr(S.MB_BOT, 72, 160)
@@ -3770,11 +3757,11 @@ local function draw_title()
   spr(S.KOOPA_T, 150, 168) spr(S.KOOPA_B, 150, 184)
   -- 开始提示一行、稳定不闪烁（封面取第 30 帧）；操作说明不上标题
   local p = "按 " .. btnicon("a") .. " 开始"
-  print(p, flr((256 - tw(p)) / 2) + 1, 221, C.BLACK)
-  print(p, flr((256 - tw(p)) / 2), 220, C.WHITE)
+  print(p, math.floor((256 - textw(p)) / 2) + 1, 221, C.BLACK)
+  print(p, math.floor((256 - textw(p)) / 2), 220, C.WHITE)
   -- 底部一行弱化信息（纪录 + 关卡）
   local b = "包含关卡 1-1～1-4 ・ 最高分 " .. game.best
-  print(b, flr((256 - tw(b)) / 2), 240, C.GRAY)
+  print(b, math.floor((256 - textw(b)) / 2), 240, C.GRAY)
 end
 
 -- Splash：纯主视觉封面（0-90 帧）——马里奥与 goomba 对峙特写 + logo 匾额，
@@ -3794,9 +3781,9 @@ local function draw_splash()
   -- ? 方块悬停在两造中间
   spr(T.QMARK, 120, 152)
   -- 对峙特写：大马里奥（左，3×）vs 大 goomba（右，3×）
-  sspr((S.MB_TOP % 16) * 16, flr(S.MB_TOP / 16) * 16, 16, 16, 40, 120, 48, 48)
-  sspr((S.MB_BOT % 16) * 16, flr(S.MB_BOT / 16) * 16, 16, 16, 40, 168, 48, 48)
-  sspr((S.GOOMBA % 16) * 16, flr(S.GOOMBA / 16) * 16, 16, 16, 168, 168, 48, 48)
+  sspr((S.MB_TOP % 16) * 16, math.floor(S.MB_TOP / 16) * 16, 16, 16, 40, 120, 48, 48)
+  sspr((S.MB_BOT % 16) * 16, math.floor(S.MB_BOT / 16) * 16, 16, 16, 40, 168, 48, 48)
+  sspr((S.GOOMBA % 16) * 16, math.floor(S.GOOMBA / 16) * 16, 16, 16, 168, 168, 48, 48)
   -- 大马里奥与 goomba 之间的对峙短线（脚边延伸）
   line(96, 214, 160, 214, C.BLACK)
   -- logo 匾额（红底金边，scale 3 + 黑影）
@@ -3804,10 +3791,10 @@ local function draw_splash()
   rrect(28, 26, 200, 76, 10, C.REDD)
   rrect(31, 29, 194, 70, 8, C.BLACK)
   local t1 = "超级马里奥"
-  print(t1, flr((256 - tw(t1, 3)) / 2) + 2, 40, 0, 3)
-  print(t1, flr((256 - tw(t1, 3)) / 2), 38, C.WHITE, 3)
+  print(t1, math.floor((256 - textw(t1, 3)) / 2) + 2, 40, 0, 3)
+  print(t1, math.floor((256 - textw(t1, 3)) / 2), 38, C.WHITE, 3)
   local t2 = "SUPER MARIO TRIBUTE"
-  print(t2, flr((256 - tw(t2)) / 2), 82, C.COINL)
+  print(t2, math.floor((256 - textw(t2)) / 2), 82, C.COINL)
 end
 
 local function draw_inter()
@@ -3815,21 +3802,21 @@ local function draw_inter()
   cls(C.BLACK)
   local lv = LEVELS[game.lvi]
   local t = "世界 " .. lv.name
-  print(t, flr((256 - tw(t)) / 2), 88, C.WHITE)
+  print(t, math.floor((256 - textw(t)) / 2), 88, C.WHITE)
   spr(S.MS_STAND, 104, 120)
   print("x " .. game.lives, 128, 124, C.WHITE)
   local s = "MARIO " .. string.format("%06d", game.score)
-  print(s, flr((256 - tw(s)) / 2), 40, C.WHITE)
+  print(s, math.floor((256 - textw(s)) / 2), 40, C.WHITE)
 end
 
 local function draw_over()
   camera() pal()
   cls(C.BLACK)
   local t = "GAME OVER"
-  print(t, flr((256 - tw(t)) / 2), 96, C.RED)
-  if flr(frame() / 30) % 2 == 0 then
+  print(t, math.floor((256 - textw(t)) / 2), 96, C.RED)
+  if math.floor(frame() / 30) % 2 == 0 then
     local p = btnicon("a") .. " 续关　" .. btnicon("b") .. " 返回标题"
-    print(p, flr((256 - tw(p)) / 2), 140, C.WHITE)
+    print(p, math.floor((256 - textw(p)) / 2), 140, C.WHITE)
   end
 end
 
@@ -3849,7 +3836,7 @@ local function draw_clear()
       game.parts[#game.parts + 1] = {
         x = 48 + rnd(160), y = 40 + rnd(60),
         vx = cos(a) * 1.5, vy = sin(a) * 1.5, life = 24,
-        c = ({ 30, 43, 59 })[flr(rnd(3)) + 1] }
+        c = ({ 30, 43, 59 })[math.floor(rnd(3)) + 1] }
     end
   end
   for i = #game.parts, 1, -1 do
@@ -3861,12 +3848,12 @@ local function draw_clear()
   spr(S.MB_TOP + 4, cx - 8, 176 - 32)
   spr(S.MB_BOT + 4, cx - 8, 176 - 16)
   local t = "恭喜通关！"
-  print(t, flr((256 - tw(t)) / 2), 40, C.WHITE)
+  print(t, math.floor((256 - textw(t)) / 2), 40, C.WHITE)
   local s = "得分 " .. game.score .. "  金币 " .. game.coins
-  print(s, flr((256 - tw(s)) / 2), 216, C.WHITE)
-  if game.st > 60 and flr(frame() / 30) % 2 == 0 then
+  print(s, math.floor((256 - textw(s)) / 2), 216, C.WHITE)
+  if game.st > 60 and math.floor(frame() / 30) % 2 == 0 then
     local p = "按 " .. btnicon("a") .. " 返回标题"
-    print(p, flr((256 - tw(p)) / 2), 232, C.COINL)
+    print(p, math.floor((256 - textw(p)) / 2), 232, C.COINL)
   end
 end
 
@@ -3891,9 +3878,9 @@ function _draw()
       rectfill(96, 100, 64, 40, C.BLACK)
       rect(96, 100, 64, 40, C.WHITE)
       local t = "暂停"
-      print(t, flr((256 - tw(t)) / 2), 108, C.WHITE)
+      print(t, math.floor((256 - textw(t)) / 2), 108, C.WHITE)
       local p = btnicon("menu") .. " 继续　" .. btnicon("view") .. " 音乐"
-      print(p, flr((256 - tw(p)) / 2), 124, C.COIND)
+      print(p, math.floor((256 - textw(p)) / 2), 124, C.COIND)
     end
   end
 end
@@ -3909,9 +3896,9 @@ function _init()
   init_all_audio()
   game = new_game_state()
   game.rt = {}
-  game.best = flr(dget(0) or 0)
-  game.bestlv = flr(dget(1) or 1)
-  game.music_on = (dget(2) or 0) == 0
+  game.best = math.floor(progress.best or 0)
+  game.bestlv = math.floor(progress.best_level or 1)
+  game.music_on = progress.music_on
   game.state = "splash" -- 开机封面，Ⓐ/Menu 或 90 帧后进 title
   if game.music_on then music(0, 500, 240) end
 end

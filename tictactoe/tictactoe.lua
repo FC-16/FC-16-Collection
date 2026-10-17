@@ -1,3 +1,11 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {stats = {0, 0, 0, 0, 0, 0, 0, 0, 0}, music_on = true}
+end
+
+local DIRECTIONS = {"left", "right", "up", "down"}
+
 -- FC-16 井字棋演示卡带
 -- ============================================================
 -- 经典井字棋 + 终极井字棋（9 宫嵌套变体）。
@@ -20,8 +28,8 @@ local PX, PY, PS = 30, 30, 196               -- 经典面板与格
 local CS0, CS = 34, 62
 local UX, UY, US, UG = 25, 27, 66, 4         -- 终极宫 66px + 缝 4px
 local BOT_Y = 239                            -- 底栏
-local B_L, B_R, B_U, B_D = 0, 1, 2, 3        -- 输入 id（SPEC §6.1）
-local B_A, B_B, B_Y, B_SEL, B_STA = 4, 5, 7, 10, 11
+local B_L, B_R, B_U, B_D = "left", "right", "up", "down"
+local B_A, B_B, B_Y, B_SEL, B_STA = "a", "b", "y", "view", "menu"
 local CH_STONE, CH_UI, CH_JINGLE = 0, 1, 2   -- 音效通道；BGM 占 ch4/5
 local LINES9 = { { 1, 2, 3 }, { 4, 5, 6 }, { 7, 8, 9 }, { 1, 4, 7 },
   { 2, 5, 8 }, { 3, 6, 9 }, { 1, 5, 9 }, { 3, 5, 7 } }
@@ -31,35 +39,35 @@ for _, L in ipairs(LINES9) do
   for _, c in ipairs(L) do local lst = CELL_LINES[c] lst[#lst + 1] = L end
 end
 local function ccx(i) return CS0 + (i - 1) % 3 * CS + CS / 2 end
-local function ccy(i) return CS0 + flr((i - 1) / 3) * CS + CS / 2 end
+local function ccy(i) return CS0 + math.floor((i - 1) / 3) * CS + CS / 2 end
 local function cxx(i) return CS0 + (i - 1) % 3 * CS end
-local function cyy(i) return CS0 + flr((i - 1) / 3) * CS end
+local function cyy(i) return CS0 + math.floor((i - 1) / 3) * CS end
 local function ubx(b) return UX + (b - 1) % 3 * (US + UG) end
-local function uby(b) return UY + flr((b - 1) / 3) * (US + UG) end
+local function uby(b) return UY + math.floor((b - 1) / 3) * (US + UG) end
 local function ucx(b, c) return ubx(b) + 3 + (c - 1) % 3 * 20 + 10 end
-local function ucy(b, c) return uby(b) + 3 + flr((c - 1) / 3) * 20 + 10 end
-local function ctext(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+local function ucy(b, c) return uby(b) + 3 + math.floor((c - 1) / 3) * 20 + 10 end
+local function ctext(s, y, c) print(s, math.floor((256 - textw(s)) / 2), y, c) end
 -- ---------------------------------------------------------------- 音频（SPEC §5.2 布局）
 local function u8(a, val) poke(a, val % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -73,18 +81,18 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 
 local function init_sfx(id, notes, wave, vol, speed)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   for i = 0, 31 do local a = base + 16 + i * 4
     local n = notes[i + 1]
-    if n and n > 0 then u8(a, n - 1) u8(a + 1, WMAP[wave]) u8(a + 2, vol) u8(a + 3, 0)
+    if n and n > 0 then u8(a, n - 1) u8(a + 1, TIMBRE_SOURCE[wave]) u8(a + 2, vol) u8(a + 3, 0)
     else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end
   end
 end
@@ -128,7 +136,7 @@ end
 -- ---------------------------------------------------------------- 精灵烘焙
 -- 精灵表像素写入：瓦片按 256B 连续块存储（SPEC §4.1/§4.2）
 local function spset(u, v, c)
-  poke((flr(v / 16) * 16 + flr(u / 16)) * 256 + (v % 16) * 16 + u % 16, c)
+  poke((math.floor(v / 16) * 16 + math.floor(u / 16)) * 256 + (v % 16) * 16 + u % 16, c)
 end
 -- 手绘 X：两条锥形微弯笔画 + 深描边 + 左上受光；全程平方距离比较（无
 -- sqrt）；yb..ye 为行区间（分幀烘焙省单幀预算）
@@ -140,9 +148,9 @@ local function bake_x(u0, v0, S, yb, ye)
   for k = 1, 2 do
     local ax, ay, bx, by = E[k][1], E[k][2], E[k][3], E[k][4]
     local dx, dy = bx - ax, by - ay
-    local l = sqrt(dx * dx + dy * dy)
-    ST[k] = { ax, ay, dx, dy, 1 / (dx * dx + dy * dy), -dy / l, dx / l, k * 0.3, min(ax, bx) - 6.5, max(ax, bx) + 6.5,
-              min(ay, by) - 6.5, max(ay, by) + 6.5 }
+    local l = math.sqrt(dx * dx + dy * dy)
+    ST[k] = { ax, ay, dx, dy, 1 / (dx * dx + dy * dy), -dy / l, dx / l, k * 0.3, math.min(ax, bx) - 6.5, math.max(ax, bx) + 6.5,
+              math.min(ay, by) - 6.5, math.max(ay, by) + 6.5 }
   end
   for y = yb, ye do local py = y + 0.5
     for x = 0, S - 1 do local px, c = x + 0.5, 0
@@ -173,8 +181,8 @@ local function bake_o(u0, v0, S, yb, ye)
       local dx, c = x + 0.5 - cx, 0
       local d2 = dx * dx + dy * dy
       if d2 >= lo2 and d2 <= hi2 then
-        local d = sqrt(d2)
-        local a = atan2(dx, dy)
+        local d = math.sqrt(d2)
+        local a = atan2(dy, dx)
         local rr = R + sin(a * 2 + 0.18) * S * 0.014 + sin(a * 3 + 0.55) * S * 0.01
         local m2 = d - rr if m2 < 0 then m2 = -m2 end
         local th = S * (0.055 + 0.014 * sin(a * 2 + 0.9))
@@ -190,15 +198,15 @@ end
 local function pop_scale(age)
   if age >= 13 then return 1 end
   local w = age / 13 - 1
-  return max(0.1, min(1 + 2.9 * w * w * w + 1.9 * w * w, 1.25))
+  return math.max(0.1, math.min(1 + 2.9 * w * w * w + 1.9 * w * w, 1.25))
 end
 local function draw_stone48(p, x, y, s)
-  local sz = max(4, flr(48 * s))
-  sspr(p == 1 and 0 or 64, 256, 48, 48, flr(x - sz / 2), flr(y - sz / 2), sz, sz)
+  local sz = math.max(4, math.floor(48 * s))
+  sspr(p == 1 and 0 or 64, 256, 48, 48, math.floor(x - sz / 2), math.floor(y - sz / 2), sz, sz)
 end
 -- 终极小棋子：绘图原语手绘（e 为半尺寸）
 local function draw_mini(p, x, y, e)
-  e = max(1, flr(e))
+  e = math.max(1, math.floor(e))
   if p == 1 then
     for o = -1, 1 do line(x - e, y - e + o, x + e, y + e + o, C_X3) line(x - e, y + e + o, x + e, y - e + o, C_X3) end
     line(x - e + 1, y - e + 1, x + e - 1, y + e - 1, C_X1)
@@ -213,7 +221,7 @@ end
 local function draw_beam(ax, ay, bx, by, p, col)
   local ex, ey = ax + (bx - ax) * p, ay + (by - ay) * p
   local dx, dy = bx - ax, by - ay
-  local l = sqrt(dx * dx + dy * dy)
+  local l = math.sqrt(dx * dx + dy * dy)
   local nx, ny = -dy / l, dx / l
   for o = -2, 2 do line(ax + nx * o, ay + ny * o, ex + nx * o, ey + ny * o, col) end
   circfill(ax, ay, 3, col)
@@ -222,10 +230,10 @@ end
 -- 手绘感微摆线（2px 粗）
 local function wavy2(x0, y0, x1, y1, col, ph)
   local dx, dy = x1 - x0, y1 - y0
-  local n = max(1, flr(max(abs(dx), abs(dy)) / 3))
-  local horiz = abs(dx) > abs(dy)
+  local n = math.max(1, math.floor(math.max(math.abs(dx), math.abs(dy)) / 3))
+  local horiz = math.abs(dx) > math.abs(dy)
   local ox, oy = -dy, dx
-  local l = sqrt(ox * ox + oy * oy)
+  local l = math.sqrt(ox * ox + oy * oy)
   ox, oy = ox / l, oy / l
   for k = 0, n - 1 do
     local u0, u1 = k / n, (k + 1) / n
@@ -257,8 +265,8 @@ local music_on = true
 local ub, uw, ufl, unext, uhist, uat  -- 终极模式状态
 local function toggle_music()
   music_on = not music_on
-  dset(9, music_on and 0 or 1) fflush()
-  if music_on then music(0, 200, 0x30) else music(-1, 200) end
+  progress.music_on = music_on; assert(save(progress))
+  if music_on then music(0, 200, 0x30) else music_stop(200) end
 end
 local function mode_label()
   if gmode == 1 then return "双人对战" end
@@ -329,8 +337,8 @@ local function record()
     slot = winner == 0 and 6 or (winner == ps and 4 or 5)
   else slot = winner == 1 and 7 or (winner == 2 and 8 or 9) end
   stats[slot] = stats[slot] + 1
-  dset(slot - 1, stats[slot])
-  fflush()
+  progress.stats[slot] = stats[slot]; assert(save(progress))
+
   sfx(winner == 0 and 4 or 3, CH_JINGLE)
 end
 local function cplace(i)
@@ -372,7 +380,7 @@ local function undo()
   if ai_side ~= 0 then
     -- 人机：退两手（电脑 + 玩家）；只剩电脑首手时不可悔
     local m1 = (gmode == 3) and uhist[1] or hist[1] if h == 1 and m1.p == ai_side then sfx(8, CH_UI) return end
-    h = min(2, h)
+    h = math.min(2, h)
   end
   for _ = 1, h do local m = (gmode == 3) and uhist[#uhist] or hist[#hist]
     if gmode == 3 then
@@ -400,7 +408,7 @@ local function simple_pick()
   for i = 1, 9 do
     if board[i] == 0 then emp[#emp + 1] = i end
   end
-  return emp[flr(rnd(#emp)) + 1]
+  return emp[math.floor(rnd(#emp)) + 1]
 end
 -- 普通：赢 → 堵 → 中心 → 对角 → 角 → 边
 local function normal_pick()
@@ -415,12 +423,12 @@ local function normal_pick()
   for _, i in ipairs({ 1, 3, 7, 9 }) do
     if board[i] == 0 then co[#co + 1] = i end
   end
-  if #co > 0 then return co[flr(rnd(#co)) + 1] end
+  if #co > 0 then return co[math.floor(rnd(#co)) + 1] end
   local si = {}
   for _, i in ipairs({ 2, 4, 6, 8 }) do
     if board[i] == 0 then si[#si + 1] = i end
   end
-  return si[flr(rnd(#si)) + 1]
+  return si[math.floor(rnd(#si)) + 1]
 end
 -- 困难：完美 minimax（negamax + 记忆化 + 协程分幀让出预算）
 -- 值编码（视角 = 行棋方）：n 手取胜 = 10-n（越快越大）；n 手告负 = n-10
@@ -473,7 +481,7 @@ local function hard_pick(b, mover)
       elseif v == bestv then cands[#cands + 1] = i end
     end
   end
-  return cands[flr(rnd(#cands)) + 1]  -- 同分最优中随机取一
+  return cands[math.floor(rnd(#cands)) + 1]  -- 同分最优中随机取一
 end
 -- 终极启发：终胜 > 防一步终败 > 小宫攻防 > 送宫惩罚 > 位置分
 local function upick()
@@ -488,7 +496,7 @@ local function upick()
     end
   end
   if #moves == 0 then return nil, nil end
-  if gdiff == 1 then local m = moves[flr(rnd(#moves)) + 1]
+  if gdiff == 1 then local m = moves[math.floor(rnd(#moves)) + 1]
     return m[1], m[2]
   end
   local bestb, bestc, bests = moves[1][1], moves[1][2], -1e9
@@ -575,18 +583,18 @@ local function title_rows()
 end
 local function update_title()
   local rows = title_rows() if sel_row > #rows then sel_row = #rows end
-  if btnp(B_U) then
+  if dirp(B_U) then
     sel_row = sel_row == 1 and #rows or sel_row - 1
     sfx(6, CH_UI)
-  elseif btnp(B_D) then
+  elseif dirp(B_D) then
     sel_row = sel_row % #rows + 1
     sfx(6, CH_UI)
   end
   local r = rows[sel_row]
-  if btnp(B_L) then
+  if dirp(B_L) then
     title[r.key] = (r.val == 1) and #r.opts or r.val - 1
     sfx(6, CH_UI)
-  elseif btnp(B_R) then
+  elseif dirp(B_R) then
     title[r.key] = r.val % #r.opts + 1
     sfx(6, CH_UI)
   end
@@ -599,21 +607,21 @@ end
 local function clamp_ucursor()  -- 光标钳入目标宫
   local targ = utarget()
   if targ ~= 0 then
-    gx = flr(mid((targ - 1) % 3 * 3, gx, (targ - 1) % 3 * 3 + 2))
-    gy = flr(mid(flr((targ - 1) / 3) * 3, gy, flr((targ - 1) / 3) * 3 + 2))
+    gx = math.floor(mid((targ - 1) % 3 * 3, gx, (targ - 1) % 3 * 3 + 2))
+    gy = math.floor(mid(math.floor((targ - 1) / 3) * 3, gy, math.floor((targ - 1) / 3) * 3 + 2))
   end
 end
 -- 方向键按住重复（首幀动一格，停 12 幀后每 4 幀一格）
 local function cursor_input()
   local lim = (gmode == 3) and 8 or 2
   for d = 0, 3 do
-    if dir(d) then rep[d + 1] = rep[d + 1] + 1
+    if dir(DIRECTIONS[d + 1]) then rep[d + 1] = rep[d + 1] + 1
       if rep[d + 1] == 1 or (rep[d + 1] > 12 and (rep[d + 1] - 13) % 4 == 0) then local ox, oy = gx, gy
-        if d == B_L then gx = gx - 1
-        elseif d == B_R then gx = gx + 1
-        elseif d == B_U then gy = gy - 1
+        if DIRECTIONS[d + 1] == B_L then gx = gx - 1
+        elseif DIRECTIONS[d + 1] == B_R then gx = gx + 1
+        elseif DIRECTIONS[d + 1] == B_U then gy = gy - 1
         else gy = gy + 1 end
-        gx, gy = flr(mid(0, gx, lim)), flr(mid(0, gy, lim))
+        gx, gy = math.floor(mid(0, gx, lim)), math.floor(mid(0, gy, lim))
         if gmode == 3 then clamp_ucursor() end
         if gx ~= ox or gy ~= oy then sfx(5, CH_UI) end
       end
@@ -623,7 +631,7 @@ end
 local function try_place()
   local i = gy * 3 + gx + 1
   if gmode == 3 then
-    local b, c = flr(gy / 3) * 3 + flr(gx / 3) + 1, flr(gy % 3 * 3 + gx % 3 + 1)
+    local b, c = math.floor(gy / 3) * 3 + math.floor(gx / 3) + 1, math.floor(gy % 3 * 3 + gx % 3 + 1)
     local targ = utarget()
     if (targ == 0 or b == targ) and ub[b][c] == 0 then uplace(b, c)
     else sfx(8, CH_UI)
@@ -703,29 +711,30 @@ local function draw_top()  -- 顶栏：模式 / 轮次（或思考） / 手数
   draw_stone48(turn, ult and 96 or 104, h / 2, ult and 0.32 or 0.42)
   local lb = "行棋"
   if winner ~= nil then lb = "终局"
-  elseif ai_think then lb = "思考中" .. string.rep(".", flr(t / 12) % 4)
+  elseif ai_think then lb = "思考中" .. string.rep(".", math.floor(t / 12) % 4)
   elseif ult then lb = utarget() == 0 and "任意宫" or "指宫" end
   if ult then  -- 目标宫指示点阵（3×3）
     local targ = utarget()
     for bb = 1, 9 do
-      local dx, dy = 112 + (bb - 1) % 3 * 7, 4 + flr((bb - 1) / 3) * 6
+      local dx, dy = 112 + (bb - 1) % 3 * 7, 4 + math.floor((bb - 1) / 3) * 6
       local c = C_BG_L
       if uw[bb] == 1 then c = C_X1
       elseif uw[bb] == 2 then c = C_O1
-      elseif winner == nil and targ ~= 0 and bb == targ then c = flr(t / 6) % 2 == 0 and C_YEL or C_YEL_L end
+      elseif winner == nil and targ ~= 0 and bb == targ then c = math.floor(t / 6) % 2 == 0 and C_YEL or C_YEL_L end
       rectfill(dx, dy, 3, 3, c)
     end
   end
   print(lb, ult and 140 or 118, ty, C_TXT)
   local s = "第 " .. ((gmode == 3 and #uhist or #hist) + 1) .. " 手"
-  print(s, 250 - tw(s), ty, C_TXT_M)
+  print(s, 250 - textw(s), ty, C_TXT_M)
 end
 local function draw_board_c()
   rectfill(PX + 3, PY + 4, PS, PS, C_BG_D)
   rrectfill(PX, PY, PS, PS, 10, C_PANEL)
   rrect(PX, PY, PS, PS, 10, C_PANEL2)
   fillp(0x0044)  -- 纸面细点纹
-  rectfill(PX + 6, PY + 6, PS - 12, PS - 12, C_PANEL2 * 256 + C_PANEL)
+  fillp(0x0044, C_PANEL2)
+  rectfill(PX + 6, PY + 6, PS - 12, PS - 12, C_PANEL)
   fillp()
   wavy2(96, 36, 96, 220, C_INK, 0.11)   -- 手绘格线
   wavy2(158, 36, 158, 220, C_INK, 0.37)
@@ -741,16 +750,16 @@ local function draw_pieces_c()
       if winner == 0 and over_t < 70 then
         x = x + sin(t * 0.2 + i * 0.31) * 1.5  -- 平局小演出：迟疑地扭一扭
       end
-      ovalfill(x, y + flr(19 * s), flr(15 * s), flr(4 * s) + 1, C_PANEL2)
+      ovalfill(x, y + math.floor(19 * s), math.floor(15 * s), math.floor(4 * s) + 1, C_PANEL2)
       draw_stone48(p, x, y, s)
-      if age < 10 then circ(x, y, flr(15 + age * 1.3), p == 1 and C_X2 or C_O2) end
+      if age < 10 then circ(x, y, math.floor(15 + age * 1.3), p == 1 and C_X2 or C_O2) end
     end
   end
 end
 local function draw_cursor_c()
   local i = gy * 3 + gx + 1
   local x, y = cxx(i), cyy(i)
-  rrect(x + 2, y + 2, CS - 4, CS - 4, 7, flr(t / 8) % 2 == 0 and C_YEL or C_YEL_L)
+  rrect(x + 2, y + 2, CS - 4, CS - 4, 7, math.floor(t / 8) % 2 == 0 and C_YEL or C_YEL_L)
   -- 幽灵棋子预览（绘制期调色映射调暗）
   pal(C_X1, 6) pal(C_X2, 6) pal(C_X3, 5)
   pal(C_O1, 6) pal(C_O2, 6) pal(C_O3, 5)
@@ -760,9 +769,9 @@ end
 local function draw_win_c()  -- 连线推进 + 胜子跳动
   local L = winline
   local c1 = winner == 1 and C_X2 or C_O2
-  draw_beam(ccx(L[1]), ccy(L[1]), ccx(L[3]), ccy(L[3]), min(1, over_t / 16),
-    flr(t / 4) % 2 == 0 and c1 or (winner == 1 and C_X1 or C_O1))
-  for k = 1, 3 do draw_stone48(winner, ccx(L[k]), ccy(L[k]) - abs(sin(t * 0.1 + k * 0.2)) * 4, 1.05) end
+  draw_beam(ccx(L[1]), ccy(L[1]), ccx(L[3]), ccy(L[3]), math.min(1, over_t / 16),
+    math.floor(t / 4) % 2 == 0 and c1 or (winner == 1 and C_X1 or C_O1))
+  for k = 1, 3 do draw_stone48(winner, ccx(L[k]), ccy(L[k]) - math.abs(sin(t * 0.1 + k * 0.2)) * 4, 1.05) end
 end
 local function draw_ult()
   local targ = utarget()
@@ -772,7 +781,7 @@ local function draw_ult()
     rectfill(bx + 2, by + 3, US, US, C_BG_D)
     rrectfill(bx, by, US, US, 6, uw[b] ~= 0 and C_PANEL2 or C_PANEL)
     local oc = C_PANEL2
-    if winner == nil and not decided and (targ == 0 or targ == b) then oc = flr(t / 6) % 2 == 0 and C_YEL or C_YEL_L end
+    if winner == nil and not decided and (targ == 0 or targ == b) then oc = math.floor(t / 6) % 2 == 0 and C_YEL or C_YEL_L end
     rrect(bx, by, US, US, 6, oc)
     line(bx + 23, by + 4, bx + 23, by + 62, C_INK)  -- 宫内格线
     line(bx + 43, by + 4, bx + 43, by + 62, C_INK)
@@ -799,33 +808,33 @@ local function draw_ult()
       end
     else
       for c = 1, 9 do  -- 宫内棋子
-        if ub[b][c] ~= 0 then draw_mini(ub[b][c], ucx(b, c), ucy(b, c), flr(pop_scale(t - (uat[b][c] or 0)) * 5 + 0.5)) end
+        if ub[b][c] ~= 0 then draw_mini(ub[b][c], ucx(b, c), ucy(b, c), math.floor(pop_scale(t - (uat[b][c] or 0)) * 5 + 0.5)) end
       end
     end
   end
 end
 local function draw_cursor_u()
-  local b = flr(gy / 3) * 3 + flr(gx / 3) + 1
-  local c = flr(gy % 3 * 3 + gx % 3 + 1)
-  local x = UX + flr(gx / 3) * (US + UG) + 3 + gx % 3 * 20
-  local y = UY + flr(gy / 3) * (US + UG) + 3 + gy % 3 * 20
+  local b = math.floor(gy / 3) * 3 + math.floor(gx / 3) + 1
+  local c = math.floor(gy % 3 * 3 + gx % 3 + 1)
+  local x = UX + math.floor(gx / 3) * (US + UG) + 3 + gx % 3 * 20
+  local y = UY + math.floor(gy / 3) * (US + UG) + 3 + gy % 3 * 20
   local bad = (utarget() ~= 0 and utarget() ~= b) or ub[b][c] ~= 0
-  rect(x, y, 20, 20, bad and 59 or (flr(t / 8) % 2 == 0 and C_YEL or C_YEL_L))
+  rect(x, y, 20, 20, bad and 59 or (math.floor(t / 8) % 2 == 0 and C_YEL or C_YEL_L))
 end
 local function draw_win_u()  -- 连线推进 + 胜宫闪框
   local L = winline
   local c1 = winner == 1 and C_X2 or C_O2
-  draw_beam(ubx(L[1]) + US / 2, uby(L[1]) + US / 2, ubx(L[3]) + US / 2, uby(L[3]) + US / 2, min(1, over_t / 18),
-    flr(t / 4) % 2 == 0 and c1 or (winner == 1 and C_X1 or C_O1))
-  for k = 1, 3 do rrect(ubx(L[k]) - 2, uby(L[k]) - 2, US + 4, US + 4, 8, flr(t / 5) % 2 == 0 and C_WHITE or c1) end
+  draw_beam(ubx(L[1]) + US / 2, uby(L[1]) + US / 2, ubx(L[3]) + US / 2, uby(L[3]) + US / 2, math.min(1, over_t / 18),
+    math.floor(t / 4) % 2 == 0 and c1 or (winner == 1 and C_X1 or C_O1))
+  for k = 1, 3 do rrect(ubx(L[k]) - 2, uby(L[k]) - 2, US + 4, US + 4, 8, math.floor(t / 5) % 2 == 0 and C_WHITE or c1) end
 end
 local function draw_banner()  -- 终局横幅（两种模式共用）
   if over_t <= 22 then return end
-  local u = min(1, (over_t - 22) / 8)
-  local bw, bh = flr(180 * u), flr(70 * u)
-  local x0, y0 = flr(128 - bw / 2), 92
+  local u = math.min(1, (over_t - 22) / 8)
+  local bw, bh = math.floor(180 * u), math.floor(70 * u)
+  local x0, y0 = math.floor(128 - bw / 2), 92
   rrectfill(x0, y0, bw, bh, 8, C_BG_D)
-  local bc = winner == 0 and (flr(t / 5) % 2 == 0 and C_YEL or C_YEL_L) or (winner == 1 and C_X2 or C_O2)
+  local bc = winner == 0 and (math.floor(t / 5) % 2 == 0 and C_YEL or C_YEL_L) or (winner == 1 and C_X2 or C_O2)
   rrect(x0, y0, bw, bh, 8, bc)
   if u < 1 then return end
   if winner == 0 then
@@ -855,14 +864,15 @@ local function draw_hints()
     list = { btnicon("a") .. " 落子　" .. btnicon("b") .. " 悔棋　" .. btnicon("menu") .. " 重开",
       btnicon("y") .. " 回标题　" .. btnicon("view") .. " 音乐", st }
   end
-  local s = list[flr(t / 150) % #list + 1]
-  print(s, flr((256 - tw(s)) / 2), 242, C_TXT_M)
+  local s = list[math.floor(t / 150) % #list + 1]
+  print(s, math.floor((256 - textw(s)) / 2), 242, C_TXT_M)
 end
 -- Splash：纯主视觉封面（0-90 帧）——大 X 与 O 巨子交叠特写 + 金色制胜线，零菜单零提示
 local function draw_splash()
   cls(C_BG)
   fillp(0x0055)
-  rectfill(0, 0, 256, 256, C_BG_L * 256 + C_BG)
+  fillp(0x0055, C_BG_L)
+  rectfill(0, 0, 256, 256, C_BG)
   fillp()
   for k = 1, 2 do  -- 背景淡宫格
     local p = 85 + (k - 1) * 85
@@ -871,10 +881,10 @@ local function draw_splash()
   end
   -- 大 logo（scale 3，厚描边 + 投影）
   local s = "井字棋"
-  local tx = flr((256 - tw(s, 3)) / 2)
+  local tx = math.floor((256 - textw(s, 3)) / 2)
   for k = 0, 7 do
     local a = k * 0.125
-    print(s, tx + 4 + flr(cos(a) + 0.5), 30 + flr(sin(a) + 0.5), C_BG_D, 3)
+    print(s, tx + 4 + math.floor(cos(a) + 0.5), 30 + math.floor(sin(a) + 0.5), C_BG_D, 3)
   end
   print(s, tx + 4, 28, C_BG_D, 3)
   print(s, tx, 25, C_YEL_L, 3)
@@ -889,7 +899,8 @@ end
 local function draw_title()
   cls(C_BG)
   fillp(0x0055)
-  rectfill(0, 0, 256, 256, C_BG_L * 256 + C_BG)
+  fillp(0x0055, C_BG_L)
+  rectfill(0, 0, 256, 256, C_BG)
   fillp()
   for k = 1, 2 do  -- 背景淡宫格
     local p = 85 + (k - 1) * 85
@@ -899,14 +910,14 @@ local function draw_title()
   if bake_done >= 4 then  -- 浮动大棋子（烘焙完成前不画）
     local bob1 = sin(t * 0.019) * 3
     local bob2 = sin(t * 0.023 + 0.4) * 3
-    sspr(0, 256, 48, 48, 16, flr(56 + bob1), 64, 64)
-    sspr(64, 256, 48, 48, 176, flr(148 + bob2), 64, 64)
-    sspr(0, 256, 48, 48, 206, flr(30 - bob2), 34, 34)
-    sspr(64, 256, 48, 48, 18, flr(196 - bob1), 34, 34)
+    sspr(0, 256, 48, 48, 16, math.floor(56 + bob1), 64, 64)
+    sspr(64, 256, 48, 48, 176, math.floor(148 + bob2), 64, 64)
+    sspr(0, 256, 48, 48, 206, math.floor(30 - bob2), 34, 34)
+    sspr(64, 256, 48, 48, 18, math.floor(196 - bob1), 34, 34)
   end
   local s = "井字棋"  -- 厚描边大字
-  local tx = flr((256 - tw(s)) / 2)
-  for k = 0, 7 do local a = k * 0.125 print(s, tx + flr(cos(a) + 0.5), 26 + flr(sin(a) + 0.5), C_BG_D) end
+  local tx = math.floor((256 - textw(s)) / 2)
+  for k = 0, 7 do local a = k * 0.125 print(s, tx + math.floor(cos(a) + 0.5), 26 + math.floor(sin(a) + 0.5), C_BG_D) end
   print(s, tx, 26, C_YEL_L)
   ctext("TIC・TAC・TOE", 50, C_TXT_M)
   local rows = title_rows()  -- 菜单面板（行数随模式动态变化）
@@ -922,7 +933,7 @@ local function draw_title()
     print(r.label, 58, y + 2, sel and C_WHITE or C_TXT_M)
     rrect(112, y - 1, 92, 18, 4, sel and C_YEL or C_BG_L)
     local vs = r.opts[r.val]
-    print(vs, flr(158 - tw(vs) / 2), y + 2, sel and C_WHITE or C_TXT)
+    print(vs, math.floor(158 - textw(vs) / 2), y + 2, sel and C_WHITE or C_TXT)
   end
   local y0 = 68 + ph + 10  -- 战绩面板
   rrectfill(38, y0, 180, 62, 6, C_BG_D)
@@ -934,7 +945,7 @@ local function draw_title()
   line(0, BOT_Y, 255, BOT_Y, C_BG_L)
   local hs = btnicon("left") .. btnicon("right") .. " 调整　" .. btnicon("up")
     .. btnicon("down") .. " 选行　" .. btnicon("a") .. " 开始"
-  print(hs, flr((256 - tw(hs)) / 2), 242, C_TXT_M)
+  print(hs, math.floor((256 - textw(hs)) / 2), 242, C_TXT_M)
 end
 function _draw()
   pal()  -- 复位两级映射（幽灵棋子的绘制期映射每幀局部设置）
@@ -974,9 +985,9 @@ function _init()
   end
   init_all_sfx()
   for i = 1, 9 do
-    stats[i] = flr(dget(i - 1))  -- dget 返回定点数，转整数计数
+    stats[i] = math.floor(progress.stats[i])
   end
-  music_on = dget(9) == 0
+  music_on = progress.music_on
   if music_on then music(0, 400, 0x30) end  -- ch4-5 交给音乐
   t = 0
   state = "splash"

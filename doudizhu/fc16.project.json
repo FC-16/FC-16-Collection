@@ -1,0 +1,18 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "斗地主",
+    "author": "FrostMiKu",
+    "saveId": "doudizhu",
+    "version": 1,
+    "flags": 0,
+    "output": "doudizhu.fc16",
+    "release": "doudizhu.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "doudizhu.lua",
+  "sections": {
+    "sprites": "cards.bin"
+  },
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

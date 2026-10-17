@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "球球大作战",
+    "author": "FrostMiKu",
+    "saveId": "",
+    "version": 1,
+    "flags": 0,
+    "output": "ballbattle.fc16",
+    "release": "ballbattle.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "ballbattle.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

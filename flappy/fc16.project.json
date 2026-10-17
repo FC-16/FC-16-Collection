@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "flappy",
+    "author": "FrostMiKu",
+    "saveId": "",
+    "version": 1,
+    "flags": 0,
+    "output": "flappy.fc16",
+    "release": "flappy.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "flappy.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

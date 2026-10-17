@@ -1,0 +1,22 @@
+# Pole：走向宝箱 → 开箱获得北极星 → 射击
+30 key right
+90 key -
+130 key up
+200 key -
+240 key a
+280 key -
+320 key a
+360 key -
+400 key a
+440 key -
+480 key a
+520 key -
+560 key b
+600 key b
+640 key -
+680 key b
+720 key b
+760 key -
+800 key b
+840 key b
+880 key -

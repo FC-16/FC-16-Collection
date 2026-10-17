@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "超级马里奥",
+    "author": "FrostMiKu",
+    "saveId": "mario",
+    "version": 1,
+    "flags": 0,
+    "output": "mario.fc16",
+    "release": "mario.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "mario.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

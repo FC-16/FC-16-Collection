@@ -46,8 +46,8 @@ FC-16 幻想主机上的完整规则中国象棋。9×10 棋盘、红黑各 16 �
 | Ⓐ | 选子（显示全部合法落点：空位金点、可吃橙框）/ 再按走子 / 按于己方另一子换选 |
 | Ⓑ | 取消选择 |
 | Ⓧ / Ⓨ | 悔棋（人机模式退回到玩家上一手前） |
-| Select | BGM 开关（状态存档） |
-| Start | 回标题；终局画面 Ⓐ 再来一局 |
+| View | BGM 开关（状态存档） |
+| Menu | 回标题；终局画面 Ⓐ 再来一局 |
 
 标题画面 ⬆⬇ 选择模式，Ⓐ/Start 开始；战绩（红/黑胜场与总局数）
 持久化于存档槽 0-2。
@@ -66,10 +66,11 @@ FC-16 幻想主机上的完整规则中国象棋。9×10 棋盘、红黑各 16 �
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "中国象棋" --author "FrostMiKu" \
-  --version 1 --save-id xiangqi --code xiangqi/xiangqi.lua --cover 30 \
-  --out xiangqi/xiangqi.fc16 --png carts/xiangqi.fc16.png
-cargo run -p fc16-host -- xiangqi/xiangqi.fc16
+python3 tools/build_all.py xiangqi
+../FC-16/target/debug/fc16 xiangqi/xiangqi.fc16
 ```
 
 封面取 headless 第 48 帧标题画面（棋盘全貌 + 匾额 + 模式选项）。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

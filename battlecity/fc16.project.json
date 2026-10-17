@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "坦克大战",
+    "author": "FrostMiKu",
+    "saveId": "battlecity",
+    "version": 1,
+    "flags": 0,
+    "output": "battlecity.fc16",
+    "release": "battlecity.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "battlecity.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

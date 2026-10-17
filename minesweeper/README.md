@@ -14,7 +14,6 @@
 - **和弦**：Ⓧ 在已开数字格上，若周围旗数恰好等于数字，则齐开其余邻格；
   若其中有误旗（旗了非雷格），会翻开真雷直接爆炸。
 - **胜利**：翻开全部非雷格（与插旗无关）。胜利时未标雷格自动补旗，
-  用时（秒）若刷新该难度最佳时间则写入存档（`dset` 槽 0-2，槽 3 音乐开关）。
 - **失败**：踩雷后爆点红底、全部雷按与爆点距离逐格揭幕、错旗划红叉、震屏。
 
 ## 难度
@@ -36,8 +35,8 @@
 | Ⓐ | 翻开（终局画面 = 再来一局同难度） |
 | Ⓑ | 插旗循环（旗 → 问号 → 无） |
 | Ⓧ | 和弦（数字格周围旗数相符时齐开邻格） |
-| Start | 对局中重开本难度 / 终局回标题 |
-| Select | 音乐开关（BGM：C 大调 I-vi-IV-V 四小节循环，ch5-7） |
+| Menu | 对局中重开本难度 / 终局回标题 |
+| View | 音乐开关（BGM：C 大调 I-vi-IV-V 四小节循环，ch5-7） |
 
 顶栏：左 LED 剩余雷数（总雷 − 旗数，可为负）、中笑脸按钮（正常 /
 按住 Ⓐ 惊恐 O 形 / 阵亡 X 眼 / 胜利墨镜）、右 LED 计时（首击起，终局定格）。
@@ -47,18 +46,18 @@
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "扫雷" --author "FrostMiKu" \
-  --version 1 --save-id minesweeper --code minesweeper/minesweeper.lua \
-  --cover 30 --out minesweeper/minesweeper.fc16 \
-  --png carts/minesweeper.fc16.png
-cargo run -p fc16-host -- minesweeper/minesweeper.fc16
+python3 tools/build_all.py minesweeper
+../FC-16/target/debug/fc16 minesweeper/minesweeper.fc16
 ```
 
 headless 验证（固定 seed 可复现雷区）：
 
 ```bash
-cargo run -p fc16-host -- minesweeper/minesweeper.fc16 \
+../FC-16/target/debug/fc16 minesweeper/minesweeper.fc16 \
   --frames 400 --screenshot out.png            # 标题 400 帧零错误
-cargo run -p fc16-host -- minesweeper/minesweeper.fc16 \
+../FC-16/target/debug/fc16 minesweeper/minesweeper.fc16 \
   --seed 42 --frames 400 --script 脚本.txt --screenshot out.png
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

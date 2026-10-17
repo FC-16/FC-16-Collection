@@ -1,0 +1,23 @@
+# v10：贴顶跳 → 秘室 → 跳上眼之门台架 → 咪咪村
+10 key a
+28 key -
+45 key a
+63 key -
+90 key up
+170 key -
+200 key right
+222 key right+a
+254 key right
+300 key -
+340 key right
+390 key right+a
+420 key right
+470 key -
+510 key right
+545 key right+a
+575 key right
+605 key -
+645 key up
+685 key -
+705 key a
+745 key -

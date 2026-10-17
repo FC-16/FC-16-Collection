@@ -1,3 +1,9 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {mass = 0, seconds = 0, kills = 0, music_on = true}
+end
+
 -- 球球大作战 ・ FC-16 演示卡带
 -- 1024×1024 竞技场：方向键加速（速度上限随体型降低）；
 -- 半径大 15% 且包裹中心即可吞并（得 80% 质量），吃豆微成长；质量 600 获胜
@@ -18,7 +24,7 @@
 -- 镜头随最大分身体型缩放取景 + 浅色网格、亮墙边界；HUD 质量/排名按实体总质量计，
 --   小地图画出每个玩家分身；右上排行榜按家族总质量取前四
 -- 音频：吃豆音高随体型下降 / 吞球 / 分身 / 吐球 / 死亡 / 胜利 SFX +
---   原创 8 小节循环 BGM（View 开关，占 ch4-7）；纪录 dset(0..2) 持久化
+-- 存档使用结构化数据（SPEC §13）。
 -- 操作：dpad 移动　A 分身　X 吐球　A 开始/再来一局　Menu 回标题（Ⓨ 操作说明）
 
 -- ---------------------------------------------------------------- 常量
@@ -63,29 +69,29 @@ local NAMES = {"绿豆", "苹果", "蓝鲸", "橙子", "紫薯", "桃子", "银�
   "柠檬", "西瓜", "葡萄", "草莓", "抹茶", "可可", "奶昔", "布丁"}
 local HINTS = {btnicon("a") .. " 分身　" .. btnicon("x") .. " 吐球", "同体冷却后靠近自动合体",
   "吐出的球谁都能吃", "大球吞小球", "质量 600 即胜利", btnicon("view") .. " 音乐开关"}
-local function fmt(n) return string.format("%d", flr(n + 0.5)) end -- 防御取整：dget 定点解码可能带尾差
+local function fmt(n) return string.format("%d", math.floor(n + 0.5)) end
 
 -- ---------------------------------------------------------------- 音频（SPEC §5.2）
 
 local function u8(a, v) poke(a, v % 256) end
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -99,20 +105,20 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 -- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）
 -- steps[i] = {音高, 音色, 音量[, 效果]}，nil 步与音高 0 均为休止
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function write_sfx(id, speed, steps, len)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, len or #steps)
   for i = 0, 31 do
     local a, s = base + 16 + i * 4, steps[i + 1]
     if s and (s[1] or 0) > 0 then
       u8(a, s[1] - 1)
-      u8(a + 1, WMAP[s[2] or 0])
+      u8(a + 1, TIMBRE_SOURCE[s[2] or 0])
       u8(a + 2, s[3] or 0)
       u8(a + 3, s[4] or 0)
     else
@@ -206,10 +212,10 @@ local deco                        -- 标题装饰球与豆
 
 local function toggle_music()
   music_on = not music_on
-  dset(3, music_on and 0 or 1)
-  fflush()
+  progress.music_on = music_on; assert(save(progress))
+
   if music_on then music(0, 400, 0xF0) bgm_on = true
-  else music(-1, 400) bgm_on = false end
+  else music_stop(400) bgm_on = false end
 end
 
 -- ---------------------------------------------------------------- 粒子・飘字・光环・吐球
@@ -220,7 +226,7 @@ local function burst(px, py, cols, n)
     parts[#parts + 1] = {
       x = px + rnd(-6, 6), y = py + rnd(-6, 6),
       vx = rnd(-1.8, 1.8), vy = rnd(-1.8, 1.8),
-      c = cols[flr(rnd(#cols)) + 1], life = 14 + flr(rnd(16)),
+      c = cols[math.floor(rnd(#cols)) + 1], life = 14 + math.floor(rnd(16)),
     }
   end
   while #parts > 200 do table.remove(parts, 1) end
@@ -258,7 +264,7 @@ local function take_name() -- 取不重复名字，池空重填
   if #name_pool == 0 then
     for i = 1, #NAMES do name_pool[i] = NAMES[i] end
   end
-  local i = flr(rnd(#name_pool)) + 1
+  local i = math.floor(rnd(#name_pool)) + 1
   return table.remove(name_pool, i)
 end
 local function count_fam(fam) -- 某家族存活球数
@@ -305,7 +311,7 @@ end
 local function new_ball(x, y, mass, sk, name, fam)
   local b = {
     x = x, y = y, vx = 0, vy = 0,
-    mass = mass, r = max(4, sqrt(mass) * 0.5), -- 显示半径平滑长到 sqrt(mass)
+    mass = mass, r = math.max(4, math.sqrt(mass) * 0.5), -- 显示半径平滑长到 sqrt(mass)
     sk = sk, name = name, fam = fam,
     face = rnd(1), ph = rnd(1),
     split_cd = 0, -- 合体冷却：分身产生时才开始计时
@@ -314,7 +320,7 @@ local function new_ball(x, y, mass, sk, name, fam)
   if fam ~= 0 then -- AI：三层状态机状态 + 个性参数
     b.ai = {
       mode = "wander", mode_t = 0,
-      l1_t = flr(rnd(L1_PERIOD)), l2_t = flr(rnd(L2_PERIOD)),
+      l1_t = math.floor(rnd(L1_PERIOD)), l2_t = math.floor(rnd(L2_PERIOD)),
       px = x, py = y, sp = 0.55,
       prey = nil, threat = nil,
       want_split = false, sdirx = 0, sdiry = 0,
@@ -325,24 +331,24 @@ local function new_ball(x, y, mass, sk, name, fam)
 end
 local function spawn_ai(mass, margin) -- 按质量出怪（目标半径 = √质量，仅用于出生间距）
   fam_counter = fam_counter + 1
-  local x, y = safe_pos(sqrt(mass), margin)
-  balls[#balls + 1] = new_ball(x, y, mass, SKINS[flr(rnd(#SKINS)) + 1], take_name(), fam_counter)
+  local x, y = safe_pos(math.sqrt(mass), margin)
+  balls[#balls + 1] = new_ball(x, y, mass, SKINS[math.floor(rnd(#SKINS)) + 1], take_name(), fam_counter)
 end
 local function spawn_pellet()
   pellets[#pellets + 1] = {
     x = rnd(10, W - 10), y = rnd(10, W - 10),
     r = 2 + (rnd(1) < 0.3 and 1 or 0), -- 半径 2~3
-    c = PELLET_COLS[flr(rnd(#PELLET_COLS)) + 1],
+    c = PELLET_COLS[math.floor(rnd(#PELLET_COLS)) + 1],
   }
 end
 
 -- ---------------------------------------------------------------- 运动
 
-local function vmax_of(b, mul) return V_BASE / sqrt(b.r) * (mul or 1) end
+local function vmax_of(b, mul) return V_BASE / math.sqrt(b.r) * (mul or 1) end
 -- 追踪目标点的期望速度（带墙边内推，避免顶着边界打转）
 local function seek(b, tx, ty, sp)
   local dx, dy = tx - b.x, ty - b.y
-  local d = sqrt(dx * dx + dy * dy)
+  local d = math.sqrt(dx * dx + dy * dy)
   local vmax = vmax_of(b, sp)
   if d < 2 then return 0, 0, vmax end
   local tvx, tvy = dx / d * vmax, dy / d * vmax
@@ -351,7 +357,7 @@ local function seek(b, tx, ty, sp)
   if b.x > W - m then tvx = tvx - (b.x - (W - m)) * 0.35 end
   if b.y < m then tvy = tvy + (m - b.y) * 0.35 end
   if b.y > W - m then tvy = tvy - (b.y - (W - m)) * 0.35 end
-  local l = sqrt(tvx * tvx + tvy * tvy)
+  local l = math.sqrt(tvx * tvx + tvy * tvy)
   if l > vmax then tvx, tvy = tvx / l * vmax, tvy / l * vmax end
   return tvx, tvy, vmax
 end
@@ -372,16 +378,16 @@ local function move_ball(b, tx, ty, rate)
   if b.x > hi then b.x = hi if b.vx > 0 then b.vx = 0 end end
   if b.y < lo then b.y = lo if b.vy < 0 then b.vy = 0 end end
   if b.y > hi then b.y = hi if b.vy > 0 then b.vy = 0 end end
-  b.r = b.r + (sqrt(b.mass) - b.r) * 0.1 -- 半径平滑趋近 sqrt(质量)
+  b.r = b.r + (math.sqrt(b.mass) - b.r) * 0.1 -- 半径平滑趋近 sqrt(质量)
   local fvx, fvy = b.vx + ix * 60, b.vy + iy * 60
-  if fvx * fvx + fvy * fvy > 16 then b.face = atan2(fvx, fvy) end
+  if fvx * fvx + fvy * fvy > 16 then b.face = atan2(fvy, fvx) end
 end
 
 -- ---------------------------------------------------------------- 分身与吐球
 
 local function split_ball(b, dx, dy) -- 一分为二：各半质量，新球带前冲冲量
   if b.mass < SPLIT_MIN_MASS or #balls >= BALL_ABS then return nil end
-  local l = sqrt(dx * dx + dy * dy)
+  local l = math.sqrt(dx * dx + dy * dy)
   if l < 0.01 then dx, dy, l = cos(b.face), sin(b.face), 1 end
   dx, dy = dx / l, dy / l
   local half = b.mass / 2
@@ -389,7 +395,7 @@ local function split_ball(b, dx, dy) -- 一分为二：各半质量，新球带�
   b.split_cd = SPLIT_CD
   local nb = new_ball(b.x + dx * b.r * 0.25, b.y + dy * b.r * 0.25, half, b.sk, b.name, b.fam)
   nb.r = b.r * 0.7
-  nb.face = atan2(dx, dy)
+  nb.face = atan2(dy, dx)
   nb.ivx, nb.ivy = dx * SPLIT_IMP, dy * SPLIT_IMP -- px/幀，前冲期内跳过同体排斥
   nb.imp_t = SPLIT_IMP_T
   nb.split_cd = SPLIT_CD
@@ -400,7 +406,7 @@ local function split_ball(b, dx, dy) -- 一分为二：各半质量，新球带�
   return nb
 end
 local function spit_spore(b, dx, dy) -- 吐球：本球 −16 质量，吐出 12 质量不受控小球
-  local l = sqrt(dx * dx + dy * dy)
+  local l = math.sqrt(dx * dx + dy * dy)
   if l < 0.01 then dx, dy, l = cos(b.face), sin(b.face), 1 end
   dx, dy = dx / l, dy / l
   b.mass = b.mass - SPIT_COST
@@ -414,16 +420,16 @@ end
 -- 玩家操控：方向合成单位向量作用于全部分身；Ⓐ 分身 / Ⓧ 吐球
 local function control_player()
   local ax, ay = 0, 0
-  if dir(0) then ax = ax - 1 end
-  if dir(1) then ax = ax + 1 end
-  if dir(2) then ay = ay - 1 end
-  if dir(3) then ay = ay + 1 end
+  if dir("left") then ax = ax - 1 end
+  if dir("right") then ax = ax + 1 end
+  if dir("up") then ay = ay - 1 end
+  if dir("down") then ay = ay + 1 end
   local il = ax ~= 0 or ay ~= 0
   if il then
-    local l = sqrt(ax * ax + ay * ay)
+    local l = math.sqrt(ax * ax + ay * ay)
     ax, ay = ax / l, ay / l
   end
-  if btnp(4) then -- 分身：所有可分身的球各一分为二；可连按（1→2→4），不受合体冷却限制
+  if btnp("a") then -- 分身：所有可分身的球各一分为二；可连按（1→2→4），不受合体冷却限制
     local n, done, toosmall = count_fam(0), 0, false
     for i = 1, #balls do
       local b = balls[i]
@@ -446,7 +452,7 @@ local function control_player()
       if big then add_pop(why, big.x, big.y - big.r - 10) end
     end
   end
-  if btnp(6) then -- 吐球：所有达标的分身各沿行进方向吐一颗（不受控，任何球可吃含自己）
+  if btnp("x") then -- 吐球：所有达标的分身各沿行进方向吐一颗（不受控，任何球可吃含自己）
     local done = 0
     for i = 1, #balls do
       local b = balls[i]
@@ -483,7 +489,7 @@ local function control_player()
       if b.imp_t <= 0 and ptm > 0 then
         local gear = b.split_cd <= 0 and 0.55 or 0.18 -- 冷却结束强档 / 未结束弱档
         local dx, dy = pcx - b.x, pcy - b.y
-        local d = sqrt(dx * dx + dy * dy)
+        local d = math.sqrt(dx * dx + dy * dy)
         if d > 6 then
           tx, ty = tx + dx / d * vmax * gear, ty + dy / d * vmax * gear
         end
@@ -497,10 +503,10 @@ end
 -- 全局模式 = 逃跑 > 狩猎 > 发育 > 游走；每 ~30 幀决策 + 迟滞/最短驻留防抖动
 
 local function food_near(b, r) -- 周边密度格有无食物/吐球
-  local cx, cy = flr(b.x / CELLW), flr(b.y / CELLW)
-  local cr = flr(r / CELLW)
-  for y = max(0, cy - cr), min(CELLS - 1, cy + cr) do
-    for x = max(0, cx - cr), min(CELLS - 1, cx + cr) do
+  local cx, cy = math.floor(b.x / CELLW), math.floor(b.y / CELLW)
+  local cr = math.floor(r / CELLW)
+  for y = math.max(0, cy - cr), math.min(CELLS - 1, cy + cr) do
+    for x = math.max(0, cx - cr), math.min(CELLS - 1, cx + cr) do
       if cells[y * CELLS + x + 1].n > 0 then return true end
     end
   end
@@ -517,11 +523,11 @@ local function ai_l1(b)
     local o = balls[i]
     if o ~= b and o.fam ~= b.fam and o.r >= b.r * EAT_RATIO then
       local dx, dy = o.x - b.x, o.y - b.y
-      local d0 = sqrt(dx * dx + dy * dy)
+      local d0 = math.sqrt(dx * dx + dy * dy)
       if d0 < 130 + b.r * 1.2 + per.cau * 80 + o.r then
         local px2, py2 = o.x + o.vx * 0.5, o.y + o.vy * 0.5 -- 30 幀 ≈ 0.5s 预测
         local qx, qy = px2 - b.x, py2 - b.y
-        local d1 = sqrt(qx * qx + qy * qy)
+        local d1 = math.sqrt(qx * qx + qy * qy)
         if d1 < d0 + 24 or d0 < o.r + b.r + 80 then threat = o break end
       end
     end
@@ -533,7 +539,7 @@ local function ai_l1(b)
   end
   -- 逃跑迟滞：脱离威胁后再逃一小段（谨慎个体更久）
   if ai.mode == "flee" then
-    if ai.mode_t < DWELL + flr(per.cau * 45) then return end
+    if ai.mode_t < DWELL + math.floor(per.cau * 45) then return end
     ai.threat = nil
   end
   if ai.mode ~= "wander" and ai.mode_t < DWELL then return end -- 最短驻留，防抖动
@@ -543,7 +549,7 @@ local function ai_l1(b)
     local o = balls[i]
     if o ~= b and o.fam ~= b.fam and o.r * EAT_RATIO <= b.r then
       local dx, dy = o.x - b.x, o.y - b.y
-      local d = sqrt(dx * dx + dy * dy)
+      local d = math.sqrt(dx * dx + dy * dy)
       if d < vis * (0.6 + per.agg * 0.6) then
         local s = (1 + (o.fam == 0 and 1 or 0)) * (1 + b.r / o.r) / (1 + d / 180)
         if s > bs then prey, bs = o, s end
@@ -591,7 +597,7 @@ local function ai_l2(b)
     local tc = ai.threat
     if tc and not tc.dead then
       local dx, dy = b.x - tc.x, b.y - tc.y
-      local d = max(1, sqrt(dx * dx + dy * dy))
+      local d = math.max(1, math.sqrt(dx * dx + dy * dy))
       local j = rnd(-0.5, 0.5) * (0.35 + per.cau * 0.3) -- 切向抖动合成逃逸向量
       local ca, sa = cos(j), sin(j)
       local fx = (dx * ca - dy * sa) / d
@@ -613,8 +619,8 @@ local function ai_l2(b)
     else
       local vm = vmax_of(b, 1)
       local dx, dy = o.x - b.x, o.y - b.y
-      local d = sqrt(dx * dx + dy * dy)
-      local tt = d / max(vm, 1) -- 我的到达时间
+      local d = math.sqrt(dx * dx + dy * dy)
+      local tt = d / math.max(vm, 1) -- 我的到达时间
       local px2, py2 = o.x + o.vx / 60 * tt, o.y + o.vy / 60 * tt -- 拦截预判点
       -- 可达校验：我的到达时间 < 猎物逃逸时间（近似为比速优势或已贴身）
       local vo = vmax_of(o, 1)
@@ -626,10 +632,10 @@ local function ai_l2(b)
         -- 分身突袭子状态：冷却就绪、预测分身后能吞下、距离合适（前冲一击可达）
         if d >= 60 and d <= 210 and b.mass >= SPLIT_MIN_MASS
           and count_fam(b.fam) < AI_FAM_MAX and count_ai() < AI_BALL_CAP then
-          local half = sqrt(b.mass / 2)
+          local half = math.sqrt(b.mass / 2)
           if half >= o.r * EAT_RATIO then
             local qx, qy = px2 - b.x, py2 - b.y
-            local dl = max(1, sqrt(qx * qx + qy * qy))
+            local dl = math.max(1, math.sqrt(qx * qx + qy * qy))
             ai.want_split, ai.sdirx, ai.sdiry = true, qx / dl, qy / dl
           end
         end
@@ -665,7 +671,7 @@ local function ai_l3(b)
       local d2 = dx * dx + dy * dy
       local R = b.r + 44 + o.r * 0.5
       if d2 < R * R and d2 > 0.01 then
-        local d = sqrt(d2)
+        local d = math.sqrt(d2)
         local w = (1 - d / R) * vmax * 1.2
         tx, ty = tx + dx / d * w, ty + dy / d * w
       end
@@ -676,7 +682,7 @@ local function ai_l3(b)
       local o = balls[i]
       if o ~= b and o.fam == b.fam and o.split_cd <= 0 and not o.dead then
         local dx, dy = o.x - b.x, o.y - b.y
-        local d = sqrt(dx * dx + dy * dy)
+        local d = math.sqrt(dx * dx + dy * dy)
         if d < 340 and d > 1 then
           tx, ty = tx + dx / d * vmax * 0.6, ty + dy / d * vmax * 0.6
         end
@@ -684,16 +690,16 @@ local function ai_l3(b)
       end
     end
   end
-  local c = cells[flr(b.y / CELLW) * CELLS + flr(b.x / CELLW) + 1] -- 顺路食物吸引
+  local c = cells[math.floor(b.y / CELLW) * CELLS + math.floor(b.x / CELLW) + 1] -- 顺路食物吸引
   if c and c.n > 0 then
     local dx, dy = c.x - b.x, c.y - b.y
-    local d = sqrt(dx * dx + dy * dy)
+    local d = math.sqrt(dx * dx + dy * dy)
     if d > b.r and d < 200 then
       tx, ty = tx + dx / d * vmax * 0.25, ty + dy / d * vmax * 0.25
     end
   end
   local vm2 = vmax_of(b)
-  local l = sqrt(tx * tx + ty * ty)
+  local l = math.sqrt(tx * tx + ty * ty)
   if l > vm2 then tx, ty = tx / l * vm2, ty / l * vm2 end
   return tx, ty, ACC_IN * (1.35 - per.slow * 0.5) -- 转向迟钝个性 → 趋近系数
 end
@@ -769,11 +775,11 @@ end
 local function do_eat(big, small)
   small.dead = true
   big.mass = big.mass + small.mass * GAIN
-  burst(small.x, small.y, {small.sk[1], small.sk[2], small.sk[3], 7}, 8 + flr(small.r / 4))
+  burst(small.x, small.y, {small.sk[1], small.sk[2], small.sk[3], 7}, 8 + math.floor(small.r / 4))
   rings[#rings + 1] = {x = small.x, y = small.y, t = 0}
   if big.fam == 0 then
     kills = kills + 1
-    add_pop("+" .. fmt(flr(small.mass * GAIN)), small.x, small.y)
+    add_pop("+" .. fmt(math.floor(small.mass * GAIN)), small.x, small.y)
     sfx(11, 1)
   end
   if small.fam == 0 then
@@ -784,7 +790,7 @@ local function do_eat(big, small)
     end
   else
     if near_player(small.x, small.y, 420) then sfx(16, 2) end
-    rspawns[#rspawns + 1] = {t = 600 + flr(rnd(600)), kind = 1}
+    rspawns[#rspawns + 1] = {t = 600 + math.floor(rnd(600)), kind = 1}
   end
 end
 local function merge_balls(a, b) -- 同体合体：质量相加、位置取大球、速度按质量加权
@@ -812,12 +818,12 @@ local function eat_pass()
         if dx * dx + dy * dy < b.r * b.r then
           b.mass = b.mass + f.r * f.r
           if b.fam == 0 then
-            local lvl = flr(mid(0, (b.r - 12) / 3.5, 7))
+            local lvl = math.floor(mid(0, (b.r - 12) / 3.5, 7))
             sfx(3 + lvl, 0)
             burst(f.x, f.y, {f.c, 7}, 3)
           end
           deli(pellets, i)
-          rspawns[#rspawns + 1] = {t = 300 + flr(rnd(300)), kind = 0}
+          rspawns[#rspawns + 1] = {t = 300 + math.floor(rnd(300)), kind = 0}
           break
         end
       end
@@ -833,7 +839,7 @@ local function eat_pass()
         if dx * dx + dy * dy < b.r * b.r then
           b.mass = b.mass + SPORE_MASS
           if b.fam == 0 then
-            local lvl = flr(mid(0, (b.r - 8) / 4, 7))
+            local lvl = math.floor(mid(0, (b.r - 8) / 4, 7))
             sfx(3 + lvl, 0)
           end
           burst(s.x, s.y, {s.c, 7}, 2)
@@ -873,9 +879,9 @@ local function eat_pass()
           local d2 = dx * dx + dy * dy
           local rr = a.r + b.r
           if d2 < rr * rr then
-            local d = sqrt(d2)
+            local d = math.sqrt(d2)
             if a.split_cd <= 0 and b.split_cd <= 0 then
-              if d < max(a.r, b.r) then
+              if d < math.max(a.r, b.r) then
                 merge_balls(a, b)
               elseif d > 0.01 then -- 已近未达合体深度：轻微吸附辅助合体
                 a.vx, a.vy = a.vx + dx / d * 0.4, a.vy + dy / d * 0.4
@@ -904,7 +910,7 @@ function player_die(x, y) -- 全部分身被吃光 → 死亡结算
   rings[#rings + 1] = {x = x, y = y, t = 0}
   rings[#rings + 1] = {x = x, y = y, t = -8}
   state, die_t, shake = "dying", 0, 16
-  if bgm_on then music(-1, 300) bgm_on = false end
+  if bgm_on then music_stop(300) bgm_on = false end
   sfx(13, 0)
 end
 function try_win() -- 总质量达标 → 胜利（名次取达成时刻的真实家族名次）
@@ -912,7 +918,7 @@ function try_win() -- 总质量达标 → 胜利（名次取达成时刻的真�
     local fams = family_list()
     final_rank, final_count = player_rank_of(fams)
     state, win, win_t, shake = "win", true, 0, 0
-    if bgm_on then music(-1, 300) bgm_on = false end
+    if bgm_on then music_stop(300) bgm_on = false end
     sfx(14, 1)
   end
 end
@@ -926,13 +932,13 @@ local function build_cells() -- 每幀重建：豆计 1、吐球计 3（高价�
   end
   for i = 1, #pellets do
     local f = pellets[i]
-    local c = cells[flr(f.y / CELLW) * CELLS + flr(f.x / CELLW) + 1]
+    local c = cells[math.floor(f.y / CELLW) * CELLS + math.floor(f.x / CELLW) + 1]
     c.n = c.n + 1
     c.x, c.y = f.x, f.y
   end
   for i = 1, #spores do
     local s = spores[i]
-    local c = cells[flr(s.y / CELLW) * CELLS + flr(s.x / CELLW) + 1]
+    local c = cells[math.floor(s.y / CELLW) * CELLS + math.floor(s.x / CELLW) + 1]
     c.n = c.n + 3
     c.x, c.y = s.x, s.y
   end
@@ -949,7 +955,7 @@ local function start_game()
   balls, pellets, spores = {}, {}, {}
   name_pool, fam_counter = {}, 0
   balls[1] = new_ball(W / 2, W / 2, 144, P_SKIN, "你", 0)
-  for _ = 1, AI_N do spawn_ai(flr(60 + pow(rnd(1), 1.4) * 240), 160) end -- 质量 60~300 偏小分布，玩家开局居中游
+  for _ = 1, AI_N do spawn_ai(math.floor(60 + math.pow(rnd(1), 1.4) * 240), 160) end -- 质量 60~300 偏小分布，玩家开局居中游
   for _ = 1, PELLET_N do spawn_pellet() end
   cam = {x = W / 2, y = W / 2, s = mid(0.55, 1.6 / (1 + balls[1].r / 24), 1)}
   rank, fam_n = 1, AI_N + 1
@@ -961,10 +967,10 @@ end
 local function make_deco() -- 标题 / 封面装饰球与豆（_init 生成，frame 0 完整）
   local d = {balls = {}, dots = {}}
   for i = 1, 6 do
-    d.balls[i] = {ph = rnd(1), py = rnd(1), sk = SKINS[i], m = 18 + flr(rnd(26))}
+    d.balls[i] = {ph = rnd(1), py = rnd(1), sk = SKINS[i], m = 18 + math.floor(rnd(26))}
   end
   for i = 1, 28 do
-    d.dots[i] = {x = rnd(8, 248), y = rnd(8, 248), c = PELLET_COLS[flr(rnd(#PELLET_COLS)) + 1]}
+    d.dots[i] = {x = rnd(8, 248), y = rnd(8, 248), c = PELLET_COLS[math.floor(rnd(#PELLET_COLS)) + 1]}
   end
   return d
 end
@@ -979,13 +985,13 @@ local function to_title()
   if music_on and not bgm_on then music(0, 500, 0xF0) bgm_on = true end
 end
 local function settle_records() -- 进结算面板时落盘最高纪录
-  new_mass = max_mass > dget(0)
-  new_surv = flr(play_t / 60) > dget(1)
-  new_kills = kills > dget(2)
-  if new_mass then dset(0, flr(max_mass)) end -- 取整存档：dset 定点存小数会让 dget 解出尾差
-  if new_surv then dset(1, flr(play_t / 60)) end
-  if new_kills then dset(2, kills) end
-  if new_mass or new_surv or new_kills then fflush() end
+  new_mass = max_mass > progress.mass
+  new_surv = math.floor(play_t / 60) > progress.seconds
+  new_kills = kills > progress.kills
+  if new_mass then progress.mass = math.floor(max_mass); assert(save(progress)) end
+  if new_surv then progress.seconds = math.floor(play_t / 60); assert(save(progress)) end
+  if new_kills then progress.kills = kills; assert(save(progress)) end
+  if new_mass or new_surv or new_kills then  end
 end
 
 -- ---------------------------------------------------------------- 更新
@@ -1010,7 +1016,7 @@ local function update_play()
         spawn_pellet()
         deli(rspawns, i)
       elseif count_ai() < AI_BALL_CAP then
-        spawn_ai(36 + flr(rnd(36))) -- 小球重生（质量 36~72）
+        spawn_ai(36 + math.floor(rnd(36))) -- 小球重生（质量 36~72）
         deli(rspawns, i)
       end
     end
@@ -1075,17 +1081,17 @@ local function update_over()
   over_t = over_t + 1
   if over_t == 36 and (new_mass or new_surv or new_kills) then sfx(15, 2) end
   if over_t > 30 then
-    if btnp(4) then start_game()
-    elseif btnp(11) then to_title() end
+    if btnp("a") then start_game()
+    elseif btnp("menu") then to_title() end
   end
 end
 local function update_title()
-  if btnp(4) then start_game()
-  elseif btnp(7) then state = "help" sfx(0)
-  elseif btnp(10) then toggle_music() end
+  if btnp("a") then start_game()
+  elseif btnp("y") then state = "help" sfx(0)
+  elseif btnp("view") then toggle_music() end
 end
 local function update_help()
-  if btnp(5) or btnp(7) then state = "title" sfx(0) end
+  if btnp("b") or btnp("y") then state = "title" sfx(0) end
 end
 
 -- ---------------------------------------------------------------- 绘制：世界
@@ -1097,19 +1103,19 @@ local function draw_arena()
   local ax, ay, aw = wx2s(0), wy2s(0), W * s
   rectfill(ax, ay, aw, aw, 13)                 -- 场内底色（场外已由 cls 铺深色）
   clip(ax, ay, aw, aw)
-  local gx0 = flr((cam.x - 128 / s) / GRID) * GRID
-  local gy0 = flr((cam.y - 128 / s) / GRID) * GRID
+  local gx0 = math.floor((cam.x - 128 / s) / GRID) * GRID
+  local gy0 = math.floor((cam.y - 128 / s) / GRID) * GRID
   local gx1, gy1 = cam.x + 128 / s, cam.y + 128 / s
-  for wx = max(0, gx0), min(W, gx1), GRID do   -- 浅色网格：64px 细线，256px 主线
+  for wx = math.max(0, gx0), math.min(W, gx1), GRID do   -- 浅色网格：64px 细线，256px 主线
     local c = wx % 256 == 0 and 11 or 12
     line(wx2s(wx), ay, wx2s(wx), ay + aw, c)
   end
-  for wy = max(0, gy0), min(W, gy1), GRID do
+  for wy = math.max(0, gy0), math.min(W, gy1), GRID do
     local c = wy % 256 == 0 and 11 or 12
     line(ax, wy2s(wy), ax + aw, wy2s(wy), c)
   end
   clip()
-  local wt = max(2, flr(5 * s))                -- 亮墙边界 + 外圈微光
+  local wt = math.max(2, math.floor(5 * s))                -- 亮墙边界 + 外圈微光
   rect(ax - 2, ay - 2, aw + 4, aw + 4, 11)
   rectfill(ax, ay, aw, wt, 43) rectfill(ax, ay + aw - wt, aw, wt, 43)
   rectfill(ax, ay, wt, aw, 43) rectfill(ax + aw - wt, ay, wt, aw, 43)
@@ -1121,8 +1127,8 @@ local function draw_pellets() -- 最底层：食物豆
     local sx, sy = wx2s(f.x), wy2s(f.y)
     if sx > -4 and sx < 260 and sy > -4 and sy < 260 then
       local pr = f.r * s
-      if pr < 1 then pset(flr(sx + 0.5), flr(sy + 0.5), f.c)
-      elseif pr < 2.2 then rectfill(flr(sx) - 1, flr(sy) - 1, 2, 2, f.c)
+      if pr < 1 then pset(math.floor(sx + 0.5), math.floor(sy + 0.5), f.c)
+      elseif pr < 2.2 then rectfill(math.floor(sx) - 1, math.floor(sy) - 1, 2, 2, f.c)
       else circfill(sx, sy, pr, f.c) end
     end
   end
@@ -1133,9 +1139,9 @@ local function draw_spores() -- 次层：吐出的球（画在所有球之下）
     local p = spores[i]
     local sx, sy = wx2s(p.x), wy2s(p.y)
     if sx > -4 and sx < 260 and sy > -4 and sy < 260 then
-      local pr = max(1.5, SPORE_R * s)
+      local pr = math.max(1.5, SPORE_R * s)
       circfill(sx, sy, pr, p.c)
-      if pr >= 2.5 then pset(flr(sx - pr * 0.3), flr(sy - pr * 0.3), 7) end
+      if pr >= 2.5 then pset(math.floor(sx - pr * 0.3), math.floor(sy - pr * 0.3), 7) end
     end
   end
 end
@@ -1145,23 +1151,23 @@ local function draw_ball(b)
   local rs = b.r * s * (1 + 0.025 * sin(t * 0.13 + b.ph)) -- 呼吸微颤
   if sx < -rs - 8 or sx > 264 + rs or sy < -rs - 8 or sy > 264 + rs then return end
   local sk = b.sk
-  circfill(sx, sy, rs + max(1.2, rs * 0.14), sk[2]) -- 深色描边
+  circfill(sx, sy, rs + math.max(1.2, rs * 0.14), sk[2]) -- 深色描边
   circfill(sx, sy, rs, sk[1])                       -- 主色
   if rs >= 3.5 then
-    circfill(sx - rs * 0.34, sy - rs * 0.36, max(1, rs * 0.26), sk[3]) -- 高光斑
+    circfill(sx - rs * 0.34, sy - rs * 0.36, math.max(1, rs * 0.26), sk[3]) -- 高光斑
   end
   if b.r >= 18 and rs >= 12 then                    -- 球心质量数字
-    local m = fmt(flr(b.mass))
-    print(m, sx - tw(m) / 2, sy - 8, sk[4])
+    local m = fmt(math.floor(b.mass))
+    print(m, sx - textw(m) / 2, sy - 8, sk[4])
   end
   if b.fam == 0 and rs >= 7 then                    -- 玩家分身方向小眼睛
     local f = b.face
-    local er = max(1.6, rs * 0.2)
+    local er = math.max(1.6, rs * 0.2)
     for side = -1, 1, 2 do
       local a = f + side * 0.21
       local ex, ey = sx + cos(a) * rs * 0.55, sy + sin(a) * rs * 0.55
       circfill(ex, ey, er, 7)
-      circfill(ex + cos(f) * er * 0.45, ey + sin(f) * er * 0.45, max(1, er * 0.52), 1)
+      circfill(ex + cos(f) * er * 0.45, ey + sin(f) * er * 0.45, math.max(1, er * 0.52), 1)
     end
     if grace > 0 then                               -- 开局保护：脉动青环
       circ(sx, sy, rs + 5 + sin(t * 0.2) * 1.5, 42)
@@ -1195,12 +1201,12 @@ local function draw_particles() -- 粒子与飘字压在所有球之上
     local q = parts[i]
     local sx, sy = wx2s(q.x), wy2s(q.y)
     if sx > -2 and sx < 258 and sy > -2 and sy < 258 then
-      rectfill(flr(sx), flr(sy), 2, 2, q.c)
+      rectfill(math.floor(sx), math.floor(sy), 2, 2, q.c)
     end
   end
   for i = 1, #pops do
     local p = pops[i]
-    print(p.txt, wx2s(p.x) - tw(p.txt) / 2, wy2s(p.y) - p.t * 0.6, p.t < 20 and 31 or 30)
+    print(p.txt, wx2s(p.x) - textw(p.txt) / 2, wy2s(p.y) - p.t * 0.6, p.t < 20 and 31 or 30)
   end
 end
 
@@ -1212,7 +1218,7 @@ local function draw_hud()
   rrectfill(3, 3, 108, 76, 4, 51)
   rrect(3, 3, 108, 76, 4, 11)
   print("质量", 10, 7, 6)
-  print(fmt(flr(alive and player_mass() or max_mass)), 42, 7, 30)
+  print(fmt(math.floor(alive and player_mass() or max_mass)), 42, 7, 30)
   print("排名", 10, 24, 6)
   local rk = alive and fmt(rank) .. "/" .. fmt(fam_n)
     or fmt(final_rank) .. "/" .. fmt(final_count)
@@ -1232,7 +1238,7 @@ local function draw_hud()
   print(st, 66, 41, sc)
   print("合体", 10, 58, 6)
   if nf > 1 then
-    print(cd > 0 and ceil(cd / 60) .. "s" or "就绪", 42, 58, cd > 0 and 8 or 33)
+    print(cd > 0 and math.ceil(cd / 60) .. "s" or "就绪", 42, 58, cd > 0 and 8 or 33)
   else
     print("无", 42, 58, 5)
   end
@@ -1241,12 +1247,12 @@ local function draw_hud()
   rrect(148, 3, 105, 86, 4, 11)
   print("排行榜", 155, 7, 42)
   local rowc = {31, 8, 23, 6}
-  for i = 1, min(4, lb and #lb or 0) do
+  for i = 1, math.min(4, lb and #lb or 0) do
     local f = lb[i]
     local y = 25 + (i - 1) * 16
     print(fmt(i), 155, y, rowc[i])
     print(f.name, 167, y, f.is_p and 43 or 8)
-    local m = fmt(flr(f.mass))
+    local m = fmt(math.floor(f.mass))
     print(m, 246 - #m * 8, y, f.is_p and 43 or 6)
   end
   -- 右下：小地图（56px 方框；食物不画，球按相对半径画点，每个玩家分身带白框 + 视野框）
@@ -1257,9 +1263,9 @@ local function draw_hud()
   clip(mx, my, ms, ms)
   for i = 1, #balls do
     local b = balls[i]
-    local bx = mx + flr(b.x * ms / W)
-    local by = my + flr(b.y * ms / W)
-    local br = max(1, flr(b.r * ms / W + 0.5))
+    local bx = mx + math.floor(b.x * ms / W)
+    local by = my + math.floor(b.y * ms / W)
+    local br = math.max(1, math.floor(b.r * ms / W + 0.5))
     if b.fam == 0 then
       rect(bx - 2, by - 2, 5, 5, 7)
       circfill(bx, by, br, 43)
@@ -1268,11 +1274,11 @@ local function draw_hud()
     end
   end
   local vw = ms * 256 / (W * cam.s)
-  rect(mx + flr(cam.x * ms / W - vw / 2), my + flr(cam.y * ms / W - vw / 2),
-    flr(vw) + 1, flr(vw) + 1, 6)
+  rect(mx + math.floor(cam.x * ms / W - vw / 2), my + math.floor(cam.y * ms / W - vw / 2),
+    math.floor(vw) + 1, math.floor(vw) + 1, 6)
   clip()
   if state == "play" then -- 左下：轮播提示（带阴影）
-    local s2 = HINTS[flr(t / 300) % #HINTS + 1]
+    local s2 = HINTS[math.floor(t / 300) % #HINTS + 1]
     print(s2, 5, 241, 1)
     print(s2, 4, 240, 6)
   end
@@ -1282,28 +1288,29 @@ end
 
 local function draw_over_panel()
   fillp(0x8421)
-  rectfill(0, 0, 256, 256, 13 * 256 + 0)
+  fillp(0x8421, 13)
+  rectfill(0, 0, 256, 256, 0)
   fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
   local bx, by, bw, bh = 38, 48, 180, 160
   rrectfill(bx, by, bw, bh, 6, 8)
   rrect(bx, by, bw, bh, 6, 10)
   rectfill(bx + 2, by + 2, bw - 4, 1, 7)
   rectfill(bx + 2, by + bh - 3, bw - 4, 1, 6)
-  local function row(txt, y, c) print(txt, (256 - tw(txt)) / 2, y, c) end
+  local function row(txt, y, c) print(txt, (256 - textw(txt)) / 2, y, c) end
   if win then
     row("胜利！", 60, 25)
   else
     row("你被吞掉了", 60, 59)
   end
-  local surv = fmt(flr(play_t / 60))
+  local surv = fmt(math.floor(play_t / 60))
   row("生存 " .. surv .. " 秒", 88, 1)
-  if new_surv and flr(t / 6) % 2 == 0 then print("★", 176, 88, 30) end
-  row("峰值质量 " .. fmt(flr(max_mass)), 108, 1)
-  if new_mass and flr(t / 6) % 2 == 0 then print("★", 176, 108, 30) end
+  if new_surv and math.floor(t / 6) % 2 == 0 then print("★", 176, 88, 30) end
+  row("峰值质量 " .. fmt(math.floor(max_mass)), 108, 1)
+  if new_mass and math.floor(t / 6) % 2 == 0 then print("★", 176, 108, 30) end
   row("吞噬 " .. fmt(kills) .. " 球", 128, 1)
-  if new_kills and flr(t / 6) % 2 == 0 then print("★", 176, 128, 30) end
+  if new_kills and math.floor(t / 6) % 2 == 0 then print("★", 176, 128, 30) end
   row("排名 " .. fmt(final_rank) .. "/" .. fmt(final_count), 148, 1)
-  if flr(t / 24) % 4 ~= 3 then row(btnicon("a") .. " 再来一局", 174, 4) end
+  if math.floor(t / 24) % 4 ~= 3 then row(btnicon("a") .. " 再来一局", 174, 4) end
   row(btnicon("menu") .. " 回标题", 192, 10)
 end
 local function draw_help()
@@ -1315,7 +1322,7 @@ local function draw_help()
   rrect(bx, by, bw, bh, 6, 11)
   rectfill(bx + 2, by + 2, bw - 4, 1, 7)
   local s = "操作说明"
-  print(s, (256 - tw(s)) / 2, 48, 42)
+  print(s, (256 - textw(s)) / 2, 48, 42)
   local rows = {
     { btnicon("dpad"), "移动（越大越慢）" },
     { btnicon("a"), "分身：一分为二前冲" },
@@ -1329,9 +1336,9 @@ local function draw_help()
     print(rows[i][2], 92, y, 7)
   end
   local r = "大球吞小球；总质量 600 获胜"
-  print(r, (256 - tw(r)) / 2, 192, 8)
+  print(r, (256 - textw(r)) / 2, 192, 8)
   local b = btnicon("b") .. " 返回"
-  print(b, (256 - tw(b)) / 2, 208, 7)
+  print(b, (256 - textw(b)) / 2, 208, 7)
 end
 -- Splash：纯主视觉封面（0-90 帧）——大金球特写（眼睛 + 高光）+ 彩色卫星球环绕，零菜单零提示
 local function draw_splash()
@@ -1351,7 +1358,7 @@ local function draw_splash()
   end
   -- 英雄画面：中央大金球特写（呼吸微颤 + 望向环绕方向的眼睛）
   local bx, by = 128, 160
-  local br = 62 + flr(sin(t * 0.02) * 2)
+  local br = 62 + math.floor(sin(t * 0.02) * 2)
   local f = t * 0.004
   for i = 1, #deco.balls do                        -- 彩色卫星球环绕（后半先画）
     local d = deco.balls[i]
@@ -1404,7 +1411,7 @@ local function draw_title()
     print(chars[i], x, 36, cols[i], 2)
   end
   local s = "BALL BATTLE ・ FC-16"
-  print(s, (256 - tw(s)) / 2, 94, 5)
+  print(s, (256 - textw(s)) / 2, 94, 5)
   -- 中央大金球 + 卫星小球环绕（封面构图）
   for i = 1, #deco.balls do
     local d = deco.balls[i]
@@ -1427,12 +1434,12 @@ local function draw_title()
   end
   -- 标语 / 一行图标提示（稳定不闪）/ 纪录
   s = "大球吞小球　质量 600 取胜"
-  print(s, (256 - tw(s)) / 2, 192, 8)
+  print(s, (256 - textw(s)) / 2, 192, 8)
   local h = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
-  print(h, (256 - tw(h)) / 2 + 1, 211, 1)
-  print(h, (256 - tw(h)) / 2, 210, 7)
-  s = "纪录 质量" .. fmt(dget(0)) .. "　生存" .. fmt(dget(1)) .. "秒　吞噬" .. fmt(dget(2))
-  print(s, (256 - tw(s)) / 2, 232, 30)
+  print(h, (256 - textw(h)) / 2 + 1, 211, 1)
+  print(h, (256 - textw(h)) / 2, 210, 7)
+  s = "纪录 质量" .. fmt(progress.mass) .. "　生存" .. fmt(progress.seconds) .. "秒　吞噬" .. fmt(progress.kills)
+  print(s, (256 - textw(s)) / 2, 232, 30)
   print("♪", 242, 2, music_on and 30 or 10)
 end
 
@@ -1440,7 +1447,7 @@ end
 
 function _init()
   init_audio()
-  music_on = dget(3) == 0 -- 槽位 3：0 = 开（默认）
+  music_on = progress.music_on
   bgm_on = false
   parts, pops, rings = {}, {}, {}
   spores = {}
@@ -1454,18 +1461,18 @@ function _update()
   if shake > 0 then shake = shake - 1 end
   if state == "splash" then
     -- 开机封面：90 帧后（或 Ⓐ / Menu）进交互菜单
-    if t > 90 or btnp(4) or btnp(11) then to_title() end
+    if t > 90 or btnp("a") or btnp("menu") then to_title() end
   elseif state == "title" then
     update_title()
   elseif state == "help" then
     update_help()
   elseif state == "play" then
-    if btnp(10) then toggle_music() end
+    if btnp("view") then toggle_music() end
     update_play()
   elseif state == "dying" then
     update_dying()
   elseif state == "win" then
-    if btnp(10) then toggle_music() end
+    if btnp("view") then toggle_music() end
     update_win()
   elseif state == "over" then
     update_over()
@@ -1487,12 +1494,12 @@ function _draw()
     return
   end
   if shake > 0 then -- 被吞震屏（与幀号绑定，保持确定性）
-    local a = min(6, shake * 0.5)
-    camera(flr(sin(t * 0.11) * a), flr(cos(t * 0.17) * a * 0.6))
+    local a = math.min(6, shake * 0.5)
+    camera(math.floor(sin(t * 0.11) * a), math.floor(cos(t * 0.17) * a * 0.6))
   end
-  if state == "dying" and die_t < 30 and flr(die_t / 5) % 2 == 0 then
+  if state == "dying" and die_t < 30 and math.floor(die_t / 5) % 2 == 0 then
     pal(13, 60, 1) pal(12, 59, 1) pal(11, 26, 1) -- 显示期红闪（幀缓冲不变）
-  elseif state == "win" and flr(win_t / 6) % 4 == 0 then
+  elseif state == "win" and math.floor(win_t / 6) % 4 == 0 then
     pal(13, 51, 1) pal(12, 52, 1)                -- 胜利紫金微闪
   end
   draw_arena()

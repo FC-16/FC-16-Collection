@@ -61,12 +61,11 @@
 | ⬅ ➡ ⬆ ⬇ | 标题调整人类玩家数（其余座位为电脑）；对局中多机可动时选择飞机 |
 | Ⓐ | 掷骰／确认移动选中的飞机／结算画面回到标题 |
 | Ⓑ | 放弃本次移动（整个回合） |
-| Select | 背景音乐开关（标题与对局中均可用，随存档记忆） |
-| Start | 对局中回到标题（进度不保存） |
+| View | 背景音乐开关（标题与对局中均可用，随存档记忆） |
+| Menu | 对局中回到标题（进度不保存） |
 
 顶栏显示四家到达架数（`n/4`）、人类/电脑身份与当前行动方；骰子面板显示在
 当前行动方机场中央；落点预览圈提示选中飞机的最终落格。战绩（总局数）经
-`dset`/`fflush` 持久化。
 
 ## 音频
 
@@ -78,15 +77,16 @@
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "飞行棋" --author "FrostMiKu" \
-  --version 1 --save-id ludo --code ludo/ludo.lua --cover 30 \
-  --out ludo/ludo.fc16 --png carts/ludo.fc16.png
-cargo run -p fc16-host -- ludo/ludo.fc16
+python3 tools/build_all.py ludo
+../FC-16/target/debug/fc16 ludo/ludo.fc16
 ```
 
 `--cover 30` 取标题画面第 40 帧作卡带封面。headless 验证：
 
 ```bash
-cargo run -p fc16-host -- ludo/ludo.fc16 --frames 400 \
+../FC-16/target/debug/fc16 ludo/ludo.fc16 --frames 400 \
   --screenshot out.png --wav out.wav
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

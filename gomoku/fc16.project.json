@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "五子棋",
+    "author": "FrostMiKu",
+    "saveId": "gomoku",
+    "version": 1,
+    "flags": 0,
+    "output": "gomoku.fc16",
+    "release": "gomoku.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "gomoku.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

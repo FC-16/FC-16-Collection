@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "华容道",
+    "author": "FrostMiKu",
+    "saveId": "klotski",
+    "version": 1,
+    "flags": 0,
+    "output": "klotski.fc16",
+    "release": "klotski.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "klotski.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "连连看",
+    "author": "FrostMiKu",
+    "saveId": "",
+    "version": 1,
+    "flags": 0,
+    "output": "lianliankan.fc16",
+    "release": "lianliankan.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "lianliankan.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

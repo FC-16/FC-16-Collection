@@ -1,3 +1,11 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {best_seconds = {0, 0, 0}, best_hints = {0, 0, 0}, music_on = true}
+end
+
+local DIRECTIONS = {"left", "right", "up", "down"}
+
 -- 数独 ・ FC-16 演示卡带
 -- 经典 9×9 数独：三档难度（入门 40 提示数 / 进阶 32 / 困难 26），全部由卡带内
 -- 回溯算法现场生成。出题流水线切片到多幀执行（协程 + 每幀预算），绝不单幀算完：
@@ -12,8 +20,8 @@
 --       数字条余量计数；胜利斜向金波扫场 + 结算（用时/提示/填错/新纪录）。
 -- 音频：移动/填数（按数字五声音阶变调）/擦除/填错/提示/胜利 SFX + 原创
 --       4 小节 C 五声舒缓 BGM 循环（View 开关）。
--- 存档：各难度最佳用时 dset(0..2)、最少提示 dset(3..5)、音乐开关 dset(6)，整数
---       秒存储，fflush 持久化（SPEC §13）。
+-- 存档使用结构化数据（SPEC §13）。
+-- 存档使用结构化数据（SPEC §13）。
 
 -- ---------------------------------------------------------------- 常量
 
@@ -52,9 +60,9 @@ local HINTS_MAX = 3
 local PENT = { 55, 57, 59, 62, 64, 67, 69, 71, 74 }
 
 local function idx(r, c) return r * 9 + c + 1 end
-local function box_of(r, c) return flr(r / 3) * 3 + flr(c / 3) end
-local function mmss(s) return string.format("%02d:%02d", flr(s / 60), s % 60) end
-local function ctext(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+local function box_of(r, c) return math.floor(r / 3) * 3 + math.floor(c / 3) end
+local function mmss(s) return string.format("%02d:%02d", math.floor(s / 60), s % 60) end
+local function ctext(s, y, c) print(s, math.floor((256 - textw(s)) / 2), y, c) end
 
 -- ---------------------------------------------------------------- 状态
 
@@ -88,12 +96,12 @@ local TIPS = {
 
 local function set_bgm(on)
   if on then music(0, 400, 0x30) bgm_on = true
-  else music(-1, 400) bgm_on = false end
+  else music_stop(400) bgm_on = false end
 end
 local function toggle_music()
   music_on = not music_on
-  dset(6, music_on and 0 or 1)
-  fflush()
+  progress.music_on = music_on; assert(save(progress))
+
   set_bgm(music_on)
 end
 
@@ -101,24 +109,24 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -132,20 +140,20 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 
 -- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）：steps[i] = {音高, 音色, 音量[, 效果]}，nil 步与音高 0 均为休止
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function write_sfx(id, speed, steps, len)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, len or #steps)
   for i = 0, 31 do
     local a, s = base + 16 + i * 4, steps[i + 1]
-    if s and (s[1] or 0) > 0 then u8(a, s[1] - 1) u8(a + 1, WMAP[s[2] or 0]) u8(a + 2, s[3] or 0) u8(a + 3, s[4] or 0)
+    if s and (s[1] or 0) > 0 then u8(a, s[1] - 1) u8(a + 1, TIMBRE_SOURCE[s[2] or 0]) u8(a + 2, s[3] or 0) u8(a + 3, s[4] or 0)
     else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end
   end
 end
@@ -197,9 +205,6 @@ local function init_audio()
     write_sfx(33 + b, 8, expand({ BGM_BASS[b] }, 32, 11, 6), 32) -- 贝斯 BASS
     local mb = MUSIC_BASE + 32 + (b - 1) * 32
     u8(mb + 4, 29 + b) u8(mb + 5, 33 + b)  -- 引用指向本行写入的旋律/贝斯 SFX
-    -- （旧代码引用 29+b/33+b 按旧语义指向 SFX 28+b/32+b，ch4 首小节落在
-    --   未写入的 SFX 29 上；新固件对 SPD=0 的非法头会终止 Music，故按
-    --   作曲意图直接引用本段写入的 SFX ID）
     if b == 1 then u8(mb + 16, 1) end      -- LOOP_START：循环起点
     if b == 4 then u8(mb + 17, 1) end      -- LOOP_BACK：回到 LOOP_START
   end
@@ -210,7 +215,7 @@ end
 
 -- 精灵表像素写入：表坐标 (u,v) → 瓦片 (v/16)*16+u/16，瓦片内偏移 (u%16, v%16)
 local function spset(u, v, c)
-  poke((flr(v / 16) * 16 + flr(u / 16)) * 256 + (v % 16) * 16 + u % 16, c)
+  poke((math.floor(v / 16) * 16 + math.floor(u / 16)) * 256 + (v % 16) * 16 + u % 16, c)
 end
 -- 3×5 微型数字（铅笔候选/数字条余量）：白色烘入表区 y=16 行，画时 pal 重映射
 local TINY = {
@@ -225,7 +230,7 @@ local function bake_tiny()
     for ry = 0, 4 do
       local bits = rows[ry + 1]
       for rx = 0, 2 do
-        if flr(bits / (2 ^ (2 - rx))) % 2 == 1 then
+        if math.floor(bits / (2 ^ (2 - rx))) % 2 == 1 then
           spset(d * 4 + rx, 16 + ry, 7)
         end
       end
@@ -338,7 +343,7 @@ local function gen_worker()
     local rc = RC[i]
     local cands = { 1, 2, 3, 4, 5, 6, 7, 8, 9 }
     for n = 9, 2, -1 do                          -- Fisher-Yates 洗牌
-      local j = flr(rnd(n)) + 1
+      local j = math.floor(rnd(n)) + 1
       cands[n], cands[j] = cands[j], cands[n]
     end
     for k = 1, 9 do
@@ -364,7 +369,7 @@ local function gen_worker()
   local order = {}
   for k = 0, 40 do order[k + 1] = k end
   for n = 41, 2, -1 do
-    local j = flr(rnd(n)) + 1
+    local j = math.floor(rnd(n)) + 1
     order[n], order[j] = order[j], order[n]
   end
   for k = 1, 41 do
@@ -420,16 +425,16 @@ end
 local function on_win()
   state = "win"
   win_t = 0
-  local secs = flr(play_frames / 60)
+  local secs = math.floor(play_frames / 60)
   local slot = diff - 1
-  local best = flr(dget(slot))
+  local best = math.floor(progress.best_seconds[diff])
   win_new_best = best == 0 or secs < best
-  if win_new_best then dset(slot, secs) end
+  if win_new_best then progress.best_seconds[diff] = secs; assert(save(progress)) end
   local used = HINTS_MAX - hints_left
-  local hb = flr(dget(3 + slot))
-  win_best_hints = hb == 0 or used + 1 < hb     -- 槽位存用量+1，0 = 未记录
-  if win_best_hints then dset(3 + slot, used + 1) end
-  if win_new_best or win_best_hints then fflush() end
+  local hb = math.floor(progress.best_hints[diff])
+  win_best_hints = hb == 0 or used + 1 < hb
+  if win_best_hints then progress.best_hints[diff] = used + 1; assert(save(progress)) end
+  if win_new_best or win_best_hints then  end
   sfx(9, 2)
 end
 
@@ -534,12 +539,12 @@ end
 -- ---------------------------------------------------------------- 更新
 
 local function update_title()
-  if dirp(2) or dirp(3) or dirp(0) or dirp(1) then
+  if dirp("up") or dirp("down") or dirp("left") or dirp("right") then
     title_sel = title_sel % 3 + 1              -- 任意方向键循环切换难度
     sfx(0, 0)
   end
-  if btnp(10) then toggle_music() end
-  if btnp(4) or btnp(11) then
+  if btnp("view") then toggle_music() end
+  if btnp("a") or btnp("menu") then
     diff = title_sel
     sfx(1, 0)
     start_gen()
@@ -547,8 +552,8 @@ local function update_title()
 end
 
 local function update_gen()
-  if btnp(10) then toggle_music() end
-  if btnp(11) then                             -- Menu 取消出题回标题
+  if btnp("view") then toggle_music() end
+  if btnp("menu") then                             -- Menu 取消出题回标题
     state = "title"
     gen = nil
     sfx(11, 0)
@@ -563,8 +568,8 @@ local function update_gen()
 end
 
 local function update_play()
-  if btnp(10) then toggle_music() end
-  if btnp(11) then
+  if btnp("view") then toggle_music() end
+  if btnp("menu") then
     state = "pause"
     pause_sel = 1
     sfx(11, 0)
@@ -573,7 +578,7 @@ local function update_play()
   play_frames = play_frames + 1                -- 计时仅对局中推进
   if focus == 0 then
     for d = 0, 3 do                            -- 光标移动：首按即动 + 自动重复
-      if dir(d) then
+      if dir(DIRECTIONS[d + 1]) then
         rep[d + 1] = rep[d + 1] + 1
         if rep[d + 1] == 1 or (rep[d + 1] > 14 and rep[d + 1] % 3 == 0) then
           if d == 0 and cx > 0 then cx = cx - 1 sfx(2, 0)
@@ -588,17 +593,17 @@ local function update_play()
         rep[d + 1] = 0
       end
     end
-    if btnp(4) then
+    if btnp("a") then
       if giv[idx(cy, cx)] ~= 0 then sfx(3, 1)
       else focus = 1 sfx(0, 0) end
-    elseif btnp(5) then erase_cell()
-    elseif btnp(8) then pencil = not pencil sfx(12, 0)
-    elseif btnp(9) then use_hint()
-    elseif btnp(6) then check = not check sfx(check and 7 or 8, 0)
+    elseif btnp("b") then erase_cell()
+    elseif btnp("lb") then pencil = not pencil sfx(12, 0)
+    elseif btnp("rb") then use_hint()
+    elseif btnp("x") then check = not check sfx(check and 7 or 8, 0)
     end
   else
     local bdir = 0                             -- 数字条：左右选数（自动重复）
-    if dir(0) then bdir = -1 elseif dir(1) then bdir = 1 end
+    if dir("left") then bdir = -1 elseif dir("right") then bdir = 1 end
     if bdir ~= 0 then
       rep_bar = rep_bar + 1
       if rep_bar == 1 or (rep_bar > 12 and rep_bar % 2 == 0) then
@@ -608,24 +613,24 @@ local function update_play()
     else
       rep_bar = 0
     end
-    if dirp(2) then                            -- ↑ 回棋盘
+    if dirp("up") then                            -- ↑ 回棋盘
       focus = 0
       rep = { 0, 0, 0, 0 }
       sfx(0, 0)
-    elseif btnp(4) then                        -- 确认填入
+    elseif btnp("a") then                        -- 确认填入
       local was_given = giv[idx(cy, cx)] ~= 0
       apply_digit(bar_sel)
       if not pencil or was_given then focus = 0 end -- 铅笔连填留在数字条
-    elseif btnp(5) then
+    elseif btnp("b") then
       focus = 0
       sfx(0, 0)
-    elseif btnp(8) then                        -- 数字条上也可切换铅笔/检查、用提示
+    elseif btnp("lb") then                        -- 数字条上也可切换铅笔/检查、用提示
       pencil = not pencil
       sfx(12, 0)
-    elseif btnp(6) then
+    elseif btnp("x") then
       check = not check
       sfx(check and 7 or 8, 0)
-    elseif btnp(9) then
+    elseif btnp("rb") then
       use_hint()
     end
   end
@@ -633,16 +638,16 @@ local function update_play()
 end
 
 local function update_pause()
-  if btnp(11) or btnp(5) then
+  if btnp("menu") or btnp("b") then
     state = "play"
     sfx(11, 0)
-  elseif dirp(2) or dirp(0) then
+  elseif dirp("up") or dirp("left") then
     pause_sel = (pause_sel + 2) % 4 + 1
     sfx(0, 0)
-  elseif dirp(3) or dirp(1) then
+  elseif dirp("down") or dirp("right") then
     pause_sel = pause_sel % 4 + 1
     sfx(0, 0)
-  elseif btnp(4) then
+  elseif btnp("a") then
     if pause_sel == 1 then
       state = "play"
       sfx(11, 0)
@@ -661,12 +666,12 @@ end
 local function update_win()
   win_t = win_t + 1
   if win_t == 46 and win_new_best then sfx(10, 2) end
-  if btnp(10) then toggle_music() end
+  if btnp("view") then toggle_music() end
   if win_t > 50 then
-    if btnp(4) then
+    if btnp("a") then
       sfx(1, 0)
       start_gen()                              -- 再来一局：同难度换新题
-    elseif btnp(11) then
+    elseif btnp("menu") then
       to_title()
     end
   end
@@ -675,7 +680,7 @@ end
 function _update()
   t = t + 1
   if state == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then state = "title" end
   elseif state == "title" then update_title()
   elseif state == "gen" then update_gen()
   elseif state == "play" then update_play()
@@ -701,7 +706,7 @@ function recompute_conflicts()                 -- 检查模式：行/列/宫内�
   end
   for u = 0, 8 do                              -- 宫
     for d = 1, 9 do cnt[d] = 0 end
-    local r0, c0 = flr(u / 3) * 3, (u % 3) * 3
+    local r0, c0 = math.floor(u / 3) * 3, (u % 3) * 3
     for r = r0, r0 + 2 do
       for c = c0, c0 + 2 do
         local v = puz[idx(r, c)]
@@ -722,7 +727,8 @@ end
 local function draw_dots_bg()                  -- 深底 + 稀疏点纹
   cls(C_PAGE)
   fillp(0x0842)
-  rectfill(0, 0, 256, 256, C_HUD * 256 + C_PAGE)
+  fillp(0x0842, C_HUD)
+  rectfill(0, 0, 256, 256, C_PAGE)
   fillp()
 end
 
@@ -730,23 +736,23 @@ local function draw_hud()
   rectfill(0, 0, 256, 20, C_HUD)
   line(0, 20, 255, 20, C_CELL_L)
   print(DIFF[diff].name, 4, 2, DIFF[diff].col)
-  ctext(mmss(flr(play_frames / 60)), 2, 7)
+  ctext(mmss(math.floor(play_frames / 60)), 2, 7)
   local hs = btnicon("rb") .. "×" .. hints_left
-  print(hs, 252 - tw(hs), 2, hints_left > 0 and C_GOLD or C_DIM)
-  if music_on then print("♪", 252 - tw(hs) - 24, 2, 30) end
+  print(hs, 252 - textw(hs), 2, hints_left > 0 and C_GOLD or C_DIM)
+  if music_on then print("♪", 252 - textw(hs) - 24, 2, 30) end
 end
 
 local function draw_status()
   local s = pencil and "铅笔 开" or "铅笔 关"
   print(s, 4, STAT_Y, pencil and C_GOLD or C_DIM)
   s = check and "检查 开" or "检查 关"
-  print(s, 252 - tw(s), STAT_Y, check and C_CONFL or C_DIM)
+  print(s, 252 - textw(s), STAT_Y, check and C_CONFL or C_DIM)
 end
 
 local function draw_tips()
   rectfill(0, TIP_Y, 256, 16, C_HUD)
   line(0, TIP_Y, 255, TIP_Y, C_CELL_L)
-  ctext(TIPS[flr(t / 240) % #TIPS + 1], TIP_Y, C_DIM)
+  ctext(TIPS[math.floor(t / 240) % #TIPS + 1], TIP_Y, C_DIM)
 end
 
 local function draw_board()
@@ -765,17 +771,20 @@ local function draw_board()
         rectfill(px, py, CELL, CELL, base)
         if cursor_on and (r == cy or c == cx or box_of(r, c) == box_of(cy, cx)) then
           fillp(0x2222)
-          rectfill(px, py, CELL, CELL, C_CURSOR * 256 + base)
+          fillp(0x2222, C_CURSOR)
+          rectfill(px, py, CELL, CELL, base)
           fillp()
         end
         if cursor_on and cv ~= 0 and puz[i] == cv then
           fillp(0x8888)
-          rectfill(px, py, CELL, CELL, C_GOLD * 256 + base)
+          fillp(0x8888, C_GOLD)
+          rectfill(px, py, CELL, CELL, base)
           fillp()
         end
         if conf[i] then
           fillp(0x2222)
-          rectfill(px, py, CELL, CELL, C_CONFL * 256 + base)
+          fillp(0x2222, C_CONFL)
+          rectfill(px, py, CELL, CELL, base)
           fillp()
         end
       end
@@ -821,7 +830,7 @@ local function draw_board()
       elseif next(penc[i]) then
         for d = 1, 9 do
           if penc[i][d] then
-            local sr, sc = flr((d - 1) / 3), (d - 1) % 3
+            local sr, sc = math.floor((d - 1) / 3), (d - 1) % 3
             sspr(d * 4, 16, 3, 5, px + sc * 6 + 2, py + sr * 6)
           end
         end
@@ -834,7 +843,7 @@ local function draw_board()
     local px, py = BX + cx * CELL, BY + cy * CELL
     local oc
     if focus == 1 then oc = C_GRID
-    elseif flr(t / 8) % 2 == 0 then oc = C_GOLD
+    elseif math.floor(t / 8) % 2 == 0 then oc = C_GOLD
     else oc = C_AMBER end
     rect(px - 2, py - 2, 22, 22, oc)
     rect(px - 1, py - 1, 20, 20, oc)
@@ -853,7 +862,7 @@ local function draw_bar()
     local full = (cnts[d] or 0) >= 9
     rrectfill(kx, BAR_Y, KEY_W, KEY_H, 3, sel and C_CURSOR or C_CELL_D)
     rrect(kx, BAR_Y, KEY_W, KEY_H, 3,
-      sel and (flr(t / 8) % 2 == 0 and C_GOLD or C_AMBER) or C_GRID)
+      sel and (math.floor(t / 8) % 2 == 0 and C_GOLD or C_AMBER) or C_GRID)
     print(d, kx + 8, BAR_Y + 2, sel and C_INK or (full and C_DIM or C_TXT))
     pal(7, sel and C_INK or (full and C_DIM or C_TXT))
     sspr((9 - (cnts[d] or 0)) * 4, 16, 3, 5, kx + 11, BAR_Y + 20)
@@ -866,12 +875,12 @@ local function draw_gen()
   rrectfill(64, 92, 128, 76, 6, C_HUD)
   rrect(64, 92, 128, 76, 6, C_GRID)
   rectfill(66, 94, 124, 1, 30)
-  ctext("出题中" .. string.rep(".", flr(t / 20) % 4), 104, C_GOLD)
+  ctext("出题中" .. string.rep(".", math.floor(t / 20) % 4), 104, C_GOLD)
   ctext(gen_phase == 0 and "构建终盘" or "挖洞 ・ 唯一解验证", 126, C_TXT)
   rrectfill(76, 148, 104, 12, 3, C_CELL_D)     -- 进度条
   rrect(76, 148, 104, 12, 3, C_GRID)
-  rectfill(78, 150, flr(100 * gen_prog), 8, 30)
-  if flr(t / 20) % 2 == 0 then ctext(btnicon("menu") .. " 返回", 180, C_DIM) end
+  rectfill(78, 150, math.floor(100 * gen_prog), 8, 30)
+  if math.floor(t / 20) % 2 == 0 then ctext(btnicon("menu") .. " 返回", 180, C_DIM) end
 end
 
 -- Splash：纯主视觉封面（0-90 幀）——单个 3×3 宫大特写 + 手写感大数字 + 光标格，
@@ -883,11 +892,11 @@ local function draw_splash()
     { "6", 230, 214 }, { "9", 64, 240 }, { "3", 192, 242 }, { "8", 126, 86 } }
   for i = 1, #deco do
     local d = deco[i]
-    print(d[1], d[2], d[3] + flr(sin(t * 0.01 + i) * 4), 12)
+    print(d[1], d[2], d[3] + math.floor(sin(t * 0.01 + i) * 4), 12)
   end
   -- 大 logo：数独（scale 4，暗影 + 逐字金/青）
   local chars, cols = { "数", "独" }, { C_GOLD, C_PLAYER }
-  local cw = tw("数") * 4
+  local cw = textw("数") * 4
   local xs = { 128 - cw - 10, 128 + 10 }
   for i = 1, 2 do
     print(chars[i], xs[i] + 4, 26, 1, 4)
@@ -928,7 +937,7 @@ local function draw_splash()
   rectfill(bx - 2, by, 2, 3 * cs, C_THICK)
   rectfill(bx + 3 * cs, by, 2, 3 * cs, C_THICK)
   -- 光标双描边（金/琥珀交替，封面帧稳定）
-  local oc = flr(t / 8) % 2 == 0 and C_GOLD or C_AMBER
+  local oc = math.floor(t / 8) % 2 == 0 and C_GOLD or C_AMBER
   rect(bx + cs - 3, by + cs - 3, cs + 6, cs + 6, oc)
   rect(bx + cs - 2, by + cs - 2, cs + 4, cs + 4, oc)
 end
@@ -940,7 +949,7 @@ local function draw_title()
     { "1", 56, 226 }, { "4", 204, 226 }, { "8", 132, 228 } }
   for i = 1, #deco do
     local d = deco[i]
-    print(d[1], d[2], d[3] + flr(sin(t * 0.008 + i * 0.9) * 5), 12)
+    print(d[1], d[2], d[3] + math.floor(sin(t * 0.008 + i * 0.9) * 5), 12)
   end
   -- 主视觉：3×3 宫格 + 填入数字（经典基底解采样，天然合法；frame 0 即完整）
   local gx0, gy0, cs = 156, 92, 10
@@ -970,7 +979,7 @@ local function draw_title()
       local cur = r == 4 and c == 4
       if cur then rectfill(px, py, cs, cs, C_CURSOR) end -- 光标格示意
       if cur or (r * 7 + c * 5 + 3) % 5 < 2 then
-        local d = (r * 3 + flr(r / 3) + c) % 9 + 1
+        local d = (r * 3 + math.floor(r / 3) + c) % 9 + 1
         local col = cur and C_INK
           or ((r * 11 + c * 7) % 13 == 0 and C_PLAYER or C_GIVEN)
         print(d, px + 3, py + 2, col)
@@ -981,7 +990,7 @@ local function draw_title()
   local chars, cols = { "数", "独" }, { C_GOLD, C_PLAYER }
   for i = 1, 2 do
     local x = 84 + (i - 1) * 52
-    local y = 16 + flr(sin(t * 0.04 + i * 0.5) * 2)
+    local y = 16 + math.floor(sin(t * 0.04 + i * 0.5) * 2)
     rrectfill(x, y, 36, 36, 6, C_CELL_D)
     rrect(x, y, 36, 36, 6, C_GRID)
     print(chars[i], x + 11, y + 12, C_PAGE)
@@ -997,13 +1006,13 @@ local function draw_title()
     local y = 108 + (i - 1) * 28
     local sel = title_sel == i
     if sel then
-      rrect(22, y - 5, 116, 26, 4, flr(t / 8) % 2 == 0 and C_GOLD or C_AMBER)
+      rrect(22, y - 5, 116, 26, 4, math.floor(t / 8) % 2 == 0 and C_GOLD or C_AMBER)
       print("▶", 26, y, C_GOLD)
     end
     print(DIFF[i].name, 44, y, DIFF[i].col)
-    local bt = flr(dget(i - 1))
+    local bt = math.floor(progress.best_seconds[i])
     local bs = bt == 0 and "--:--" or mmss(bt)
-    print(bs, 134 - tw(bs), y, sel and 7 or C_DIM)
+    print(bs, 134 - textw(bs), y, sel and 7 or C_DIM)
   end
   -- 提示（稳定不闪烁）
   local hint = btnicon("dpad") .. " 选难度　" .. btnicon("a") .. " 出题开局　"
@@ -1015,18 +1024,19 @@ end
 
 local function draw_pause()
   fillp(0x5a5a)                                -- 暗色抖动纱罩
-  rectfill(0, 0, 256, 256, C_PAGE * 256 + 0)
+  fillp(0x5a5a, C_PAGE)
+  rectfill(0, 0, 256, 256, 0)
   fillp()
   rrectfill(64, 66, 128, 124, 6, C_HUD)
   rrect(64, 66, 128, 124, 6, C_GRID)
   rectfill(66, 68, 124, 1, 30)
-  print("暂停", (256 - tw("暂停")) / 2 + 1, 79, C_PAGE)
+  print("暂停", (256 - textw("暂停")) / 2 + 1, 79, C_PAGE)
   ctext("暂停", 78, C_GOLD)
   local items = { "继续", "重开本题", "换一题", "返回难度选择" }
   for i = 1, 4 do
     local y = 104 + (i - 1) * 22
     local sel = pause_sel == i
-    if sel and flr(t / 10) % 2 == 0 then print("▶", 78, y, C_GOLD) end
+    if sel and math.floor(t / 10) % 2 == 0 then print("▶", 78, y, C_GOLD) end
     print(items[i], 94, y, sel and 7 or C_DIM)
   end
 end
@@ -1039,7 +1049,8 @@ local function draw_win()
       for c = 0, 8 do
         local d0 = (r + c) * 2
         if win_t > d0 and win_t < d0 + 26 then
-          rectfill(BX + c * CELL, BY + r * CELL, CELL, CELL, C_GOLD * 256 + C_CELL_D)
+          fillp(0x8888, C_GOLD)
+          rectfill(BX + c * CELL, BY + r * CELL, CELL, CELL, C_CELL_D)
         end
       end
     end
@@ -1047,25 +1058,26 @@ local function draw_win()
   end
   if win_t <= 60 then return end
   fillp(0x5a5a)
-  rectfill(0, 0, 256, 256, C_PAGE * 256 + 0)
+  fillp(0x5a5a, C_PAGE)
+  rectfill(0, 0, 256, 256, 0)
   fillp()
   rrectfill(44, 56, 168, 152, 8, C_HUD)
   rrect(44, 56, 168, 152, 8, C_GRID)
   rectfill(46, 58, 164, 1, 30)
-  print("完成！", (256 - tw("完成！")) / 2 + 1, 71, C_PAGE)
+  print("完成！", (256 - textw("完成！")) / 2 + 1, 71, C_PAGE)
   ctext("完成！", 70, C_GOLD)
   local s = "难度 " .. DIFF[diff].name
-  local x0 = (256 - tw(s)) / 2
+  local x0 = (256 - textw(s)) / 2
   print(s, x0, 96, C_TXT)
-  print(DIFF[diff].name, x0 + tw("难度 "), 96, DIFF[diff].col)
-  ctext("用时 " .. mmss(flr(play_frames / 60)), 116, 7)
+  print(DIFF[diff].name, x0 + textw("难度 "), 96, DIFF[diff].col)
+  ctext("用时 " .. mmss(math.floor(play_frames / 60)), 116, 7)
   ctext("提示 " .. (HINTS_MAX - hints_left) .. " ・ 填错 " .. mistakes, 136, C_TXT)
   if win_new_best then
-    if flr(t / 6) % 2 == 0 then ctext("★ 新纪录 ★", 156, C_GOLD) end
+    if math.floor(t / 6) % 2 == 0 then ctext("★ 新纪录 ★", 156, C_GOLD) end
   elseif win_best_hints then
-    if flr(t / 6) % 2 == 0 then ctext("☆ 提示新纪录 ☆", 156, C_HINTC) end
+    if math.floor(t / 6) % 2 == 0 then ctext("☆ 提示新纪录 ☆", 156, C_HINTC) end
   end
-  if flr(t / 16) % 2 == 0 then ctext(btnicon("a") .. " 再来一局", 174, 7) end
+  if math.floor(t / 16) % 2 == 0 then ctext(btnicon("a") .. " 再来一局", 174, 7) end
   ctext(btnicon("menu") .. " 回标题", 190, C_DIM)
 end
 
@@ -1098,7 +1110,7 @@ function _init()
   build_maps()
   bake_tiny()
   init_audio()
-  music_on = dget(6) == 0                      -- 槽位 6：0 = 开（默认）
+  music_on = progress.music_on
   if music_on then set_bgm(true) end
   state, diff, title_sel = "splash", 1, 1
 end

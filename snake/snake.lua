@@ -1,10 +1,18 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {best_scores = {0, 0, 0}, music_on = true}
+end
+
+local DIRECTIONS = {"left", "right", "up", "down"}
+
 -- 贪吃蛇 ・ FC-16 演示卡带
 -- 模式：经典（撞墙/撞己皆亡）/ 穿墙（四边环绕）/ 障碍（固定障碍阵 + 致命边界）
 -- 网格逻辑 + 渲染插值：蛇身按步进间进度平滑滑动，体节桥接补缝，穿墙两侧补画；
 -- 明暗相间花纹；吃食头部放大；星果光环 + 倒计时闪烁 + 扩散环庆祝；
 -- 死亡闪红（绘制期 + 显示期映射）+ 撞击回弹 + 自尾向头逐节碎裂
 -- 音频：转向轻响 / 吃食音高随连吃上升 8 级 / 星果琶音 / 死亡下坠 / 新纪录旋律 /
---       原创 8 小节循环 BGM（View 开关）；分模式最高分 dset + fflush 持久化
+-- 存档使用结构化数据（SPEC §13）。
 -- 精灵与全部 SFX/MUSIC 由 _init 程序化写入（SPEC §4.2/§5.2），颜色直取 §2.2 色表
 -- 操作：方向键转向（入队即刻预转向 + 轻响）　B/Menu 暂停　A 确认・重来　View 音乐开关
 
@@ -16,7 +24,6 @@ local FW, FH = COLS * CELL, ROWS * CELL
 local MODES = {"经典", "穿墙", "障碍"}
 local WRAP = {false, true, false}   -- 模式 2 穿墙
 local SPD_NAME, SPD_INT, SPD_COL = {"慢", "中", "快"}, {12, 10, 8}, {33, 30, 59}
-local BEST_SLOT = {0, 1, 2}         -- 分模式最高分 dset 槽位
 -- 方向：1 右 2 上 3 左 4 下（同轴奇偶相同 → 禁止 180° 回头）
 local DX, DY = {1, 0, -1, 0}, {0, -1, 0, 1}
 local KEY2DIR = {[0] = 3, [1] = 1, [2] = 2, [3] = 4}
@@ -31,24 +38,24 @@ local function fmt(n) return string.format("%d", n) end
 -- ---------------------------------------------------------------- 音频（SPEC §5.2）
 
 local function u8(a, v) poke(a, v % 256) end
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -62,20 +69,20 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）
 -- steps[i] = {音高, 音色, 音量[, 效果]}，nil 步与音高 0 均为休止
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function write_sfx(id, speed, steps, len)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, len or #steps)
   for i = 0, 31 do
     local a, s = base + 16 + i * 4, steps[i + 1]
     if s and (s[1] or 0) > 0 then
-      u8(a, s[1] - 1) u8(a + 1, WMAP[s[2] or 0]) u8(a + 2, s[3] or 0) u8(a + 3, s[4] or 0)
+      u8(a, s[1] - 1) u8(a + 1, TIMBRE_SOURCE[s[2] or 0]) u8(a + 2, s[3] or 0) u8(a + 3, s[4] or 0)
     else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end
   end
 end
@@ -179,20 +186,20 @@ local function seg_d(px, py, ax, ay, bx, by) -- 点到线段距离
     tt = mid(0, ((px - ax) * dx + (py - ay) * dy) / l2, 1)
   end
   local qx, qy = ax + dx * tt, ay + dy * tt
-  return sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy))
+  return math.sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy))
 end
 local function edge_d(px, py, pts) -- 多边形最小边距
   local best = 1e9
   for i = 1, #pts do
     local a, b = pts[i], pts[i % #pts + 1]
-    best = min(best, seg_d(px, py, a[1], a[2], b[1], b[2]))
+    best = math.min(best, seg_d(px, py, a[1], a[2], b[1], b[2]))
   end
   return best
 end
 -- 蛇头（朝右，tile 1）：圆角头颅 + 双眼（瞳孔朝行进方向）+ 鼻孔 + 分叉吐舌
 local function head_r_fn(x, y)
   if x > 12.4 then -- 舌头伸向右缘
-    local ty = abs(y - 8)
+    local ty = math.abs(y - 8)
     if (x <= 14 and ty <= 0.8) or (x > 14 and ty >= 0.3 and ty <= 1.7) then return 59 end
   end
   if not in_rr(x, y, 1.2, 2.4, 13.4, 13.6, 5) then
@@ -222,8 +229,8 @@ local function bake_sprites()
         return in_rr(x, y, 1, 1, 15, 15, 4.7) and rim or nil
       end
       local dx, dy = x - 8, y - 8
-      if abs(dx) + abs(dy) <= 2.7 then return dot end
-      if dy < -4.6 and abs(dx) < 5.5 then return sheen end
+      if math.abs(dx) + math.abs(dy) <= 2.7 then return dot end
+      if dy < -4.6 and math.abs(dx) < 5.5 then return sheen end
       if dx + dy > shthr then return 35 end
       return main
     end)
@@ -232,7 +239,7 @@ local function bake_sprites()
   body_tile(34, 37, 36, 33, 5.8)
   -- 苹果：果体 58・底暗 59・描边 61・奶油高光 22・果梗 17・绿叶 33/34
   bake(5, function(x, y)
-    if abs(x - 7.8) <= 0.8 and y >= 2.2 and y <= 4.6 then return 17 end
+    if math.abs(x - 7.8) <= 0.8 and y >= 2.2 and y <= 4.6 then return 17 end
     local lx, ly = (x - 11) / 2.1, (y - 3.4) / 1.25
     if lx * lx + ly * ly <= 1 then return (x + y < 13) and 33 or 34 end
     local dx, dy = x - 8, y - 9.8
@@ -292,10 +299,10 @@ local music_on, bgm_on
 local RING     -- 标题装饰蛇的静态环绕路径（_init 生成）
 local function toggle_music()
   music_on = not music_on
-  dset(3, music_on and 0 or 1)
-  fflush()
+  progress.music_on = music_on; assert(save(progress))
+
   if music_on then music(0, 400, 0xF0) bgm_on = true
-  else music(-1, 400) bgm_on = false end
+  else music_stop(400) bgm_on = false end
 end
 
 -- ---------------------------------------------------------------- 粒子・飘字・光环
@@ -305,13 +312,13 @@ local function burst(px, py, cols, n)
     parts[#parts + 1] = {
       x = px + rnd(-4, 4), y = py + rnd(-3, 3),
       vx = rnd(-1.6, 1.6), vy = rnd(-2.8, -0.4),
-      c = cols[flr(rnd(#cols)) + 1], life = 14 + flr(rnd(14)),
+      c = cols[math.floor(rnd(#cols)) + 1], life = 14 + math.floor(rnd(14)),
     }
   end
   while #parts > 200 do table.remove(parts, 1) end
 end
 local function add_pop(txt, x, y, gold)
-  pops[#pops + 1] = {txt = txt, x = flr(x - tw(txt) / 2), y = flr(y - 10), t = 0, gold = gold}
+  pops[#pops + 1] = {txt = txt, x = math.floor(x - textw(txt) / 2), y = math.floor(y - 10), t = 0, gold = gold}
 end
 local function update_parts()
   for i = #parts, 1, -1 do
@@ -349,7 +356,7 @@ local function free_cell() -- 随机取一个空闲格（避开蛇身/食物/障
     end
   end
   if #free == 0 then return nil end
-  return free[flr(rnd(#free)) + 1]
+  return free[math.floor(rnd(#free)) + 1]
 end
 
 local function spawn_food()
@@ -377,17 +384,17 @@ local function die()
   final_len, shake = #body, 12
   if score > best then
     best, new_best = score, true
-    dset(BEST_SLOT[mode], best)
-    fflush()
+    progress.best_scores[mode] = best; assert(save(progress))
+
   end
-  if bgm_on then music(-1, 300) bgm_on = false end
+  if bgm_on then music_stop(300) bgm_on = false end
   sfx(13, 2)
 end
 local function start_game()
   sfx(1, 0)
   state, score, eaten = "play", 0, 0
   combo, combo_t, new_best, win = 0, 0, false, false
-  best = dget(BEST_SLOT[mode])
+  best = progress.best_scores[mode]
   body = {}
   for i = 0, 2 do body[i + 1] = {x = 6 - i, y = 2, mx = 0, my = 0} end
   dir, pend = 1, {}
@@ -409,7 +416,7 @@ end
 local function adjust(d) -- ←→ 调整当前行（模式或速度，循环切换）
   if sel_row == 1 then
     mode = (mode + d + 2) % 3 + 1
-    best = dget(BEST_SLOT[mode])
+    best = progress.best_scores[mode]
   else
     spd = (spd + d + 2) % 3 + 1
   end
@@ -453,18 +460,18 @@ local function step_snake()
   if eating then
     eaten, score = eaten + 1, score + 10
     combo, combo_t, eat_pulse = combo + 1, 0, 8
-    sfx(3 + min(combo - 1, 7), 0)
+    sfx(3 + math.min(combo - 1, 7), 0)
     burst(hx, hy, {58, 59, 34, 33}, 5)
     add_pop("+10", hx, hy, false)
     food = nil
     spawn_food()
     if not food then -- 填满全场：完美通关
       state, over_t, win, final_len = "over", 40, true, #body
-      if bgm_on then music(-1, 300) bgm_on = false end
+      if bgm_on then music_stop(300) bgm_on = false end
       return
     end
     if eaten % 5 == 0 and not sfruit then spawn_special() end
-    step_int = max(SPD_INT[spd] - 4, SPD_INT[spd] - eaten * 0.25) -- 加速曲线
+    step_int = math.max(SPD_INT[spd] - 4, SPD_INT[spd] - eaten * 0.25) -- 加速曲线
   end
   if star then -- 星果：+50 分 + 金色爆发 + 扩散环
     score = score + 50
@@ -477,7 +484,7 @@ local function step_snake()
 end
 local function update_play()
   for k = 0, 3 do -- 转向输入：两级缓冲，先按先转；入队即按生效方向校验轴向
-    if dirp(k) and #pend < 2 then -- 同轴（含 180° 回头）当场拒收，不占缓冲位
+    if dirp(DIRECTIONS[k + 1]) and #pend < 2 then -- 同轴（含 180° 回头）当场拒收，不占缓冲位
       local d = KEY2DIR[k]
       local eff = pend[#pend] or dir
       if d % 2 ~= eff % 2 then
@@ -517,23 +524,23 @@ local function update_over()
   over_t = over_t + 1
   if over_t == 36 and new_best then sfx(14, 2) end
   if over_t > 40 then
-    if btnp(4) then start_game()
-    elseif btnp(11) then to_title() end
+    if btnp("a") then start_game()
+    elseif btnp("menu") then to_title() end
   end
 end
 local function update_title()
-  if dirp(2) or dirp(3) then sel_row = 3 - sel_row sfx(0, 0)
-  elseif dirp(0) then adjust(-1)
-  elseif dirp(1) then adjust(1) end
-  if btnp(10) then toggle_music() end
-  if btnp(4) then start_game() end
+  if dirp("up") or dirp("down") then sel_row = 3 - sel_row sfx(0, 0)
+  elseif dirp("left") then adjust(-1)
+  elseif dirp("right") then adjust(1) end
+  if btnp("view") then toggle_music() end
+  if btnp("a") then start_game() end
 end
 
 -- ---------------------------------------------------------------- 绘制
 
 local function blit(id, x, y, w, h, fh, fv)
   -- 画一段 16×16 精灵；穿墙模式下越界一侧补画一份，保持视觉连续
-  local sx, sy = (id % 16) * 16, flr(id / 16) * 16
+  local sx, sy = (id % 16) * 16, math.floor(id / 16) * 16
   sspr(sx, sy, 16, 16, x, y, w, h, fh, fv)
   if state ~= "title" and mode == 2 then
     if x < FX then sspr(sx, sy, 16, 16, x + FW, y, w, h, fh, fv)
@@ -552,7 +559,7 @@ local function draw_field()
     end
   end
   if mode == 2 then -- 穿墙：四边流动虚线提示环绕
-    local off = flr(t / 2) % 8
+    local off = math.floor(t / 2) % 8
     for xx = FX - off, FX + FW, 8 do
       rectfill(xx, FY, 5, 2, 43) rectfill(xx, FY + FH - 2, 5, 2, 43)
     end
@@ -579,14 +586,14 @@ local function draw_field()
 end
 local function draw_food()
   if not food then return end
-  blit(5, FX + food.x * CELL, FY + food.y * CELL + flr(sin(t * 0.09) * 1.5), 16, 16)
+  blit(5, FX + food.x * CELL, FY + food.y * CELL + math.floor(sin(t * 0.09) * 1.5), 16, 16)
 end
 local function draw_special()
-  if sfruit and (sfruit.life >= 120 or flr(t / 4) % 2 == 1) then
+  if sfruit and (sfruit.life >= 120 or math.floor(t / 4) % 2 == 1) then
     local x, y = FX + sfruit.x * CELL + 8, FY + sfruit.y * CELL + 8
     circ(x, y, 11 + sin(t * 0.07) * 1.6, 28) -- 光环
     circ(x, y, 8.6 + sin(t * 0.07) * 1.2, 29)
-    local w = flr(16 * (1 + 0.1 * sin(t * 0.09))) -- 呼吸缩放
+    local w = math.floor(16 * (1 + 0.1 * sin(t * 0.09))) -- 呼吸缩放
     blit(6, x - w / 2, y - w / 2, w, w)
   end
   for i = 1, #rings do
@@ -606,9 +613,9 @@ local function draw_snake()
   end
   for i = 2, #body do
     local a, b = cs[i], cs[i - 1]
-    if abs(b[1] - a[1]) <= CELL and abs(b[2] - a[2]) <= CELL then -- 穿墙断口跳过
-      rectfill(min(a[1], b[1]) - 6, min(a[2], b[2]) - 6,
-        abs(b[1] - a[1]) + 12, abs(b[2] - a[2]) + 12, i % 2 == 0 and 33 or 34)
+    if math.abs(b[1] - a[1]) <= CELL and math.abs(b[2] - a[2]) <= CELL then -- 穿墙断口跳过
+      rectfill(math.min(a[1], b[1]) - 6, math.min(a[2], b[2]) - 6,
+        math.abs(b[1] - a[1]) + 12, math.abs(b[2] - a[2]) + 12, i % 2 == 0 and 33 or 34)
     end
   end
   for i = #body, 1, -1 do
@@ -620,7 +627,7 @@ local function draw_snake()
         local b = sin(die_t / 12 * 0.5) * 3
         x, y = x + DX[death_dir] * b, y + DY[death_dir] * b
       end
-      local w = flr(16 * k)
+      local w = math.floor(16 * k)
       x, y = x - (w - 16) / 2, y - (w - 16) / 2
       if fdir == 1 then blit(1, x, y, w, w)          -- 四向：右/左 = 右翻转
       elseif fdir == 3 then blit(1, x, y, w, w, true)
@@ -633,13 +640,13 @@ local function draw_snake()
 end
 local function draw_parts()
   for i = 1, #parts do
-    rectfill(flr(parts[i].x), flr(parts[i].y), 2, 2, parts[i].c)
+    rectfill(math.floor(parts[i].x), math.floor(parts[i].y), 2, 2, parts[i].c)
   end
 end
 local function draw_pops()
   for i = 1, #pops do
     local p = pops[i]
-    local y = flr(p.y - p.t * 0.5)
+    local y = math.floor(p.y - p.t * 0.5)
     print(p.txt, p.x + 1, y + 1, 1)
     print(p.txt, p.x, y, p.gold and (p.t < 16 and 31 or 30) or (p.t < 14 and 33 or 34))
   end
@@ -665,23 +672,25 @@ end
 local function draw_bottom()
   rectfill(0, 240, 256, 16, 2)
   local s = btnicon("dpad") .. " 转向　" .. btnicon("b") .. " 暂停"
-  print(s, (256 - tw(s)) / 2, 240, 6)
+  print(s, (256 - textw(s)) / 2, 240, 6)
 end
 local function draw_pause()
   fillp(0xa5a5)
-  rectfill(0, 0, 256, 256, 15 * 256 + 0)
+  fillp(0xa5a5, 15)
+  rectfill(0, 0, 256, 256, 0)
   fillp()
   rectfill(56, 92, 144, 76, 15)
   rect(56, 92, 144, 76, 37)
   local s = "暂停"
-  print(s, (256 - tw(s)) / 2 + 1, 103, 1)
-  print(s, (256 - tw(s)) / 2, 102, 7)
+  print(s, (256 - textw(s)) / 2 + 1, 103, 1)
+  print(s, (256 - textw(s)) / 2, 102, 7)
   s = btnicon("b") .. " / " .. btnicon("menu") .. " 继续　" .. btnicon("view") .. " 音乐"
-  print(s, (256 - tw(s)) / 2, 132, 6)
+  print(s, (256 - textw(s)) / 2, 132, 6)
 end
 local function draw_over()
   fillp(0x8421)
-  rectfill(0, 0, 256, 256, 15 * 256 + 0)
+  fillp(0x8421, 15)
+  rectfill(0, 0, 256, 256, 0)
   fillp()
   local bx, by, bw, bh = 40, 54, 176, 150
   rectfill(bx, by, bw, bh, 15)
@@ -689,17 +698,17 @@ local function draw_over()
   rectfill(bx + 2, by + 2, bw - 4, 1, 33)
   rectfill(bx + 2, by + bh - 3, bw - 4, 1, 36)
   local function row(txt, y, c)
-    print(txt, (256 - tw(txt)) / 2, y, c)
+    print(txt, (256 - textw(txt)) / 2, y, c)
   end
   local s = win and "完美通关！" or "游戏结束"
-  print(s, (256 - tw(s)) / 2 + 1, 65, 1)
+  print(s, (256 - textw(s)) / 2 + 1, 65, 1)
   row(s, 64, 63)
   row("模式 " .. MODES[mode] .. "　速度 " .. SPD_NAME[spd], 88, 6)
   row("分数 " .. fmt(score), 108, 7)
   row("长度 " .. fmt(final_len), 126, 33)
   row("最高 " .. fmt(best), 144, 30)
-  if new_best and flr(t / 6) % 2 == 0 then row("★ 新纪录 ★", 164, 31) end
-  if flr(t / 16) % 2 == 0 then row(btnicon("a") .. " 再来一局", 184, 7) end
+  if new_best and math.floor(t / 6) % 2 == 0 then row("★ 新纪录 ★", 164, 31) end
+  if math.floor(t / 16) % 2 == 0 then row(btnicon("a") .. " 再来一局", 184, 7) end
   row(btnicon("menu") .. " 回标题", 204, 6)
 end
 -- 标题装饰：环绕标题板的静态蛇形路径（_init 生成，frame 0 即完整）
@@ -725,7 +734,8 @@ end
 local function draw_title()
   cls(15)
   fillp(0x0842)
-  rectfill(0, 0, 256, 256, 13 * 256 + 15)
+  fillp(0x0842, 13)
+  rectfill(0, 0, 256, 256, 15)
   fillp()
   draw_title_snake()
   rectfill(52, 28, 152, 48, 51) -- 标题板（斜面匾）
@@ -733,7 +743,7 @@ local function draw_title()
   rectfill(52, 74, 152, 2, 50) rectfill(202, 28, 2, 48, 50)
   local chars, cols = {"贪", "吃", "蛇"}, {33, 30, 55}
   for i = 1, 3 do
-    local x, y = 94 + (i - 1) * 26, 38 + flr(sin(t * 0.05 + i * 0.14) * 3)
+    local x, y = 94 + (i - 1) * 26, 38 + math.floor(sin(t * 0.05 + i * 0.14) * 3)
     print(chars[i], x + 2, y + 2, 1)
     print(chars[i], x, y, cols[i])
   end
@@ -749,15 +759,15 @@ local function draw_title()
     print("▶", 182, y, act and 43 or 10)
   end
   local s = "按 " .. btnicon("a") .. " 开始" -- 稳定提示，不闪烁
-  print(s, (256 - tw(s)) / 2 + 1, 169, 1)
-  print(s, (256 - tw(s)) / 2, 168, 7)
-  s = "纪录 经 " .. fmt(dget(0)) .. "　穿 " .. fmt(dget(1)) .. "　障 " .. fmt(dget(2))
-  print(s, (256 - tw(s)) / 2, 192, 30)
+  print(s, (256 - textw(s)) / 2 + 1, 169, 1)
+  print(s, (256 - textw(s)) / 2, 168, 7)
+  s = "纪录 经 " .. fmt(progress.best_scores[1]) .. "　穿 " .. fmt(progress.best_scores[2]) .. "　障 " .. fmt(progress.best_scores[3])
+  print(s, (256 - textw(s)) / 2, 192, 30)
   s = btnicon("up") .. btnicon("down") .. " 选行　"
     .. btnicon("left") .. btnicon("right") .. " 调整"
-  print(s, (256 - tw(s)) / 2, 214, 6)
+  print(s, (256 - textw(s)) / 2, 214, 6)
   print("♪", 242, 2, music_on and 30 or 10)
-  print("FrostMiKu ・ FC-16", (256 - tw("FrostMiKu ・ FC-16")) / 2, 240, 10)
+  print("FrostMiKu ・ FC-16", (256 - textw("FrostMiKu ・ FC-16")) / 2, 240, 10)
 end
 
 -- Splash：纯主视觉封面（0-90 帧）——粗壮蛇身盘绕成环、蛇头咬苹果的特写，
@@ -765,7 +775,8 @@ end
 local function draw_splash()
   cls(15)
   fillp(0x0842)
-  rectfill(0, 0, 256, 256, 13 * 256 + 15)
+  fillp(0x0842, 13)
+  rectfill(0, 0, 256, 256, 15)
   fillp()
   -- 底部角落点缀：小星果与小苹果（2× 放大，固定构图）
   sspr(96, 0, 16, 16, 26, 196, 32, 32)
@@ -776,7 +787,7 @@ local function draw_splash()
   }
   for i, p in ipairs(ring) do
     local id = (i % 2 == 0) and 4 or 3
-    sspr((id % 16) * 16, flr(id / 16) * 16, 16, 16, p[1], p[2], 48, 48)
+    sspr((id % 16) * 16, math.floor(id / 16) * 16, 16, 16, p[1], p[2], 48, 48)
   end
   -- 蛇头（4× 放大，朝右）咬住苹果（3× 放大）
   sspr(16, 0, 16, 16, 156, 72, 64, 64)
@@ -797,7 +808,7 @@ local function draw_splash()
     print(chars[i], x, 172, cols[i], 4)
   end
   local s = "S N A K E"
-  print(s, (256 - tw(s)) / 2, 228, 9)
+  print(s, (256 - textw(s)) / 2, 228, 9)
 end
 
 -- ---------------------------------------------------------------- 生命周期
@@ -805,8 +816,8 @@ end
 function _init()
   bake_sprites()
   init_audio()
-  music_on = dget(3) == 0 -- 槽位 3：0 = 开（默认）
-  bgm_on, best = false, dget(0)
+  music_on = progress.music_on
+  bgm_on, best = false, progress.best_scores[1]
   RING = build_ring()
   parts, pops, rings = {}, {}, {}
   shake, eat_pulse, death_u, die_t, over_t = 0, 0, 1, 0, 0
@@ -820,16 +831,16 @@ function _update()
   if eat_pulse > 0 then eat_pulse = eat_pulse - 1 end
   if shake > 0 then shake = shake - 1 end
   if state == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then state = "title" end
   elseif state == "title" then
     update_title()
   elseif state == "play" then
-    if btnp(10) then toggle_music() end
-    if btnp(5) or btnp(11) then state = "pause" sfx(15, 0)
+    if btnp("view") then toggle_music() end
+    if btnp("b") or btnp("menu") then state = "pause" sfx(15, 0)
     else update_play() end
   elseif state == "pause" then
-    if btnp(5) or btnp(11) or btnp(4) then state = "play" sfx(15, 0)
-    elseif btnp(10) then toggle_music() end
+    if btnp("b") or btnp("menu") or btnp("a") then state = "play" sfx(15, 0)
+    elseif btnp("view") then toggle_music() end
   elseif state == "dying" then
     update_dying()
   elseif state == "over" then
@@ -848,11 +859,11 @@ function _draw()
     return
   end
   if shake > 0 then -- 死亡震屏（与幀号绑定，保持确定性）
-    local a = min(5, shake * 0.6)
-    camera(flr(sin(t * 0.11) * a), flr(cos(t * 0.17) * a * 0.6))
+    local a = math.min(5, shake * 0.6)
+    camera(math.floor(sin(t * 0.11) * a), math.floor(cos(t * 0.17) * a * 0.6))
   end
   -- 死亡红闪之一：显示期映射把棋盘底色整体染红（幀缓冲不变）
-  local flash = state == "dying" and die_t < 24 and flr(die_t / 4) % 2 == 0
+  local flash = state == "dying" and die_t < 24 and math.floor(die_t / 4) % 2 == 0
   if flash then
     pal(15, 61, 1)
     pal(14, 60, 1)

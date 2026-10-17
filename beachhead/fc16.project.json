@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "抢滩登陆战2002",
+    "author": "FrostMiKu",
+    "saveId": "beachhead2002",
+    "version": 1,
+    "flags": 0,
+    "output": "beachhead.fc16",
+    "release": "beachhead.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "beachhead.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

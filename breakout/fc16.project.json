@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "breakout",
+    "author": "FrostMiKu",
+    "saveId": "breakout",
+    "version": 1,
+    "flags": 0,
+    "output": "breakout.fc16",
+    "release": "breakout.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "breakout.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

@@ -1,33 +1,39 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {best = 0}
+end
+
 -- 雷霆战机（FC-16）
 -- 纵版弹幕射击：方向键 移动 / Ⓐ 射击 / Menu 暂停
 -- 纯 Lua 卡带（不依赖精灵与地图段）：程序化几何绘制 + 芯片音效（§5.2 poke 写入）
 -- Neo 霓虹风格：紫黑夜空 + 三层视差星空 + 合成波网格 + 霓虹太阳，实体全部高亮描边发光
 -- 波次递增：grunt → weaver → tank，每 5 波 boss（环形弹幕 + 瞄准三连）
 -- 敌人概率掉落「P」火力强化（1→5 级，5 级追加双斜弹）/「♥」回血（生命上限 3）
--- 最高分经 dset 存档
+-- 存档使用结构化数据（SPEC §13）。
 
 function u8(a, v) poke(a, v % 256) end
 
 -- ---------------------------------------------------------------- 合成器
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -41,20 +47,20 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- 写一条 SFX（SPEC §5.2：每条 144B = 头 16B + 32 步 × 4B）
--- notes: 音高表（旧固件 MIDI 号 1–96，0=休止）；wave 旧固件音色，经 WMAP 映射到新来源
+-- notes: 音高表（乐谱半音编号 1–96，0=休止）；wave 配器音色，按游戏配器表选择 SFX 来源
 function init_sfx(id, notes, wave, vol)
   local base = 0x0C0000 + id * 144
-  poke2(base, 2 * 4)  -- 速度：旧每步 2 帧(60Hz) → 新 SPD 8 tick(240Hz)
+  poke2(base, 2 * 4)  -- 速度：乐谱每步 2 帧(60Hz) → 新 SPD 8 tick(240Hz)
   u8(base + 2, #notes) -- 有效步数
   for i = 0, 31 do
     local a = base + 16 + i * 4
     if i < #notes and notes[i + 1] > 0 then
       u8(a, notes[i + 1] - 1)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, vol)
       u8(a + 3, 0)
     else
@@ -116,8 +122,8 @@ local function gen_stars()
   for _, L in ipairs(STAR_LAYERS) do
     for _ = 1, L.n do
       stars[#stars + 1] = {
-        x = 1 + flr(star_rnd() * 254),
-        y = 1 + flr(star_rnd() * 126),
+        x = 1 + math.floor(star_rnd() * 254),
+        y = 1 + math.floor(star_rnd() * 126),
         sp = L.sp, c = L.c, s = L.s,
       }
     end
@@ -148,9 +154,9 @@ end
 
 function _init()
   gen_stars() -- 三层视差星空（固定种子，frame 0 即完整）
-  best = dget(0) or 0
+  best = progress.best or 0
   -- 游戏音效走脉冲通道 ch0-3（音乐占 ch4-5，mask 15 时 ch4-7 全保留给音乐）
-  init_waveforms()  -- 旧固件音色 → v0.177 自定义波形
+  init_waveforms()  -- 配器音色 使用当前自定义波形
   init_sfx(0, {72, 84}, 4, 8)    -- 射击（激光上扫）
   init_sfx(1, {30, 20, 12}, 3, 14) -- 爆炸（下坠滑音）
   init_sfx(2, {60, 52, 44, 36}, 4, 12) -- 受击 / boss 警报
@@ -169,14 +175,14 @@ function wave_def(w)
   return {
     n = 4 + w * 2,                       -- 敌机数量
     kinds = w < 2 and { 1 } or (w < 4 and { 1, 2 } or { 1, 2, 3 }),
-    gap = max(16, 64 - w * 4),           -- 出敌间隔
+    gap = math.max(16, 64 - w * 4),           -- 出敌间隔
     sp_mul = 1 + w * 0.06,               -- 速度增幅
     boss = w % 5 == 0,
   }
 end
 
 function spawn_foe(d)
-  local k = d.kinds[flr(rnd(#d.kinds)) + 1] -- rnd(n) ∈ [0,n)，+1 得 1..#kinds
+  local k = d.kinds[math.floor(rnd(#d.kinds)) + 1] -- rnd(n) ∈ [0,n)，+1 得 1..#kinds
   local spec = F[k]
   foes[#foes + 1] = {
     kind = k, x = rnd(20, 236), y = -16,
@@ -184,7 +190,7 @@ function spawn_foe(d)
     vy = spec.sp * d.sp_mul,
     vx = (rnd(1, 100) < 50 and -1 or 1) * 0.4,
     phase = rnd(1, 64) / 64,            -- 蛇形相位
-    cd = spec.fire - flr(rnd(1, 30)),
+    cd = spec.fire - math.floor(rnd(1, 30)),
     spec = spec,
   }
 end
@@ -210,14 +216,14 @@ end
 
 function update_player()
   local sp = 2.4
-  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
-  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
+  local dx = (dir("right") and 1 or 0) - (dir("left") and 1 or 0)
+  local dy = (dir("down") and 1 or 0) - (dir("up") and 1 or 0)
   player.x = player.x + dx * sp
   player.y = player.y + dy * sp
   player.x = mid(player.x, 12, 244)
   player.y = mid(player.y, 60, 244)
 
-  if btn(4) and shoot_cd <= 0 then
+  if btn("a") and shoot_cd <= 0 then
     shoot_cd = 6
     sfx(0, 0)
     -- 火力 1–5 级：直弹 1→5 发；5 级追加两发斜弹
@@ -241,17 +247,17 @@ function update_player()
     if b.y < -8 then table.remove(pbul, i) end
   end
 
-  if btnp(11) then
+  if btnp("menu") then
     state = "pause"
-    music(-1)
+    music_stop()
   end
 end
 
 function fire_foe(f)
-  local sp = 1.4 + min(wave, 20) * 0.05
+  local sp = 1.4 + math.min(wave, 20) * 0.05
   if f.kind == 1 then
     -- 瞄准弹：atan2(dx,dy) 圈制，a=0 指 +x 轴、0.25 指 +y 轴
-    local a = atan2(player.x - f.x, player.y - f.y)
+    local a = atan2(player.y - f.y, player.x - f.x)
     ebul[#ebul + 1] = { x = f.x, y = f.y + 8, vx = cos(a) * sp, vy = sin(a) * sp, c = 58 }
   elseif f.kind == 2 then
     -- 扇形三连
@@ -270,7 +276,7 @@ end
 
 function boss_attack(b)
   b.atk = b.atk + 1
-  local sp = 1.2 + min(wave, 20) * 0.04
+  local sp = 1.2 + math.min(wave, 20) * 0.04
   if b.atk % 3 == 0 then
     -- 环形八向
     for k = 0, 7 do
@@ -280,7 +286,7 @@ function boss_attack(b)
   end
   if b.atk % 2 == 0 then
     -- 瞄准三连
-    local a = atan2(player.x - b.x, player.y - b.y)
+    local a = atan2(player.y - b.y, player.x - b.x)
     for k = -1, 1 do
       ebul[#ebul + 1] = { x = b.x, y = b.y + 14, vx = cos(a) * (sp + 0.4), vy = sin(a) * (sp + 0.4), c = 23 }
     end
@@ -302,7 +308,7 @@ function update_foes()
     f.cd = f.cd - 1
     if f.cd <= 0 and f.y > 16 and f.y < 200 then
       fire_foe(f)
-      f.cd = f.spec.fire - min(wave, 10) * 3
+      f.cd = f.spec.fire - math.min(wave, 10) * 3
     end
     if f.y > 270 then table.remove(foes, i) end
   end
@@ -318,7 +324,7 @@ function update_foes()
       b.cd = b.cd - 1
       if b.cd <= 0 then
         boss_attack(b)
-        b.cd = (52 - min(wave, 10)) / sway
+        b.cd = (52 - math.min(wave, 10)) / sway
       end
     end
     -- 血量过半：狂暴二阶段（一次性的，回血也不回退）
@@ -347,13 +353,13 @@ function update_foes()
     d.y = d.y + 1
     if d.y > 256 then
       table.remove(drops, i)
-    elseif abs(d.x - player.x) < 10 and abs(d.y - player.y) < 10 then
+    elseif math.abs(d.x - player.x) < 10 and math.abs(d.y - player.y) < 10 then
       table.remove(drops, i)
       if d.kind == 1 then
-        power = min(5, power + 1)
+        power = math.min(5, power + 1)
         sfx(3, 3)
       else
-        lives = min(3, lives + 1)
+        lives = math.min(3, lives + 1)
         sfx(6, 6)
       end
     end
@@ -375,7 +381,7 @@ function boom(x, y, c, n)
     local sp = 0.8 + rnd(1, 4)
     parts[#parts + 1] = {
       x = x, y = y, vx = cos(a) * sp, vy = sin(a) * sp,
-      life = 16 + flr(rnd(1, 12)), c = c,
+      life = 16 + math.floor(rnd(1, 12)), c = c,
     }
   end
 end
@@ -388,7 +394,7 @@ function check_hits()
     consumed = false
     for j = #foes, 1, -1 do
       local f = foes[j]
-      if abs(b.x - f.x) < f.r + 2 and abs(b.y - f.y) < f.r + 2 then
+      if math.abs(b.x - f.x) < f.r + 2 and math.abs(b.y - f.y) < f.r + 2 then
         table.remove(pbul, i)
         f.hp = f.hp - 1
         if f.hp <= 0 then
@@ -409,7 +415,7 @@ function check_hits()
         break
       end
     end
-    if not consumed and boss and abs(b.x - boss.x) < boss.r + 2 and abs(b.y - boss.y) < boss.r + 2 then
+    if not consumed and boss and math.abs(b.x - boss.x) < boss.r + 2 and math.abs(b.y - boss.y) < boss.r + 2 then
       table.remove(pbul, i)
       boss.hp = boss.hp - 1
       if boss.hp <= 0 then
@@ -429,7 +435,7 @@ function check_hits()
   if invuln <= 0 and state == "play" then
     for i = #ebul, 1, -1 do
       local b = ebul[i]
-      if abs(b.x - player.x) < 6 and abs(b.y - player.y) < 6 then
+      if math.abs(b.x - player.x) < 6 and math.abs(b.y - player.y) < 6 then
         table.remove(ebul, i)
         hurt_player()
         break
@@ -439,7 +445,7 @@ function check_hits()
   if invuln <= 0 and state == "play" then
     for j = #foes, 1, -1 do
       local f = foes[j]
-      if abs(f.x - player.x) < f.r + 5 and abs(f.y - player.y) < f.r + 5 then
+      if math.abs(f.x - player.x) < f.r + 5 and math.abs(f.y - player.y) < f.r + 5 then
         table.remove(foes, j)
         boom(f.x, f.y, 44, 10)
         hurt_player()
@@ -451,19 +457,19 @@ end
 
 function hurt_player()
   lives = lives - 1
-  power = flr(max(1, power - 1)) -- 受击降一级火力，保底 1 级（max 返回浮点，取整）
+  power = math.floor(math.max(1, power - 1)) -- 受击降一级火力，保底 1 级（max 返回浮点，取整）
   invuln = 90
   boom(player.x, player.y, 44, 10)
   sfx(2, 2)
   if lives <= 0 then
     state = "over"
     over_t = 0
-    music(-1)
+    music_stop()
     if score > best then
       best = score
       new_best = true
-      dset(0, best)
-      fflush()
+      progress.best = best; assert(save(progress))
+
     end
   end
 end
@@ -520,7 +526,7 @@ end
 -- 合成波网格：地平线下方向下滚动的透视横格线 + 放射纵线
 function draw_grid()
   rectfill(0, 128, 256, 128, C.ground)
-  local off = flr((t * 0.6) % 18)
+  local off = math.floor((t * 0.6) % 18)
   for i = 0, 11 do
     line(0, 131 + i * 18 + off, 255, 131 + i * 18 + off, C.line)
   end
@@ -551,21 +557,21 @@ end
 
 function draw_player()
   if state ~= "play" and state ~= "pause" then return end
-  if invuln > 0 and flr(invuln / 4) % 2 == 1 then return end
-  local x, y = flr(player.x), flr(player.y)
+  if invuln > 0 and math.floor(invuln / 4) % 2 == 1 then return end
+  local x, y = math.floor(player.x), math.floor(player.y)
   circfill(x, y + 4, 12, 37)                       -- 青色光晕
   trifill(x - 8, y + 8, x + 8, y + 8, x, y - 10, 42)  -- 机身（霓虹青）
   rectfill(x - 1, y - 8, 2, 14, 7)                     -- 白色脊线
   trifill(x - 8, y + 8, x - 12, y + 12, x - 4, y + 9, 55) -- 左翼（霓虹紫）
   trifill(x + 8, y + 8, x + 12, y + 12, x + 4, y + 9, 55) -- 右翼（霓虹紫）
-  local fl = flr(sin(t / 6) * 2)
+  local fl = math.floor(sin(t / 6) * 2)
   circfill(x, y + 11, 2 + fl, fl == 2 and 7 or 23) -- 尾焰脉动
 end
 
 function draw_foes()
   for i = 1, #foes do
     local f = foes[i]
-    local x, y = flr(f.x), flr(f.y)
+    local x, y = math.floor(f.x), math.floor(f.y)
     if f.kind == 1 then
       circfill(x, y, 12, 62)                           -- 暗红光晕
       trifill(x - 8, y - 6, x + 8, y - 6, x, y + 8, 60)  -- 霓虹红三角（朝下）
@@ -585,13 +591,13 @@ function draw_foes()
   end
   if boss then
     local b = boss
-    local x, y = flr(b.x), flr(b.y)
+    local x, y = math.floor(b.x), math.floor(b.y)
     -- 二阶段：机体换红 + 眼点闪烁
     circfill(x, y, 36, b.phase == 2 and 61 or 53)    -- 光晕
     rrectfill(x - 26, y - 14, 52, 28, 6, b.phase == 2 and 60 or 55)
     rectfill(x - 20, y - 8, 40, 4, b.phase == 2 and 22 or 8)
-    circfill(x - 12, y + 6, 4, b.phase == 2 and (flr(t / 8) % 2 == 0 and 7 or 60) or 23)
-    circfill(x + 12, y + 6, 4, b.phase == 2 and (flr(t / 8) % 2 == 0 and 7 or 60) or 23)
+    circfill(x - 12, y + 6, 4, b.phase == 2 and (math.floor(t / 8) % 2 == 0 and 7 or 60) or 23)
+    circfill(x + 12, y + 6, 4, b.phase == 2 and (math.floor(t / 8) % 2 == 0 and 7 or 60) or 23)
     ovalfill(x, y - 2, 8, 6, 23)
   end
 end
@@ -599,21 +605,21 @@ end
 function draw_bullets()
   for i = 1, #pbul do
     local b = pbul[i]
-    rectfill(flr(b.x) - 1, flr(b.y) - 4, 2, 8, 42)
-    rectfill(flr(b.x) - 1, flr(b.y) - 4, 2, 2, 7)
+    rectfill(math.floor(b.x) - 1, math.floor(b.y) - 4, 2, 8, 42)
+    rectfill(math.floor(b.x) - 1, math.floor(b.y) - 4, 2, 2, 7)
   end
   for i = 1, #ebul do
     local b = ebul[i]
-    circfill(flr(b.x), flr(b.y), 3, b.c)
-    pset(flr(b.x), flr(b.y), 7)
+    circfill(math.floor(b.x), math.floor(b.y), 3, b.c)
+    pset(math.floor(b.x), math.floor(b.y), 7)
   end
 end
 
 function draw_drops()
   for i = 1, #drops do
     local d = drops[i]
-    local x, y = flr(d.x), flr(d.y)
-    local fl = flr(sin(t / 20 + i) * 2)
+    local x, y = math.floor(d.x), math.floor(d.y)
+    local fl = math.floor(sin(t / 20 + i) * 2)
     if d.kind == 1 then
       -- P：火力强化（霓虹黄底）
       rrectfill(x - 6, y - 6 + fl, 12, 12, 4, 30)
@@ -629,7 +635,7 @@ end
 function draw_parts()
   for i = 1, #parts do
     local p = parts[i]
-    pset(flr(p.x), flr(p.y), p.c)
+    pset(math.floor(p.x), math.floor(p.y), p.c)
   end
 end
 
@@ -641,7 +647,7 @@ function neon_text(s, x, y, c, scale)
 end
 
 -- 居中横坐标（print scale 放大按倍数展宽）
-local function cx(s, scale) return flr((256 - tw(s) * (scale or 1)) / 2) end
+local function cx(s, scale) return math.floor((256 - textw(s) * (scale or 1)) / 2) end
 
 function draw_hud()
   print("得分 " .. score, 4, 4, 7)
@@ -658,7 +664,7 @@ function draw_hud()
     neon_text(banner_txt, cx(banner_txt), 100, 7)
   end
   if boss then
-    local w = flr(180 * boss.hp / boss.hp0)
+    local w = math.floor(180 * boss.hp / boss.hp0)
     rectfill(38, 250, 180, 4, 15)
     if w > 0 then rectfill(38, 250, w, 4, boss.phase == 2 and 60 or 30) end
   end
@@ -675,7 +681,7 @@ function draw_title()
 end
 
 function draw_jet_preview()
-  local x, y = 128, 220 + flr(sin(t / 40) * 4)
+  local x, y = 128, 220 + math.floor(sin(t / 40) * 4)
   circfill(x, y + 4, 12, 37)
   trifill(x - 8, y + 8, x + 8, y + 8, x, y - 10, 42)
   rectfill(x - 1, y - 8, 2, 14, 7)
@@ -695,7 +701,7 @@ function draw_splash()
   end
   -- 战机大特写（draw_player 同款机体放大 4 倍）
   local x, y, s = 128, 152, 4
-  circfill(x, y + 11 * s + flr(sin(t / 5) * 3), 2 * s + 3, 23) -- 尾焰脉动
+  circfill(x, y + 11 * s + math.floor(sin(t / 5) * 3), 2 * s + 3, 23) -- 尾焰脉动
   circfill(x, y + 4 * s, 12 * s, 37)                           -- 青色光晕
   trifill(x - 8 * s, y + 8 * s, x + 8 * s, y + 8 * s, x, y - 10 * s, 42)
   rectfill(x - s, y - 8 * s, 2 * s, 14 * s, 7)
@@ -710,10 +716,10 @@ end
 function draw_over()
   rectfill(32, 96, 192, 64, 15)
   rect(32, 96, 192, 64, 55)
-  print("游戏结束", flr((256 - tw("游戏结束")) / 2), 104, 60)
-  print("得分 " .. score, flr((256 - tw("得分 " .. score)) / 2), 124, 7)
-  if new_best and flr(t / 20) % 2 == 0 then
-    print("新纪录！", flr((256 - tw("新纪录！")) / 2), 142, 23)
+  print("游戏结束", math.floor((256 - textw("游戏结束")) / 2), 104, 60)
+  print("得分 " .. score, math.floor((256 - textw("得分 " .. score)) / 2), 124, 7)
+  if new_best and math.floor(t / 20) % 2 == 0 then
+    print("新纪录！", math.floor((256 - textw("新纪录！")) / 2), 142, 23)
   end
   if over_t > 60 then -- 与可输入时机同步显示
     local h = btnicon("menu") .. " 回标题"
@@ -741,9 +747,9 @@ function _draw()
     if state == "pause" then
       rectfill(0, 116, 256, 24, 15)
       rect(0, 116, 256, 24, 41)
-      print("已暂停", flr((256 - tw("已暂停")) / 2), 118, 7)
+      print("已暂停", math.floor((256 - textw("已暂停")) / 2), 118, 7)
       local h = "按 " .. btnicon("menu") .. " 继续"
-      print(h, flr((256 - tw(h)) / 2), 134, 20)
+      print(h, math.floor((256 - textw(h)) / 2), 134, 20)
     end
     if state == "over" then
       draw_over()
@@ -758,11 +764,11 @@ function _update()
   update_stars()
   if state == "splash" then
     -- 开机封面：Ⓐ/Menu 跳过，90 帧后进 title
-    if t > 90 or btnp(4) or btnp(11) then
+    if t > 90 or btnp("a") or btnp("menu") then
       state = "title"
     end
   elseif state == "title" then
-    if btnp(4) or btnp(11) then -- Ⓐ 或 Menu 开始
+    if btnp("a") or btnp("menu") then -- Ⓐ 或 Menu 开始
       reset_game()
       state = "play"
       wave = 1
@@ -771,13 +777,13 @@ function _update()
   elseif state == "play" then
     update_play()
   elseif state == "pause" then
-    if btnp(11) then
+    if btnp("menu") then
       state = "play"
       music(0, 0, 48)
     end
   elseif state == "over" then
     over_t = over_t + 1
-    if over_t > 60 and btnp(11) then
+    if over_t > 60 and btnp("menu") then
       state = "title"
     end
   end

@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "推箱子",
+    "author": "FrostMiKu",
+    "saveId": "sokoban",
+    "version": 1,
+    "flags": 0,
+    "output": "sokoban.fc16",
+    "release": "sokoban.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "sokoban.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

@@ -45,7 +45,7 @@ print("按 " .. btnicon("a") .. " 开始", 88, 200, 7)
 - 返回 UTF-8 图标字符串可直接拼接；未知名称返回 nil（只用上表内的名称）。
 - 替换对象：文案里所有文本按键名——`Menu`→`btnicon("menu")`、`View`→`btnicon("view")`、
   `Ⓐ/A 键`→`btnicon("a")`、方向键→`btnicon("dpad")` 或四个 `left/right/up/down`。
-- 注意：新主机没有 Select 键。旧文案 "Select" 一律改绑到实际使用的键（查代码确认 btnp 编号后映射）。
+- 按键名与提示使用当前 `view` / `menu` 等命名，绘制提示使用 `btnicon`。
 - 旧代码里的圈圈 Unicode（ⒶⒷⓍⓎ）也替换成 btnicon。
 
 ## 3. 视差滚动（flappy / thunder / mario）
@@ -62,7 +62,7 @@ print("按 " .. btnicon("a") .. " 开始", 88, 200, 7)
 - 构建加 `--sprites tools/cards.bin`（README 命令同步）。
 - 布局公式（与 demo balatro 一致）：
   ```lua
-  local function band_tile(base, idx) return base + flr(idx / 8) * 32 + (idx % 8) * 2 end
+  local function band_tile(base, idx) return base + math.floor(idx / 8) * 32 + (idx % 8) * 2 end
   local function card_tile(s, r) return band_tile(0, s * 13 + r) end  -- 32×32 牌面
   -- 牌背：band_tile(224, k)，k = 0..5
   ```
@@ -72,11 +72,11 @@ print("按 " .. btnicon("a") .. " 开始", 88, 200, 7)
 - 游戏自烘焙的 UI 精灵全部挪到 ≥256 号瓦片（烘焙基址 +256），避免覆盖牌面区。
 - 斗地主的大小王不在精灵表内（表里的 joker 是小丑角色卡）：保留原程序化绘制，可顺手美化。
 - ⚠️ `spr(t,…)` 收瓦片号，`sspr(sx,sy,…)` 收**像素**。用瓦片号做 sspr 源时必须换算：
-  `local function tile_px(t) return (t % 16) * 16, flr(t / 16) * 16 end`（参考 doudizhu.lua 的 tile_px 用法）。
+  `local function tile_px(t) return (t % 16) * 16, math.floor(t / 16) * 16 end`（参考 doudizhu.lua 的 tile_px 用法）。
 - 牌桌布局按 32×32 牌面重新排版（手牌扇形/叠放间距），保持可读与点击/选择热区正确。
 
 ## 5. 构建与验证
 
-- `tools/build_all.py`：封面统一 `--cover 30`，写出到 `carts/<游戏>.fc16.png`。
+- `tools/build_all.py`：封面帧取自每个项目的 `coverFrame`，写出到 项目清单指定的 `<游戏>/<游戏>.fc16.png`。
 - 每个游戏：构建 → headless（无 Lua 错误）→ 截图标题画面人工目检（构图完整、提示用图标、无文字墙）。
 

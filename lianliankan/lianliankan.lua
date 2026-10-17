@@ -1,3 +1,11 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {best = 0, music_on = true}
+end
+
+local DIRECTIONS = {"left", "right", "up", "down"}
+
 -- 连连看 ・ FC-16 演示卡带
 -- 经典规则：两张相同图标能用最多 2 个拐点（3 段正交线段、只经空格与外圈）的路径
 --           连通即可消除；按拐点数 0/1/2 分层判连，路径确定性好搜
@@ -8,7 +16,7 @@
 -- 音频：原创 C 大调五声 8 小节循环 BGM（View 在标题/暂停开关，占 ch4-7）+
 --       选中/消除/拒绝/洗牌/提示/过关/新纪录全套 SFX
 -- 28 种 16×16 图标（14 种形状 × 2 配色）与全部 SFX/MUSIC 由 _init 程序化写入
--- （SPEC §4.2/§5.2），颜色直取 §2.2 色表；最高分 dset(0)、音乐开关 dset(1)
+-- 存档使用结构化数据（SPEC §13）。
 -- 操作：←↑↓→ 移动光标　Ⓐ 选中/消除　Ⓑ 取消　Ⓡ(RB) 提示　View 洗牌（局内）
 --       Menu 暂停；标题 Ⓐ 开始 / Ⓨ 操作说明
 
@@ -35,24 +43,24 @@ local fmt = function(n) return string.format("%d", n) end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -66,22 +74,22 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 
 -- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）
 -- steps[i] = {音高, 音色, 音量[, 效果]}，nil 步与音高 0 均为休止
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function write_sfx(id, speed, steps, len)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, len or #steps)
   for i = 0, 31 do
     local a, s = base + 16 + i * 4, steps[i + 1]
     if s and (s[1] or 0) > 0 then
-      u8(a, s[1] - 1) u8(a + 1, WMAP[s[2] or 0]) u8(a + 2, s[3] or 0) u8(a + 3, s[4] or 0)
+      u8(a, s[1] - 1) u8(a + 1, TIMBRE_SOURCE[s[2] or 0]) u8(a + 2, s[3] or 0) u8(a + 3, s[4] or 0)
     else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end
   end
 end
@@ -218,11 +226,11 @@ local SHAPES = {
   function(dx, dy) -- 太阳：圆心 + 8 向光芒
     local d2 = dx * dx + dy * dy
     if d2 <= 8.6 then return true end
-    local r = sqrt(d2)
+    local r = math.sqrt(d2)
     if r > 5.5 then return false end
-    local a = atan2(dx, dy) + 0.5
+    local a = atan2(dy, dx) + 0.5
     local m = a % 0.125
-    m = min(m, 0.125 - m)
+    m = math.min(m, 0.125 - m)
     return m * 6.2832 * r <= 0.8
   end,
   function(dx, dy) -- 月牙：大圆减偏移圆
@@ -240,16 +248,16 @@ local SHAPES = {
     return poly_in(dx, dy, {{0, -4.9}, {5.2, 4.1}, {-5.2, 4.1}})
   end,
   function(dx, dy) -- 方环
-    local b = max(abs(dx), abs(dy))
+    local b = math.max(math.abs(dx), math.abs(dy))
     return b <= 4.6 and b >= 1.3
   end,
   function(dx, dy) -- 十字
-    if max(abs(dx), abs(dy)) > 5.0 then return false end
-    return abs(dx) <= 1.6 or abs(dy) <= 1.6
+    if math.max(math.abs(dx), math.abs(dy)) > 5.0 then return false end
+    return math.abs(dx) <= 1.6 or math.abs(dy) <= 1.6
   end,
   function(dx, dy) -- 斜叉
-    if max(abs(dx), abs(dy)) > 5.2 then return false end
-    return abs(abs(dx) - abs(dy)) <= 1.4
+    if math.max(math.abs(dx), math.abs(dy)) > 5.2 then return false end
+    return math.abs(math.abs(dx) - math.abs(dy)) <= 1.4
   end,
 }
 -- 28 种图标：{形状序号, 主色, 描边色, 高光色}，配色直取 §2.2 色表
@@ -321,10 +329,10 @@ local function gpx(gx) return bx0 + gx * CELL - 8 end   -- 格中心像素 x
 local function gpy(gy) return by0 + gy * CELL - 8 end   -- 格中心像素 y
 local function toggle_music()
   music_on = not music_on
-  dset(1, music_on and 0 or 1)
-  fflush()
+  progress.music_on = music_on; assert(save(progress))
+
   if music_on then music(0, 400, 0xF0) bgm_on = true
-  else music(-1, 400) bgm_on = false end
+  else music_stop(400) bgm_on = false end
 end
 
 -- ---------------------------------------------------------------- 粒子・飘字・光环
@@ -334,13 +342,13 @@ local function burst(px, py, cols, n)
     parts[#parts + 1] = {
       x = px + rnd(-5, 5), y = py + rnd(-4, 4),
       vx = rnd(-1.8, 1.8), vy = rnd(-3.0, -0.4),
-      c = cols[flr(rnd(#cols)) + 1], life = 14 + flr(rnd(14)),
+      c = cols[math.floor(rnd(#cols)) + 1], life = 14 + math.floor(rnd(14)),
     }
   end
   while #parts > 200 do table.remove(parts, 1) end
 end
 local function add_pop(txt, x, y, gold)
-  pops[#pops + 1] = {txt = txt, x = flr(x - tw(txt) / 2), y = flr(y - 10), t = 0, gold = gold}
+  pops[#pops + 1] = {txt = txt, x = math.floor(x - textw(txt) / 2), y = math.floor(y - 10), t = 0, gold = gold}
 end
 local function update_parts()
   for i = #parts, 1, -1 do
@@ -367,14 +375,14 @@ end
 -- ---------------------------------------------------------------- 判连（0/1/2 拐分层）
 
 local function clear_h(y, x0, x1) -- 同行两点之间（不含端点）全空
-  local a, b = min(x0, x1), max(x0, x1)
+  local a, b = math.min(x0, x1), math.max(x0, x1)
   for x = a + 1, b - 1 do
     if grid[y][x] ~= 0 then return false end
   end
   return true
 end
 local function clear_v(x, y0, y1) -- 同列两点之间（不含端点）全空
-  local a, b = min(y0, y1), max(y0, y1)
+  local a, b = math.min(y0, y1), math.max(y0, y1)
   for y = a + 1, b - 1 do
     if grid[y][x] ~= 0 then return false end
   end
@@ -465,7 +473,7 @@ local function deal_board()
   end
   srand(seed)
   for i = #list, 2, -1 do
-    local k = flr(rnd(i)) + 1
+    local k = math.floor(rnd(i)) + 1
     list[i], list[k] = list[k], list[i]
   end
   local n = 0
@@ -496,9 +504,9 @@ local function reshuffle() -- 剩余图标在原格位间确定性重排
       end
     end
   end
-  srand(flr(rnd(0x7fffffff)))
+  srand(math.floor(rnd(0x7fffffff)))
   for i = #icons, 2, -1 do
-    local k = flr(rnd(i)) + 1
+    local k = math.floor(rnd(i)) + 1
     icons[i], icons[k] = icons[k], icons[i]
   end
   for i = 1, #cells do
@@ -514,20 +522,20 @@ end
 -- ---------------------------------------------------------------- 流程
 
 local function level_limit(lv)
-  return max(40, DIFFS[diff].base - (lv - 1) * 10) * 60
+  return math.max(40, DIFFS[diff].base - (lv - 1) * 10) * 60
 end
 local function save_best()
   if score > best then
     best, new_best = score, true
-    dset(0, best)
-    fflush()
+    progress.best = best; assert(save(progress))
+
   end
 end
 local function start_level()
   local d = DIFFS[diff]
   time_lim = level_limit(level)
   time_f = time_lim
-  seed = flr(rnd(0x7fffffff))
+  seed = math.floor(rnd(0x7fffffff))
   deal_board()
   combo, combo_t = 0, COMBO_WIN + 1
   hints, shuffles = HINT_MAX, SHUF_MAX
@@ -540,7 +548,7 @@ end
 local function start_game()
   sfx(1, 0)
   state, score, level, new_best = "play", 0, 1, false
-  best = dget(0)
+  best = progress.best
   start_level()
   if music_on and not bgm_on then music(0, 500, 0xF0) bgm_on = true end
 end
@@ -551,7 +559,7 @@ end
 local function game_over()
   state, over_t, sel, hint = "over", 0, nil, nil
   save_best()
-  if bgm_on then music(-1, 300) bgm_on = false end
+  if bgm_on then music_stop(300) bgm_on = false end
   sfx(15, 1)
 end
 
@@ -562,10 +570,10 @@ local function do_match(path, a, b)
   tiles_left = tiles_left - 2
   if combo_t <= COMBO_WIN then combo = combo + 1 else combo = 1 end
   combo_t = 0
-  local gain = 10 + min(combo - 1, 7) * 5
+  local gain = 10 + math.min(combo - 1, 7) * 5
   score = score + gain
-  time_f = min(time_f + MATCH_BONUS, time_lim)
-  sfx(3 + min(combo - 1, 7), 0)
+  time_f = math.min(time_f + MATCH_BONUS, time_lim)
+  sfx(3 + math.min(combo - 1, 7), 0)
   local mx, my = (gpx(a[1]) + gpx(b[1])) / 2, (gpy(a[2]) + gpy(b[2])) / 2
   for _, c in ipairs({a, b}) do
     local px, py = gpx(c[1]), gpy(c[2])
@@ -584,7 +592,7 @@ local function do_match(path, a, b)
   sel = nil
   scan_reset()
   if tiles_left == 0 then -- 清盘：结算时间奖励并进入过关演出
-    clear_bonus = 5 * flr(time_f / 60)
+    clear_bonus = 5 * math.floor(time_f / 60)
     score = score + clear_bonus
     save_best()
     state, clear_t = "clear", 0
@@ -638,7 +646,7 @@ local function move_cursor(k)
   else cy = (cy + 1) % d.r end
 end
 local function update_play()
-  if btnp(11) then
+  if btnp("menu") then
     state = "pause"
     sfx(0, 0)
     return
@@ -654,7 +662,7 @@ local function update_play()
     if deal.t >= 16 then deal = nil end
     return
   end
-  if btnp(10) then -- View：手动洗牌（局内）
+  if btnp("view") then -- View：手动洗牌（局内）
     if shuffles > 0 then
       shuffles = shuffles - 1
       start_shuffle()
@@ -663,24 +671,24 @@ local function update_play()
     end
     return
   end
-  if btnp(9) then
+  if btnp("rb") then
     use_hint()
     return
   end
   for k = 0, 3 do -- 方向：首按即移 + 长按连发（首延 12 幀、之后每 3 幀）
-    if dirp(k) then
+    if dirp(DIRECTIONS[k + 1]) then
       rep_t[k + 1] = 0
       move_cursor(k)
-    elseif dir(k) then
+    elseif dir(DIRECTIONS[k + 1]) then
       rep_t[k + 1] = rep_t[k + 1] + 1
       if rep_t[k + 1] >= 12 and rep_t[k + 1] % 3 == 0 then move_cursor(k) end
     else
       rep_t[k + 1] = 0
     end
   end
-  if btnp(4) then
+  if btnp("a") then
     try_select(cx, cy)
-  elseif btnp(5) and sel then
+  elseif btnp("b") and sel then
     sel = nil
     sfx(0, 0)
   end
@@ -698,10 +706,10 @@ local function update_play()
   end
 end
 local function update_pause()
-  if btnp(5) or btnp(11) or btnp(4) then
+  if btnp("b") or btnp("menu") or btnp("a") then
     state = "play"
     sfx(0, 0)
-  elseif btnp(10) then
+  elseif btnp("view") then
     toggle_music()
   end
 end
@@ -725,30 +733,30 @@ local function update_over()
   over_t = over_t + 1
   if over_t == 40 and new_best then sfx(16, 1) end
   if over_t > 50 then
-    if btnp(4) then start_game()
-    elseif btnp(11) then to_title()
-    elseif btnp(10) then toggle_music() end
+    if btnp("a") then start_game()
+    elseif btnp("menu") then to_title()
+    elseif btnp("view") then toggle_music() end
   end
 end
 local function update_title()
-  if dirp(2) then -- ↑：上行（循环）
+  if dirp("up") then -- ↑：上行（循环）
     sel_row = (sel_row + 1) % 3 + 1
     sfx(0, 0)
-  elseif dirp(3) then -- ↓：下行（循环）
+  elseif dirp("down") then -- ↓：下行（循环）
     sel_row = sel_row % 3 + 1
     sfx(0, 0)
   end
-  if btnp(10) then toggle_music() end
-  if btnp(7) then -- Ⓨ 操作说明
+  if btnp("view") then toggle_music() end
+  if btnp("y") then -- Ⓨ 操作说明
     state = "help"
     sfx(0, 0)
-  elseif btnp(4) then
+  elseif btnp("a") then
     diff = sel_row
     start_game()
   end
 end
 local function update_help()
-  if btnp(5) or btnp(7) then
+  if btnp("b") or btnp("y") then
     state = "title"
     sfx(0, 0)
   end
@@ -757,8 +765,8 @@ end
 function _init()
   bake_sprites()
   init_audio()
-  music_on = dget(1) == 0 -- 槽位 1：0 = 开（默认）
-  best = dget(0)
+  music_on = progress.music_on
+  best = progress.best
   bgm_on = false
   parts, pops, rings, matches = {}, {}, {}, {}
   rep_t = {0, 0, 0, 0}
@@ -787,7 +795,7 @@ function _update()
     if rej.t <= 0 then rej = nil end
   end
   if state == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then state = "title" end
   elseif state == "title" then
     update_title()
   elseif state == "help" then
@@ -815,12 +823,12 @@ end
 local function tile_scale(bx, by) -- 发牌/洗牌的逐格错峰缩放（0..16，nil = 不参与）
   local d, stag = DIFFS[diff], ((bx + by) % 4) * 2
   if deal then
-    return flr(16 * mid(0, (deal.t - stag) / 10, 1))
+    return math.floor(16 * mid(0, (deal.t - stag) / 10, 1))
   end
   if shuf then
     local tt = shuf.t - stag
-    if tt < 13 then return flr(16 * (1 - mid(0, tt / 11, 1))) end
-    return flr(16 * mid(0, (tt - 14) / 11, 1))
+    if tt < 13 then return math.floor(16 * (1 - mid(0, tt / 11, 1))) end
+    return math.floor(16 * mid(0, (tt - 14) / 11, 1))
   end
   return nil
 end
@@ -836,11 +844,11 @@ local function draw_tiles()
         if s == nil then
           local ox = 0
           if rej and ((rej[1][1] == gx and rej[1][2] == gy) or (rej[2][1] == gx and rej[2][2] == gy)) then
-            ox = flr(sin(t * 1.3) * 1.6) -- 拒绝抖动
+            ox = math.floor(sin(t * 1.3) * 1.6) -- 拒绝抖动
           end
           spr(ic, px + ox, py)
         elseif s > 0 then
-          sspr((ic % 16) * 16, flr(ic / 16) * 16, 16, 16, px + (16 - s) / 2, py + (16 - s) / 2, s, s)
+          sspr((ic % 16) * 16, math.floor(ic / 16) * 16, 16, 16, px + (16 - s) / 2, py + (16 - s) / 2, s, s)
         end
       else
         rectfill(px + 1, py + 1, 14, 14, 14) -- 空格凹陷
@@ -860,7 +868,7 @@ local function draw_board()
 end
 local function draw_marks()
   local d = DIFFS[diff]
-  if hint and flr(t / 6) % 2 == 0 then -- 提示：青色闪烁框
+  if hint and math.floor(t / 6) % 2 == 0 then -- 提示：青色闪烁框
     for i = 1, 2 do
       local px, py = gpx(hint[i][1]) - 8, gpy(hint[i][2]) - 8
       frame_corners(px - 1, py - 1, 18, 18, 43, 5)
@@ -869,11 +877,11 @@ local function draw_marks()
   if sel then
     local px, py = bx0 + sel[1] * CELL, by0 + sel[2] * CELL
     local k = sin(t * 0.15)
-    rrect(px - 2 - flr(k), py - 2 - flr(k), 20 + flr(k) * 2, 20 + flr(k) * 2, 4, 28) -- 金色光圈
-    rrect(px - 2, py - 2, 20, 20, 4, flr(t / 4) % 2 == 0 and 31 or 30)
+    rrect(px - 2 - math.floor(k), py - 2 - math.floor(k), 20 + math.floor(k) * 2, 20 + math.floor(k) * 2, 4, 28) -- 金色光圈
+    rrect(px - 2, py - 2, 20, 20, 4, math.floor(t / 4) % 2 == 0 and 31 or 30)
   end
   if state == "play" and not shuf and not deal then
-    local pad = 2 + mid(0, flr(sin(t * 0.12) * 2 + 1.5), 3)
+    local pad = 2 + mid(0, math.floor(sin(t * 0.12) * 2 + 1.5), 3)
     frame_corners(bx0 + cx * CELL - pad, by0 + cy * CELL - pad,
       CELL + pad * 2 + 1, CELL + pad * 2 + 1, 7, 4)
   end
@@ -881,7 +889,7 @@ end
 local function draw_link()
   if not link_anim then return end
   local path = link_anim.path
-  local core = link_anim.t < 6 and 7 or (flr(link_anim.t / 3) % 2 == 0 and 31 or 30)
+  local core = link_anim.t < 6 and 7 or (math.floor(link_anim.t / 3) % 2 == 0 and 31 or 30)
   for i = 1, #path - 1 do
     local ax, ay = gpx(path[i][1]), gpy(path[i][2])
     local bx2, by2 = gpx(path[i + 1][1]), gpy(path[i + 1][2])
@@ -901,22 +909,22 @@ end
 local function draw_matches()
   for i = 1, #matches do
     local m = matches[i]
-    local s = flr(16 * (1 - m.age / 12))
+    local s = math.floor(16 * (1 - m.age / 12))
     if s > 0 then
-      sspr((m.tid % 16) * 16, flr(m.tid / 16) * 16, 16, 16,
+      sspr((m.tid % 16) * 16, math.floor(m.tid / 16) * 16, 16, 16,
         m.px + (16 - s) / 2, m.py + (16 - s) / 2, s, s)
     end
   end
 end
 local function draw_parts()
   for i = 1, #parts do
-    rectfill(flr(parts[i].x), flr(parts[i].y), 2, 2, parts[i].c)
+    rectfill(math.floor(parts[i].x), math.floor(parts[i].y), 2, 2, parts[i].c)
   end
 end
 local function draw_pops()
   for i = 1, #pops do
     local p = pops[i]
-    local y = flr(p.y - p.t * 0.5)
+    local y = math.floor(p.y - p.t * 0.5)
     print(p.txt, p.x + 1, y + 1, 1)
     print(p.txt, p.x, y, p.gold and (p.t < 16 and 31 or 30) or (p.t < 14 and 33 or 34))
   end
@@ -939,10 +947,10 @@ local function draw_hud()
   print("♪", 240, 1, music_on and 30 or 10)
   rect(4, 21, 184, 10, 10) -- 时间条
   local ratio = mid(0, time_f / time_lim, 1)
-  local fw = flr(180 * ratio)
+  local fw = math.floor(180 * ratio)
   local bc = 34
   if ratio < 0.2 then
-    bc = flr(t / 8) % 2 == 0 and 59 or 57
+    bc = math.floor(t / 8) % 2 == 0 and 59 or 57
   elseif ratio < 0.45 then
     bc = 30
   end
@@ -957,37 +965,39 @@ local function draw_bottom()
   line(0, 239, 255, 239, 10)
   local s = btnicon("a") .. "配对 " .. btnicon("rb") .. "提示 "
     .. btnicon("view") .. "洗牌 " .. btnicon("menu") .. "暂停"
-  print(s, (256 - tw(s)) / 2, 240, 9)
+  print(s, (256 - textw(s)) / 2, 240, 9)
 end
 local function draw_pause()
   fillp(0xa5a5)
-  rectfill(0, 0, 256, 256, 15 * 256 + 0)
+  fillp(0xa5a5, 15)
+  rectfill(0, 0, 256, 256, 0)
   fillp()
   rectfill(72, 100, 112, 60, 15)
   rect(72, 100, 112, 60, 11)
   local s = "暂停"
-  print(s, (256 - tw(s)) / 2 + 1, 111, 1)
-  print(s, (256 - tw(s)) / 2, 110, 7)
+  print(s, (256 - textw(s)) / 2 + 1, 111, 1)
+  print(s, (256 - textw(s)) / 2, 110, 7)
   s = btnicon("b") .. " / " .. btnicon("menu") .. " 继续　" .. btnicon("view") .. " 音乐"
-  print(s, (256 - tw(s)) / 2, 136, 6)
+  print(s, (256 - textw(s)) / 2, 136, 6)
 end
 local function draw_clear()
   if clear_t <= 20 then return end
   rrectfill(48, 88, 160, 84, 6, 15)
   rrect(48, 88, 160, 84, 6, 33)
   local s = "第 " .. level .. " 关 完成！"
-  print(s, (256 - tw(s)) / 2 + 1, 101, 1)
-  print(s, (256 - tw(s)) / 2, 100, 31)
+  print(s, (256 - textw(s)) / 2 + 1, 101, 1)
+  print(s, (256 - textw(s)) / 2, 100, 31)
   s = "时间奖励 +" .. clear_bonus
-  print(s, (256 - tw(s)) / 2, 126, 33)
-  if flr(t / 16) % 2 == 0 then
+  print(s, (256 - textw(s)) / 2, 126, 33)
+  if math.floor(t / 16) % 2 == 0 then
     s = "下一关时限 -10 秒"
-    print(s, (256 - tw(s)) / 2, 148, 6)
+    print(s, (256 - textw(s)) / 2, 148, 6)
   end
 end
 local function draw_over()
   fillp(0x8421)
-  rectfill(0, 0, 256, 256, 13 * 256 + 0)
+  fillp(0x8421, 13)
+  rectfill(0, 0, 256, 256, 0)
   fillp()
   local bx, by, bw, bh = 44, 60, 168, 156
   rectfill(bx, by, bw, bh, 15)
@@ -995,16 +1005,16 @@ local function draw_over()
   rectfill(bx + 2, by + 2, bw - 4, 1, 33)
   rectfill(bx + 2, by + bh - 3, bw - 4, 1, 10)
   local function row(txt, y, c)
-    print(txt, (256 - tw(txt)) / 2, y, c)
+    print(txt, (256 - textw(txt)) / 2, y, c)
   end
   local s = "时间到"
-  print(s, (256 - tw(s)) / 2 + 1, 71, 1)
+  print(s, (256 - textw(s)) / 2 + 1, 71, 1)
   row(s, 70, 63)
   row(DIFFS[diff].name .. " ・ 第 " .. level .. " 关", 98, 6)
   row("分数 " .. fmt(score), 120, 7)
   row("最高 " .. fmt(best), 140, 30)
-  if new_best and flr(t / 6) % 2 == 0 then row("★ 新纪录 ★", 160, 31) end
-  if flr(t / 16) % 2 == 0 then row(btnicon("a") .. " 再来一局", 182, 7) end
+  if new_best and math.floor(t / 6) % 2 == 0 then row("★ 新纪录 ★", 160, 31) end
+  if math.floor(t / 16) % 2 == 0 then row(btnicon("a") .. " 再来一局", 182, 7) end
   row(btnicon("menu") .. " 回标题", 204, 6)
 end
 -- Splash：纯主视觉封面（0-90 帧）——一对相同大图块 + 金色连线 + 消除星效，
@@ -1012,24 +1022,25 @@ end
 local function draw_splash()
   cls(13)
   fillp(0x0842)
-  rectfill(0, 0, 256, 256, 12 * 256 + 13)
+  fillp(0x0842, 12)
+  rectfill(0, 0, 256, 256, 13)
   fillp()
   -- 背景漂浮小图块（纯装饰，定位固定）
   local floaters = { { 9, 18, 96 }, { 19, 226, 100 }, { 7, 22, 176 },
     { 13, 222, 180 }, { 3, 44, 226 }, { 11, 196, 228 } }
   for i, f in ipairs(floaters) do
-    spr(f[1], f[2], f[3] + flr(sin(t * 0.01 + i) * 5))
+    spr(f[1], f[2], f[3] + math.floor(sin(t * 0.01 + i) * 5))
   end
   -- 大 logo：连连看（scale 4，黑影 + 逐字彩色）
   local chars, cols = { "连", "连", "看" }, { 43, 30, 33 }
-  local cw = tw("连") * 4
+  local cw = textw("连") * 4
   for i = 1, 3 do
-    local x = flr(128 - cw * 1.5) + (i - 1) * (cw + 6)
+    local x = math.floor(128 - cw * 1.5) + (i - 1) * (cw + 6)
     print(chars[i], x + 3, 27, 1, 4)
     print(chars[i], x, 23, cols[i], 4)
   end
   local s = "LIANLIANKAN ・ FC-16"
-  print(s, (256 - tw(s)) / 2, 80, 5)
+  print(s, (256 - textw(s)) / 2, 80, 5)
   -- 主视觉：一对相同大图块（红心瓦片 1 = 像素 16,0，96px）+ 金色连线
   local ty, ts = 106, 96
   sspr(16, 0, 16, 16, 26, ty, ts, ts)
@@ -1055,22 +1066,23 @@ end
 local function draw_title()
   cls(13)
   fillp(0x0842)
-  rectfill(0, 0, 256, 256, 12 * 256 + 13)
+  fillp(0x0842, 12)
+  rectfill(0, 0, 256, 256, 13)
   fillp()
   -- 漂浮图标瓦片
   local floaters = {{9, 30, 96}, {1, 210, 96}, {7, 24, 160}, {11, 214, 172}, {19, 44, 208}, {13, 192, 214}}
   for i, f in ipairs(floaters) do
-    spr(f[1], f[2] + flr(sin(t * 0.01 + i) * 6), f[3] + flr(cos(t * 0.013 + i * 2) * 5))
+    spr(f[1], f[2] + math.floor(sin(t * 0.01 + i) * 6), f[3] + math.floor(cos(t * 0.013 + i * 2) * 5))
   end
   -- 标题字
   local chars, cols = {"连", "连", "看"}, {43, 30, 33}
   for i = 1, 3 do
-    local x, y = 92 + (i - 1) * 28, 26 + flr(sin(t * 0.05 + i * 0.5) * 3)
+    local x, y = 92 + (i - 1) * 28, 26 + math.floor(sin(t * 0.05 + i * 0.5) * 3)
     print(chars[i], x + 2, y + 2, 1)
     print(chars[i], x, y, cols[i])
   end
   local s = "LIANLIANKAN ・ FC-16"
-  print(s, (256 - tw(s)) / 2, 56, 5)
+  print(s, (256 - textw(s)) / 2, 56, 5)
   -- 成对图案 + 金色连线（主题构图，常驻稳定）
   local py = 74
   spr(1, 92, py)
@@ -1094,13 +1106,13 @@ local function draw_title()
     print(s, 70, y, act and 7 or 6)
   end
   s = "最高 " .. fmt(best)
-  print(s, (256 - tw(s)) / 2, 184, 30)
+  print(s, (256 - textw(s)) / 2, 184, 30)
   s = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
-  print(s, (256 - tw(s)) / 2 + 1, 203, 1)
-  print(s, (256 - tw(s)) / 2, 202, 7)
+  print(s, (256 - textw(s)) / 2 + 1, 203, 1)
+  print(s, (256 - textw(s)) / 2, 202, 7)
   s = btnicon("up") .. btnicon("down") .. " 选择　" .. btnicon("view") .. " 音乐"
-  print(s, (256 - tw(s)) / 2, 226, 6)
-  print("FrostMiKu ・ FC-16", (256 - tw("FrostMiKu ・ FC-16")) / 2, 244, 10)
+  print(s, (256 - textw(s)) / 2, 226, 6)
+  print("FrostMiKu ・ FC-16", (256 - textw("FrostMiKu ・ FC-16")) / 2, 244, 10)
 end
 
 -- 帮助页：两列操作表（Ⓨ 进入，Ⓑ 返回）
@@ -1111,7 +1123,7 @@ local function draw_help()
   rect(bx, by, bw, bh, 42)
   rectfill(bx + 2, by + 2, bw - 4, 1, 33)
   local s = "操作说明"
-  print(s, 128 - tw(s) / 2, 44, 30)
+  print(s, 128 - textw(s) / 2, 44, 30)
   printw("相同图案两两相连（最多 2 个拐点）即可消除，清盘过关。", 44, 64, 6, 168)
   local rows = {
     { btnicon("dpad"), "移动光标" },
@@ -1127,7 +1139,7 @@ local function draw_help()
     print(r[2], 116, y, 6)
   end
   s = btnicon("b") .. " 返回"
-  print(s, 128 - tw(s) / 2, 206, 9)
+  print(s, 128 - textw(s) / 2, 206, 9)
 end
 local function draw_play()
   cls(13)

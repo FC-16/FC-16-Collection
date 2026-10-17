@@ -1,5 +1,11 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {stats = {0, 0, 0}, music_on = true}
+end
+
 -- =====================================================================
--- FC-16 中国象棋演示卡带（demo/xiangqi）
+-- FC-16 中国象棋演示卡带（xiangqi）
 --
 -- 完整规则实现：车 / 马（蹩马腿）/ 炮（翻山吃）/ 相（塞象眼、不过河）/
 --   仕（九宫斜行）/ 帅（九宫直行 + 将帅照面禁手）/ 兵（过河横移）；
@@ -18,7 +24,7 @@
 --       Menu 回标题（终局画面 Ⓐ 再来一局）
 --
 -- 资产全部程序化：棋子圆片精灵 poke 烘焙；SFX / BGM 按位写入；
---   战绩存 dset 槽 0-3（红胜 / 黑胜 / 总局 / 音乐开关）。
+-- 存档使用结构化数据（SPEC §13）。
 -- =====================================================================
 
 -- ---------------------------------------------------------------- 常量
@@ -165,7 +171,7 @@ end
 
 local function in_check(black)
   local k = king[black and -1 or 1]
-  return is_attacked(k % 9, flr(k / 9), not black) -- 攻击方 = 对方
+  return is_attacked(k % 9, math.floor(k / 9), not black) -- 攻击方 = 对方
 end
 
 -- 伪合法走法生成：写入复用数组 mf/mt，返回数量（不建走法对象，减小 GC 压力）
@@ -175,7 +181,7 @@ local function gen_moves(black, mf, mt)
     local p = board[i + 1]
     if p ~= 0 and (p > 7) == black then
       local ty = p > 7 and p - 8 or p
-      local x, y = i % 9, flr(i / 9)
+      local x, y = i % 9, math.floor(i / 9)
       if ty == 5 then -- 车：直线到第一个子为止（敌可吃，己阻挡）
         for d = 1, 4 do
           local dx, dy = DX4[d], DY4[d]
@@ -344,7 +350,7 @@ local ANIM_DUR = 9
 
 local exec_move -- 前向声明（AI 完成后直接调用）
 
-local function cprint(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+local function cprint(s, y, c) print(s, math.floor((256 - textw(s)) / 2), y, c) end
 
 local function start_game(ai)
   mode_ai = ai
@@ -363,7 +369,7 @@ end
 
 local function goto_title()
   mode = "title"
-  music(-1, 200)
+  music_stop(200)
   setup_board()
   history = {}
   anim, banner, over, thinking = nil, nil, nil, nil
@@ -371,12 +377,12 @@ local function goto_title()
 end
 
 local function spawn_fx(ix, black)
-  local x, y = px(ix % 9), py(flr(ix / 9))
+  local x, y = px(ix % 9), py(math.floor(ix / 9))
   for i = 1, 5 do
     fx[#fx + 1] = {
       x = x, y = y,
       vx = (i - 3) * 0.5,
-      vy = -1.6 + abs(i - 3) * 0.35, -- 中间高两侧低（确定性轨迹）
+      vy = -1.6 + math.abs(i - 3) * 0.35, -- 中间高两侧低（确定性轨迹）
       c = black and C_BLK_R or C_RED,
     }
   end
@@ -392,7 +398,7 @@ local function evaluate()
     if p ~= 0 then
       local black = p > 7
       local ty = black and p - 8 or p
-      local x, y = i % 9, flr(i / 9)
+      local x, y = i % 9, math.floor(i / 9)
       local v
       if ty == 1 then
         v = MATE
@@ -405,9 +411,9 @@ local function evaluate()
       else
         v = VAL[ty]
         if ty == 4 then -- 马靠中
-          v = v + 4 - abs(x - 4)
+          v = v + 4 - math.abs(x - 4)
         elseif ty == 5 or ty == 6 then -- 车 / 炮：中列 + 机动性（四方向首格）
-          v = v + flr((4 - abs(x - 4)) / 2)
+          v = v + math.floor((4 - math.abs(x - 4)) / 2)
           for d = 1, 4 do
             local nx, ny = x + DX4[d], y + DY4[d]
             if nx >= 0 and nx <= 8 and ny >= 0 and ny <= 9 then
@@ -535,8 +541,8 @@ local function finish_anim()
       sfx(S_WIN)
     end
     stats[3] = stats[3] + 1
-    dset(0, stats[1]); dset(1, stats[2]); dset(2, stats[3]); fflush()
-    music(-1, 600)
+    progress.stats[1] = stats[1]; assert(save(progress)); progress.stats[2] = stats[2]; assert(save(progress)); progress.stats[3] = stats[3]; assert(save(progress));
+    music_stop(600)
     return
   end
   if a.check then
@@ -581,9 +587,9 @@ end
 
 local function toggle_music()
   music_on = not music_on
-  dset(3, music_on and 0 or 1)
+  progress.music_on = music_on; assert(save(progress))
   if mode == "play" then
-    if music_on then music(0, 300, 0xE0) else music(-1, 300) end
+    if music_on then music(0, 300, 0xE0) else music_stop(300) end
   end
 end
 
@@ -604,7 +610,7 @@ end
 local function bake_disc(id, ring)
   bake(id, function(x, y)
     local dx, dy = x - 8, y - 8
-    local d = sqrt(dx * dx + dy * dy)
+    local d = math.sqrt(dx * dx + dy * dy)
     if d > 7.5 then return nil end
     if d > 6.7 then -- 外圈：下半阴影 / 上半环色
       if dy > 0.5 then return C_WOOD_D end
@@ -627,24 +633,24 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -658,21 +664,21 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- 按 SPEC §5.2 布局写一条 SFX（notes 为音高表，0 = 休止）
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function init_sfx(id, notes, wave, vol, speed)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4) -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4) -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   for i = 0, 31 do
     local a = base + 16 + i * 4
     local p = i < #notes and notes[i + 1] or 0
     if p > 0 then
       u8(a, p - 1)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, vol)
       u8(a + 3, 0)
     else
@@ -700,7 +706,7 @@ local function init_audio()
   init_sfx(S_GO, { 61, 68 }, 3, 9, 2)              -- 开局
 
   -- BGM：C 宫五声小曲 4 小节循环（旋律 / 和声 / 贝斯 = ch5-7，mask 0xE0）
-  -- 音高沿用旧固件 1-96（对应 C0-B7，MIDI = 音高 + 11）；每小节 32 步 speed 5
+  -- 音高沿用乐谱 1-96（对应 C0-B7，MIDI = 音高 + 11）；每小节 32 步 speed 5
   local melody = {
     { 53, 56, 58, 61, 58, 56, 53, 0 },
     { 51, 53, 56, 53, 51, 49, 51, 0 },
@@ -743,8 +749,8 @@ end
 
 -- 方向键按住重复（btnp 无自动重复，自实现：首按 1 步，按住 14 幀后每 5 幀一步）
 local function cursor_repeat()
-  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
-  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
+  local dx = (dir("right") and 1 or 0) - (dir("left") and 1 or 0)
+  local dy = (dir("down") and 1 or 0) - (dir("up") and 1 or 0)
   if dx == 0 and dy == 0 then
     hold_dx, hold_dy, rep_t = 0, 0, 0
     return
@@ -791,12 +797,12 @@ local function press_a()
 end
 
 local function update_title()
-  if dirp(2) or dirp(3) then
+  if dirp("up") or dirp("down") then
     title_sel = title_sel == 1 and 2 or 1
     sfx(S_CUR)
   end
-  if btnp(10) then toggle_music() end
-  if btnp(4) or btnp(11) then
+  if btnp("view") then toggle_music() end
+  if btnp("a") or btnp("menu") then
     start_game(title_sel == 2)
   end
 end
@@ -817,7 +823,7 @@ function _update()
   end
   if mode == "splash" then
     -- 开机封面：Ⓐ/Menu 跳过，90 帧后进 title
-    if t > 90 or btnp(4) or btnp(11) then
+    if t > 90 or btnp("a") or btnp("menu") then
       mode = "title"
     end
     return
@@ -827,26 +833,26 @@ function _update()
     return
   end
   -- View 音乐 / Menu 回标题 对任意子状态生效
-  if btnp(10) then toggle_music() end
-  if btnp(11) then goto_title() return end
+  if btnp("view") then toggle_music() end
+  if btnp("menu") then goto_title() return end
   if anim then
     anim.t0 = anim.t0 + 1
     if anim.t0 >= anim.dur then finish_anim() end
     return
   end
   if over then
-    if btnp(4) then start_game(mode_ai) end -- 再来一局
+    if btnp("a") then start_game(mode_ai) end -- 再来一局
     return
   end
   if thinking then
     ai_step()
-    if btnp(6) or btnp(7) then do_undo() end -- 取消 AI 思考并悔棋
+    if btnp("x") or btnp("y") then do_undo() end -- 取消 AI 思考并悔棋
     return
   end
-  if btnp(6) or btnp(7) then do_undo() return end
+  if btnp("x") or btnp("y") then do_undo() return end
   cursor_repeat()
-  if btnp(4) then press_a() end
-  if btnp(5) then sel, sel_moves = nil, nil end
+  if btnp("a") then press_a() end
+  if btnp("b") then sel, sel_moves = nil, nil end
 end
 
 -- ---------------------------------------------------------------- 绘制
@@ -877,7 +883,8 @@ local function draw_board()
   -- 木板：底色 + 竖纹抖动 + 双层边框
   rectfill(28, 19, 200, 218, C_WOOD)
   fillp(0x4444)
-  rectfill(28, 19, 200, 218, C_WOOD_L * 256 + C_WOOD)
+  fillp(0x4444, C_WOOD_L)
+  rectfill(28, 19, 200, 218, C_WOOD)
   fillp()
   rect(28, 19, 200, 218, C_WOOD_D)
   rect(30, 21, 196, 214, C_WOOD_L)
@@ -914,7 +921,7 @@ end
 local function draw_piece(x, y, p, flash)
   local black = p > 7
   spr(black and 2 or 1, x - 8, y - 8)
-  if flash and flr(t / 2) % 2 == 0 then
+  if flash and math.floor(t / 2) % 2 == 0 then
     circfill(x, y, 7, C_WHITE) -- 被吃子闪白
     return
   end
@@ -930,10 +937,10 @@ local function draw_pieces()
       if anim and i == anim.t then
         -- 目标位：动画期间被吃子闪烁，移动子由 draw_anim 绘制
         if anim.cap ~= 0 then
-          draw_piece(px(i % 9), py(flr(i / 9)), anim.cap, true)
+          draw_piece(px(i % 9), py(math.floor(i / 9)), anim.cap, true)
         end
       else
-        draw_piece(px(i % 9), py(flr(i / 9)), p, false)
+        draw_piece(px(i % 9), py(math.floor(i / 9)), p, false)
       end
     end
   end
@@ -942,18 +949,18 @@ end
 local function draw_marks()
   -- 上一步痕迹
   if last_f >= 0 and not over then
-    local fxp, fyp = px(last_f % 9), py(flr(last_f / 9))
+    local fxp, fyp = px(last_f % 9), py(math.floor(last_f / 9))
     rectfill(fxp - 2, fyp - 2, 4, 4, C_GOLD_L)
-    local txp, typ = px(last_t % 9), py(flr(last_t / 9))
+    local txp, typ = px(last_t % 9), py(math.floor(last_t / 9))
     corners(txp, typ, 10, C_GOLD_L)
   end
   -- 选中环与可走点
   if sel and not anim then
-    local sx, sy = px(sel % 9), py(flr(sel / 9))
+    local sx, sy = px(sel % 9), py(math.floor(sel / 9))
     circ(sx, sy, 9, C_GOLD)
-    if flr(t / 5) % 2 == 0 then circ(sx, sy, 10, C_GOLD_L) end
+    if math.floor(t / 5) % 2 == 0 then circ(sx, sy, 10, C_GOLD_L) end
     for _, m in ipairs(sel_moves) do
-      local mx, my = px(m.t % 9), py(flr(m.t / 9))
+      local mx, my = px(m.t % 9), py(math.floor(m.t / 9))
       if m.cap == 0 then
         circfill(mx, my, 2, C_GOLD)
       else
@@ -963,22 +970,22 @@ local function draw_marks()
   end
   -- 将军闪圈
   if banner and banner.k then
-    local kx, ky = px(banner.k % 9), py(flr(banner.k / 9))
-    if flr(t / 3) % 2 == 0 then circ(kx, ky, 10, C_ORANGE) end
+    local kx, ky = px(banner.k % 9), py(math.floor(banner.k / 9))
+    if math.floor(t / 3) % 2 == 0 then circ(kx, ky, 10, C_ORANGE) end
   end
 end
 
 local function draw_cursor()
   if over or thinking then return end
   if mode_ai and turn_black then return end
-  corners(px(cx), py(cy), 11, flr(t / 6) % 2 == 0 and C_WHITE or C_GOLD_L)
+  corners(px(cx), py(cy), 11, math.floor(t / 6) % 2 == 0 and C_WHITE or C_GOLD_L)
 end
 
 local function draw_anim()
   if not anim then return end
   local u = anim.t0 / anim.dur
-  local x0, y0 = px(anim.f % 9), py(flr(anim.f / 9))
-  local x1, y1 = px(anim.t % 9), py(flr(anim.t / 9))
+  local x0, y0 = px(anim.f % 9), py(math.floor(anim.f / 9))
+  local x1, y1 = px(anim.t % 9), py(math.floor(anim.t / 9))
   draw_piece(x0 + (x1 - x0) * u, y0 + (y1 - y0) * u, anim.p, false)
 end
 
@@ -998,14 +1005,14 @@ local function draw_topbar()
   if over then
     s = "对局结束"
   elseif thinking then
-    s = "思考中" .. DOTS[flr(t / 10) % 4 + 1]
+    s = "思考中" .. DOTS[math.floor(t / 10) % 4 + 1]
   elseif turn_black then
     s = BLACK_MOVE
   else
     s = RED_MOVE
   end
   local c = over and C_GRAY or (turn_black and C_GRAY or C_RED_INK)
-  print(s, 252 - tw(s), 0, c)
+  print(s, 252 - textw(s), 0, c)
 end
 
 local function draw_bottombar()
@@ -1022,16 +1029,17 @@ local function draw_banner()
   rectfill(0, 104, 256, 32, C_BG)
   rect(0, 104, 256, 32, C_RED_D)
   rect(2, 106, 252, 28, C_RED)
-  cprint(banner.s, 112, flr(t / 4) % 2 == 0 and C_GOLD or C_PINK)
+  cprint(banner.s, 112, math.floor(t / 4) % 2 == 0 and C_GOLD or C_PINK)
 end
 
 local function draw_over()
   fillp(0xAAAA)
-  rectfill(0, 0, 256, 256, C_PANEL * 256 + C_BG)
+  fillp(0xAAAA, C_PANEL)
+  rectfill(0, 0, 256, 256, C_BG)
   fillp()
   rrectfill(38, 88, 180, 80, 6, C_RED_D)
   rrect(38, 88, 180, 80, 6, C_GOLD)
-  if flr(t / 5) % 2 == 0 then rrect(36, 86, 184, 84, 7, C_GOLD) end
+  if math.floor(t / 5) % 2 == 0 then rrect(36, 86, 184, 84, 7, C_GOLD) end
   cprint(over.black and "黑方胜" or "红方胜", 100, C_GOLD)
   cprint(over.reason, 122, C_IVORY)
   if mode_ai then
@@ -1045,7 +1053,8 @@ local function draw_title()
   draw_board()
   draw_pieces()
   fillp(0xAAAA)
-  rectfill(0, 0, 256, 256, C_PANEL * 256 + C_BG)
+  fillp(0xAAAA, C_PANEL)
+  rectfill(0, 0, 256, 256, C_BG)
   fillp()
   -- 匾额 + 大标题（scale 3，frame 0 即完整呈现）
   rrectfill(38, 26, 180, 56, 6, C_RED_D)
@@ -1082,7 +1091,8 @@ local function draw_splash()
   -- 全幅棋盘木底 + 木纹
   cls(C_WOOD)
   fillp(0x4444)
-  rectfill(0, 0, 256, 256, C_WOOD_L * 256 + C_WOOD)
+  fillp(0x4444, C_WOOD_L)
+  rectfill(0, 0, 256, 256, C_WOOD)
   fillp()
   -- 淡网格（棋盘经纬，河界断开）与九宫斜线
   for r = 0, 8 do
@@ -1147,10 +1157,10 @@ end
 function _init()
   bake_pieces()
   init_audio()
-  stats[1] = dget(0)
-  stats[2] = dget(1)
-  stats[3] = dget(2)
-  music_on = dget(3) == 0
+  stats[1] = progress.stats[1]
+  stats[2] = progress.stats[2]
+  stats[3] = progress.stats[3]
+  music_on = progress.music_on
   setup_board()
   mode = "splash" -- 开机封面，Ⓐ/Menu 或 90 帧后进 title
   title_sel = 1

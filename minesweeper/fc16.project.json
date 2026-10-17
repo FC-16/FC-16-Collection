@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "扫雷",
+    "author": "FrostMiKu",
+    "saveId": "minesweeper",
+    "version": 1,
+    "flags": 0,
+    "output": "minesweeper.fc16",
+    "release": "minesweeper.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "minesweeper.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

@@ -57,11 +57,12 @@ BGM 为原创 A 小调四小节行进（Am-F-G-E），旋律/贝斯/琶音三声
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "吃豆人" --author "FrostMiKu" \
-  --version 1 --save-id pacman --code pacman/pacman.lua --cover 30 \
-  --out pacman/pacman.fc16 --png carts/pacman.fc16.png
-cargo run -p fc16-host -- pacman/pacman.fc16
+python3 tools/build_all.py pacman
+../FC-16/target/debug/fc16 pacman/pacman.fc16
 ```
 
 无二进制资产：墙瓦（16 种连接掩码）、水果（8 种）由 `_init` 逐像素烘焙进精灵表，
 吃豆人与鬼为运行时程序化绘制（圆制三角裁嘴、逐行穹顶裙摆）。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

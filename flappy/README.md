@@ -15,7 +15,7 @@ SPEC §2.2 固定色表）。
 | 难度 | 分数越高卷速越快（1.6 → 2.4 封顶）、缺口越窄（86 → 64 封底） |
 | 天色 | 每局随机 白天 / 黄昏 / 夜晚 三种配色（视差云、城市剪影、灌丘同步换装，夜晚有星月、黄昏有条纹落日） |
 | 奖牌 | 铜 ≥10・银 ≥20・金 ≥30・白金 ≥40，结算面板中带游走闪光 |
-| 纪录 | 局中超越最高分即时弹出「新纪录」；最高分 `dset(0)` + `fflush` 持久化 |
+| 存档 | 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。 |
 
 - 状态机：标题（小鸟正弦浮动）→ 准备（按 Ⓐ 起飞）→ 游戏 → 坠落（撞击白闪 +
   羽毛四散 + 旋转俯冲 + 落地扬尘）→ 结算（面板滑入 + 分数滚动 + 奖牌号角）。
@@ -29,8 +29,8 @@ SPEC §2.2 固定色表）。
 | 键 | 功能 |
 |---|---|
 | Ⓐ / Ⓑ / ⬅⬆⬇➡ | 拍翅（标题 / 结算界面 Ⓐ 或 Ⓑ 为开始・再来一局） |
-| Select | 音乐开关（任意界面，存档槽位 1 持久化） |
-| Start | 结算界面回标题 |
+| View | 音乐开关（任意界面，存档槽位 1 持久化） |
+| Menu | 结算界面回标题 |
 
 ## 音频
 
@@ -42,17 +42,18 @@ C 大调 8 小节轻快循环。过管音高随分数渐升，撞击为方波 + 
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "弹跳鸟" --author "FrostMiKu" \
-  --version 1 --code flappy/flappy.lua --cover 30 \
-  --out flappy/flappy.fc16 --png carts/flappy.fc16.png
-cargo run -p fc16-host -- flappy/flappy.fc16
+python3 tools/build_all.py flappy
+../FC-16/target/debug/fc16 flappy/flappy.fc16
 ```
 
 headless 验证（标题 300 帧 + 输入脚本开局打管道）：
 
 ```bash
-cargo run -p fc16-host -- flappy/flappy.fc16 --frames 300 --screenshot out.png
-printf '100 key 4\n102 key -\n110 key 4\n112 key -\n' > script.txt
-cargo run -p fc16-host -- flappy/flappy.fc16 --frames 600 \
+../FC-16/target/debug/fc16 flappy/flappy.fc16 --frames 300 --screenshot out.png
+printf '100 key a\n102 key -\n110 key a\n112 key -\n' > script.txt
+../FC-16/target/debug/fc16 flappy/flappy.fc16 --frames 600 \
   --script script.txt --screenshot out.png
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

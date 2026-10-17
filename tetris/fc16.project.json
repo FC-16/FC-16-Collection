@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "俄罗斯方块",
+    "author": "FrostMiKu",
+    "saveId": "tetris",
+    "version": 1,
+    "flags": 0,
+    "output": "tetris.fc16",
+    "release": "tetris.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "tetris.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

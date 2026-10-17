@@ -21,9 +21,7 @@ FC-16 幻想主机上的完整数独演示卡带：三档难度、唯一解题�
   任何数字落定都会自动清理同行/列/宫的同数候选。
 - **提示**：每局 3 次，Ⓡ 揭示光标格正确答案（绿色数字）。
 - **冲突检查**：Ⓧ 开关，标红所有与所在行/列/宫重复的数字。
-- **计时与纪录**：mm:ss 计时（暂停停表）；各难度最佳用时存 `dset(0..2)`（整数秒）、
-  最少提示用量存 `dset(3..5)`（存"用量+1"，0 = 未记录），音乐开关存 `dset(6)`，
-  `fflush` 持久化。
+- 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。
 - **数字条余量**：底部 1-9 按键实时显示每种数字剩余可填数量，填满 9 个自动变暗。
 
 ## 操作
@@ -35,8 +33,8 @@ FC-16 幻想主机上的完整数独演示卡带：三档难度、唯一解题�
 | Ⓑ | 擦除光标格（铅笔模式下只清候选）；数字条上返回棋盘 |
 | ⬅➡（数字条）| 选数（按住自动重复）；⬆ 返回棋盘 |
 | Ⓛ Ⓧ Ⓡ | 铅笔候选 / 冲突检查 / 提示——数字条聚焦时同样可用 |
-| Start | 暂停菜单（继续 / 重开本题 / 换一题 / 返回难度选择） |
-| Select | 音乐开关（任意画面） |
+| Menu | 暂停菜单（继续 / 重开本题 / 换一题 / 返回难度选择） |
+| View | 音乐开关（任意画面） |
 
 ## 特性
 
@@ -52,18 +50,19 @@ FC-16 幻想主机上的完整数独演示卡带：三档难度、唯一解题�
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "数独" --author "FrostMiKu" \
-  --version 1 --code sudoku/sudoku.lua --cover 30 \
-  --out sudoku/sudoku.fc16 --png carts/sudoku.fc16.png
-cargo run -p fc16-host -- sudoku/sudoku.fc16
+python3 tools/build_all.py sudoku
+../FC-16/target/debug/fc16 sudoku/sudoku.fc16
 ```
 
 headless 验证（零输入 300 帧 + 输入脚本长跑；出题为分帧生成，脚本帧号需为
 生成过程留足等待）：
 
 ```bash
-cargo run -p fc16-host -- sudoku/sudoku.fc16 --frames 300 \
+../FC-16/target/debug/fc16 sudoku/sudoku.fc16 --frames 300 \
   --screenshot out.png
-cargo run -p fc16-host -- sudoku/sudoku.fc16 --frames 900 \
+../FC-16/target/debug/fc16 sudoku/sudoku.fc16 --frames 900 \
   --script script.txt --screenshot out.png
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

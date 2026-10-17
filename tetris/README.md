@@ -19,7 +19,7 @@
 | 锁定延迟 | 触底 30 帧后锁定，移动/旋转可重置（上限 15 次） |
 | 消行动画 | 整行闪白，随后由中心向外逐列碎裂为粒子；四消附射线庆祝与震屏 |
 | 收场 | 结束时棋盘由底向上灰化，浮出分数 / 最高分结算面板 |
-| 存档 | 最高分与音乐开关经 `dset`/`dget` 持久化，落锁与结束时 `fflush` |
+| 存档 | 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。 |
 
 视觉：井居左配斜面金属框，右栏信息面板（暂存 / 预告 / 分数 / 等级 /
 行数 / 最高）；七种方块各用 §2.2 固定色表中一个色系（I 青、O 黄、T 紫、
@@ -42,24 +42,25 @@ LOOP_START/LOOP_BACK 回环；Select 随时开关。
 | ⬇ | 软降（按住，+1 分/格，贴地加速锁定） |
 | Ⓡ | 硬降（+2 分/格，立即锁定） |
 | Ⓧ | 暂存 / 换块 |
-| Start | 暂停 / 继续（暂停页附完整按键表） |
-| Select | BGM 开关（持久化） |
+| Menu | 暂停 / 继续（暂停页附完整按键表） |
+| View | BGM 开关（持久化） |
 
 结束画面 Ⓐ 再来一局、Start 回标题。
 
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "俄罗斯方块" --author "FrostMiKu" \
-  --version 1 --save-id tetris --code tetris/tetris.lua --cover 30 \
-  --out tetris/tetris.fc16 --png carts/tetris.fc16.png
-cargo run -p fc16-host -- tetris/tetris.fc16
+python3 tools/build_all.py tetris
+../FC-16/target/debug/fc16 tetris/tetris.fc16
 ```
 
 headless 验证（封面取第 125 帧标题画面；headless 不带 `--seed` 时每 run
 随机种子，复现请显式传 `--seed`）：
 
 ```bash
-cargo run -p fc16-host -- tetris/tetris.fc16 --frames 400 --seed 1 \
+../FC-16/target/debug/fc16 tetris/tetris.fc16 --frames 400 --seed 1 \
   --screenshot out.png --wav out.wav
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

@@ -55,10 +55,8 @@ sspr 3× 绘制）、SFX 与五声 BGM 按 SPEC §5.2 位写入，卡带不携�
 | Ⓧ | 重开本关 |
 | Ⓨ | 可动块高亮提示开关（块右上角小金点） |
 | Ⓛ / Ⓡ | 上一关 / 下一关 |
-| Select | BGM 开关（存档记忆） |
-| Start | 选关；结算画面 Ⓐ 下一关、Start 选关 |
-
-选关界面"佳"列为该关最佳步数（dset 存档），达成 ≤ 最少步时金色高亮。
+| View | BGM 开关（存档记忆） |
+| Menu | 选关；结算画面 Ⓐ 下一关、Start 选关 |
 
 ## 视觉与音频
 
@@ -75,10 +73,8 @@ sspr 3× 绘制）、SFX 与五声 BGM 按 SPEC §5.2 位写入，卡带不携�
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "华容道" --author "FrostMiKu" \
-  --version 1 --save-id klotski --code klotski/klotski.lua --cover 30 \
-  --out klotski/klotski.fc16 --png carts/klotski.fc16.png
-cargo run -p fc16-host -- klotski/klotski.fc16
+python3 tools/build_all.py klotski
+../FC-16/target/debug/fc16 klotski/klotski.fc16
 ```
 
 封面取 headless 第 90 帧标题画面。存档槽：0-9 各关最佳步数、
@@ -95,3 +91,6 @@ cargo run -p fc16-host -- klotski/klotski.fc16
   headless 验证（悔棋步数回退、空栈无效音、关卡重载正确）；
 - **字集**：源码全部非 ASCII 字符均在固件字集（spec/charset.txt）内；
 - **headless**：400 帧零 Lua 错误。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

@@ -51,8 +51,8 @@
 | Ⓐ | 机枪（10 发/秒，弹链 100 发，打空自动装填） |
 | Ⓑ | 反坦克炮（范围溅射） |
 | Ⓧ | 手动更换弹链 |
-| Start | 暂停 |
-| Select | 调试：显示 Lua 内存占用（v0.177 移除指令预算暴露，自适应降级已改为固定精细档） |
+| Menu | 暂停 |
+| View | 调试：显示 Lua 内存占用（当前规范 移除指令预算暴露，自适应降级已改为固定精细档） |
 
 受击 / 回复只在屏幕边缘显示一圈红 / 绿提示，不遮挡战场；红圈同时以
 弧带 + 内指箭头标示最近一次受击的来袭方位（随视角实时换算）；云固定于世界方位，
@@ -61,10 +61,11 @@
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "抢滩登陆战2002" --author "FrostMiKu" \
-  --version 1 --save-id beachhead2002 --code beachhead/beachhead.lua \
-  --out beachhead/beachhead.fc16 --png carts/beachhead.fc16.png --cover 30
-cargo run -p fc16-host -- beachhead/beachhead.fc16
+python3 tools/build_all.py beachhead
+../FC-16/target/debug/fc16 beachhead/beachhead.fc16
 ```
 
 `game.png` / `game.wav` 为一次 2600 帧无人工干预战斗的 headless 预览。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

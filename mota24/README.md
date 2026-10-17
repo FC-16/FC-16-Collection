@@ -13,8 +13,8 @@
 | ⬅⬆⬇➡ | 移动（按住约 8 帧连续步进）；撞向怪物弹出战斗预览 |
 | Ⓐ | 确认 / 对话翻页 / 确认战斗 |
 | Ⓑ | 取消 / 关闭面板 |
-| Start | 菜单：存档×3 / 读档×3 / 怪物手册 / 音效开关 / 回标题 |
-| Select | 背景音乐开关 |
+| Menu | 菜单：存档×3 / 读档×3 / 怪物手册 / 音效开关 / 回标题 |
+| View | 背景音乐开关 |
 
 ## 音乐
 
@@ -41,13 +41,11 @@ Player_C，FL Studio FC 音色重制）六曲，音频仅存本地
 ## 重建
 
 ```bash
-python magetower/convert_art.py             # 生成美术块写入两张卡带源
-python magetower/transcribe_music.py mota24 # 音频转录写入本卡带源
-python magetower/verify_music.py mota24     # 渲染验收（相似度应 ≥0.55）
-cargo run -p fc16-tools --bin fc16mk -- --name "24层魔塔" --author "FrostMiKu" \
-  --version 1 --save-id mota24 --code mota24/mota24.lua \
-  --out mota24/mota24.fc16 --png carts/mota24.fc16.png --cover 30
-cargo run -p fc16-host -- mota24/mota24.fc16
+python3 tools/build_all.py mota24
+../FC-16/target/debug/fc16 mota24/mota24.fc16
 ```
 
 B 站音频下载方式见 `../magetower/README.md`。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

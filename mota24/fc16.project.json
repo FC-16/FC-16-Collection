@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "24层魔塔",
+    "author": "FrostMiKu",
+    "saveId": "mota24",
+    "version": 1,
+    "flags": 0,
+    "output": "mota24.fc16",
+    "release": "mota24.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "mota24.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

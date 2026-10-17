@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """convert_music.py — 把 SuperMarioBros-C 反汇编（docs/smbdis.asm）中的原曲音符表
-转写为 FC-16 tracker 数据（SFX 32 步×3B + Pattern 64×16B），并以
-「BEGIN GENERATED MUSIC / END」标记区间写回 demo/mario/mario.lua。
+转写为 FC-16 tracker 数据（SFX 32 步×4B + MUSIC 32B 表头与 64×32B 行），并以
+「BEGIN GENERATED MUSIC / END」标记区间写回 mario/mario.lua。
 
 数据来源与格式（对应反汇编中的音乐引擎）：
   - MusicHeaderData：每首歌头 = [长度表偏移, 数据地址(lo,hi), 三角偏移, 方波1偏移, (噪声偏移)]
@@ -21,12 +21,13 @@
 """
 
 import math
+import os
 import re
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REF_ASM = Path(r"G:\github\_ref\SuperMarioBros-C\docs\smbdis.asm")
+REF_ASM = Path(os.environ.get("SMB_ASM", HERE / "_source/smbdis.asm"))
 LUA = HERE / "mario.lua"
 BEGIN_MARK = "-- BEGIN GENERATED MUSIC (from smbdis via convert_music.py)"
 END_MARK = "-- END GENERATED MUSIC"
@@ -399,15 +400,19 @@ def emit_lua(emit, pats, bases):
         "-- 通道：ch4 主旋律 SQUARE / ch5 和声 PULSE25 / ch6 贝斯 TRIANGLE / ch7 鼓 NOISE",
         "-- Pattern：0-19 地上(BEGIN/END 循环)；其余曲目（循环曲 BEGIN+END，一次性曲 STOP）：",
         "--          " + layout,
-        "local function drum_sfx(id, steps, speed)",
-        "  local base = 0x060000 + id * 112",
-        "  u8(base, speed) u8(base + 1, #steps)",
-        "  for s = 0, 31 do",
-        "    local a = base + 16 + s * 3",
-        "    local st = steps[s + 1]",
-        "    if st then u8(a, st[1]) u8(a + 1, st[2] * 16 + st[3]) u8(a + 2, 0) else u8(a, 0) u8(a + 1, 0) end",
-        "  end",
-        "end",
+        'local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32',
+        'local function drum_sfx(id, steps, speed)',
+        '  local base = 0x0C0000 + id * 144',
+        '  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick',
+        '  u8(base + 2, #steps)',
+        '  for s = 0, 31 do',
+        '    local a = base + 16 + s * 4',
+        '    local st = steps[s + 1]',
+        '    if st and (st[1] or 0) > 0 then',
+        '      u8(a, st[1] - 1) u8(a + 1, TIMBRE_SOURCE[st[2]]) u8(a + 2, st[3]) u8(a + 3, 0)',
+        '    else u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0) end',
+        '  end',
+        'end',
         "local function music_gen()",
     ]
     for (sid, content, kind, speed) in sorted(emit):
@@ -427,10 +432,14 @@ def emit_lua(emit, pats, bases):
         else:
             L.append("  init_sfx(%d, {%s}, %d, %d, %d)"
                      % (sid, ",".join(str(m) for m in content), WAVE[kind], VOL[kind], sp))
-    L.append("  -- Pattern 表（0x063800 起，每段 16B；ch4-7 = 音乐通道）")
+    L.append("  poke(MUSIC_BASE, %d)" % len(pats))
+    L.append("  for row=0,63 do for ch=0,7 do u8(MUSIC_BASE+32+row*32+ch,255) end end")
     L.append("  local function pat(n, m, h, b, d, f)")
-    L.append("    local a = 0x063800 + n * 16")
-    L.append("    u8(a + 4, m) u8(a + 5, h) u8(a + 6, b) u8(a + 7, d) u8(a + 8, f)")
+    L.append("    local a = MUSIC_BASE + 32 + n * 32")
+    L.append("    for i,v in ipairs({m,h,b,d}) do u8(a+3+i, v==0 and 255 or v-1) end")
+    L.append("    u8(a+16, bit32.band(f,1)~=0 and 1 or 0)")
+    L.append("    u8(a+17, bit32.band(f,2)~=0 and 1 or 0)")
+    L.append("    u8(a+18, bit32.band(f,4)~=0 and 1 or 0)")
     L.append("  end")
     for pi, (name, ids, flags) in enumerate(pats):
         L.append("  pat(%d, %d, %d, %d, %d, %d) -- %s"

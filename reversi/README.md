@@ -10,7 +10,7 @@ FC-16 幻想主机上的完整黑白棋（Reversi/Othello）演示卡带：标�
   8 个方向全部翻转；无合法手时自动跳过（横幅提示"×无子可下"）；
   双方均无手或棋盘下满即终局，子多者胜。
 - 棋盘为经典绿毛毡相间格 + 木框 + 四角星位标记，格边 24px。
-- 战绩按难度累计 胜/负/和，`dset(0..8)` + `fflush` 持久化；音乐开关存槽位 9。
+- 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。
 
 ## 难度
 
@@ -35,8 +35,8 @@ FC-16 幻想主机上的完整黑白棋（Reversi/Othello）演示卡带：标�
 | ←→↑↓ | 移动光标（可按住连移；光标旁显示 C4 式坐标） |
 | Ⓐ | 落子（标题画面与终局面板为开始 / 再来一局） |
 | Ⓧ | 悔棋（成对撤回最近的玩家 + AI 两手，不限次数；思考与演出期间禁用） |
-| Start | 暂停菜单：继续 / 认输 / 重开 / 回标题 |
-| Select | 音乐开关（任意画面可用） |
+| Menu | 暂停菜单：继续 / 认输 / 重开 / 回标题 |
+| View | 音乐开关（任意画面可用） |
 
 ## 特性
 
@@ -54,18 +54,19 @@ FC-16 幻想主机上的完整黑白棋（Reversi/Othello）演示卡带：标�
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "黑白棋" --author "FrostMiKu" \
-  --version 1 --code reversi/reversi.lua --cover 30 \
-  --out reversi/reversi.fc16 --png carts/reversi.fc16.png
-cargo run -p fc16-host -- reversi/reversi.fc16
+python3 tools/build_all.py reversi
+../FC-16/target/debug/fc16 reversi/reversi.fc16
 ```
 
 headless 验证（截图 + 输入脚本）：
 
 ```bash
-cargo run -p fc16-host -- reversi/reversi.fc16 --frames 300 \
+../FC-16/target/debug/fc16 reversi/reversi.fc16 --frames 300 \
   --screenshot out.png
-printf '60 key 4\n62 key -\n100 key 4\n102 key -\n' > script.txt
-cargo run -p fc16-host -- reversi/reversi.fc16 --frames 900 \
+printf '60 key a\n62 key -\n100 key a\n102 key -\n' > script.txt
+../FC-16/target/debug/fc16 reversi/reversi.fc16 --frames 900 \
   --screenshot out.png --script script.txt
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

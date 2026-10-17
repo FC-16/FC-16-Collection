@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""魔塔 SWF 数据提取脚本（demo/magetower/extract_swf.py）
+"""魔塔 SWF 数据提取脚本（magetower/extract_swf.py）
 
 从用户提供的经典 Flash 魔塔（24 层 / 50 层）SWF 中提取游戏数据，产出
 magetower_data.json，卡带源的内嵌数据表即由本脚本生成。

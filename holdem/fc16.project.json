@@ -1,0 +1,18 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "德州扑克",
+    "author": "FrostMiKu",
+    "saveId": "holdem",
+    "version": 1,
+    "flags": 0,
+    "output": "holdem.fc16",
+    "release": "holdem.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "holdem.lua",
+  "sections": {
+    "sprites": "cards.bin"
+  },
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

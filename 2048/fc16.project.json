@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "2048",
+    "author": "FrostMiKu",
+    "saveId": "2048",
+    "version": 1,
+    "flags": 0,
+    "output": "2048.fc16",
+    "release": "2048.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "2048.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

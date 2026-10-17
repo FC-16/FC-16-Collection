@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""转录质量验证（demo/magetower/verify_music.py）
+"""转录质量验证（magetower/verify_music.py）
 
 对每条曲目生成一张"只播这首歌"的测试卡带，用真实 fc16-host 渲染 WAV，
 再与源音频（mota50 = tswBGM MP3 对应小节窗；mota24 = B 站 WAV）做
@@ -11,7 +11,7 @@
 
 判读：≥0.70 接近原曲；0.55-0.70 结构对但声部/八度有偏；<0.55 需要调参
 （速度候选、bar_offset、声部覆盖或音区）。
-依赖：librosa、numpy；需要 target_rel2 下已构建的 fc16mk / fc16-host。
+依赖：librosa、numpy；需要 FC16_ROOT/target/debug 下已构建的 fc16mk / fc16-host。
 """
 import os
 import re
@@ -23,12 +23,12 @@ import wave
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HERE))
+ROOT = os.environ.get("FC16_ROOT", os.path.join(os.path.dirname(os.path.dirname(HERE)), "FC-16"))
 sys.path.insert(0, HERE)
 import transcribe_music as tm
 
-HOST = os.path.join(ROOT, "target_rel2", "release", "fc16.exe")
-MK = os.path.join(ROOT, "target_rel2", "release", "fc16mk.exe")
+HOST = os.path.join(ROOT, "target", "debug", "fc16.exe" if os.name == "nt" else "fc16")
+MK = os.path.join(ROOT, "target", "debug", "fc16mk.exe" if os.name == "nt" else "fc16mk")
 BEGIN = tm.cm.BEGIN
 END = tm.cm.END
 

@@ -36,8 +36,8 @@ FC-16 幻想主机上的完整连连看演示卡带：三种难度、经典"最�
 | Ⓐ | 选中 / 消除（标题开始；结算后重来） |
 | Ⓑ | 取消选中（暂停中继续） |
 | Ⓡ | 提示一对可连牌（高亮 3 秒，每关 3 次） |
-| Select | 局内手动洗牌（每关 2 次）；标题 / 暂停 / 结算画面为音乐开关 |
-| Start | 暂停 / 继续（结算画面回标题） |
+| View | 局内手动洗牌（每关 2 次）；标题 / 暂停 / 结算画面为音乐开关 |
+| Menu | 暂停 / 继续（结算画面回标题） |
 
 ## 特性
 
@@ -48,7 +48,7 @@ FC-16 幻想主机上的完整连连看演示卡带：三种难度、经典"最�
 - 洗牌为全体缩出 → 重排 → 错峰长入的三段动画；过关有随机金色爆发 + 扩散环。
 - HUD：关卡 / 分数 / 最高分 / 时间条 / Ⓡ 与洗牌余量 / 音乐标记；
   底栏轮播操作提示。
-- 最高分 `dset(0)`、音乐开关 `dset(1)`，`fflush` 持久化。
+- 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。
 - 音频：原创 C 大调五声 8 小节循环 BGM（旋律 ROUND / 琶音 TRIANGLE /
   贝斯 BASS / 鼓组噪声，MUSIC 行 0-7 LOOP_START/LOOP_BACK 回环，占 ch4-7）；
   选中 / 消除（连击 8 级音高）/ 拒绝 / 洗牌 / 提示 / 过关 / 时间到 / 新纪录 SFX 走 ch0-2。
@@ -56,18 +56,19 @@ FC-16 幻想主机上的完整连连看演示卡带：三种难度、经典"最�
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "连连看" --author "FrostMiKu" \
-  --version 1 --code lianliankan/lianliankan.lua --cover 30 \
-  --out lianliankan/lianliankan.fc16 --png carts/lianliankan.fc16.png
-cargo run -p fc16-host -- lianliankan/lianliankan.fc16
+python3 tools/build_all.py lianliankan
+../FC-16/target/debug/fc16 lianliankan/lianliankan.fc16
 ```
 
 headless 验证（零输入截图 + 输入脚本开局消除一对，注意 seed 0 会被宿主映射为
 随机种子，固定请用 `--seed 1`）：
 
 ```bash
-cargo run -p fc16-host -- lianliankan/lianliankan.fc16 --frames 150 \
+../FC-16/target/debug/fc16 lianliankan/lianliankan.fc16 --frames 150 \
   --screenshot out.png
-cargo run -p fc16-host -- lianliankan/lianliankan.fc16 --frames 900 --seed 1 \
+../FC-16/target/debug/fc16 lianliankan/lianliankan.fc16 --frames 900 --seed 1 \
   --script script.txt --screenshot out.png
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

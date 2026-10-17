@@ -4,7 +4,7 @@
 忠实实现 NES 版「区域对象 / 敌人对象」字节流的解析逻辑（对应反汇编中的
 ProcessAreaData / DecodeAreaData / 各对象子例程与 ProcessEnemyData），
 把 World 1-1 / 1-2 / 1-3 / 1-4 / 奖励房的布局与敌人布点转写为
-demo/mario/mario.lua 的 LEVEL 表所需的描述性输出。
+mario/mario.lua 的 LEVEL 表所需的描述性输出。
 
 用法：
     python3 convert_level.py                 # 解码全部世界 1 关卡并打印

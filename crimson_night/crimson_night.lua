@@ -4,7 +4,7 @@
 
 
 t=time
-local __fc16_time=time
+local crimson_time=time
 -- PICO-8 色号 0–15 → FC-16 色号（convert_assets.py 按 assets/palette.dat 最近色
 -- 生成，与精灵像素转换同源；PICO 白色 → FC 7 白）。所有绘制期颜色经此表取值。
 COL = {[0]=0,12,53,36,18,4,8,7,63,29,30,35,42,5,57,21}
@@ -64,7 +64,6 @@ spawn_increase_timer=0
   game_over=false
   game_over_slide=0
   tutorial_screen=1
-  intro_t=0
   tutorial_slide=0
   
   game_state="intro"
@@ -122,7 +121,7 @@ upgrade_pool={
   {id="mov",name="移动速度",icon=153,apply=function()player_speed = player_speed + 0.2 end},
   {id="mag",name="磁吸范围",icon=150,apply=function()magnet_range = magnet_range + 10 end},
   {id="dash",name="冲刺距离",icon=149,apply=function()dash_speed = dash_speed + 1 end},
-  {id="reload",name="装填速度",icon=174,apply=function()revolver_reload_delay=flr(revolver_reload_delay*0.8)end}
+  {id="reload",name="装填速度",icon=174,apply=function()revolver_reload_delay=math.floor(revolver_reload_delay*0.8)end}
 }
 magnet_range=15
 fire_dash_unlocked=false
@@ -156,7 +155,7 @@ function choose_random_upgrades()
   local selected={}
   for i=1,3 do
     if #pool==0 then break end
-    local idx=flr(rnd(#pool))+1
+    local idx=math.floor(rnd(#pool))+1
     add(selected,pool[idx])
     deli(pool,idx)
   end
@@ -165,8 +164,10 @@ end
 
 local function reset_run_state()
   -- restore firmware timer after the game-over overlay's temporary clock
-  time=__fc16_time
-  t=__fc16_time
+  time=crimson_time
+  t=crimson_time
+  for _,e in ipairs(enemies) do enemy_release(e) end
+  ppause(false)
   dash_trails={}; dynamites={}; enemies={}; bullets={}; particles={}
   blood_stains={}; xp_gems={}; kill_count=0
   player_health=5; player_level=1; player_xp=0; xp_to_next=8
@@ -186,11 +187,11 @@ function _init()
   player_x=map_center_x
   player_y=map_center_y
   gun_angle=0
-  map_seed=flr(rnd(1000000))
+  map_seed=math.floor(rnd(1000000))
   cam_x=player_x-64
   cam_y=player_y-64
   game_state="intro"
-  -- MUSIC 0–4 前奏，5 的 BEGIN 到 16 的 END 构成循环乐段
+  -- MUSIC Row 0–4 前奏，后续 LOOP_BACK 回到最近的 LOOP_START
   music(0, 0, MUSIC_CHANNELS_MASK)
 end
 
@@ -198,13 +199,44 @@ end
 
 
 local DT=0.5
-local function ease60(k) return 1-sqrt(1-k) end
-local function chance30(p) return rnd()<1-sqrt(1-p) end
+local function ease60(k) return 1-math.sqrt(1-k) end
+local function chance30(p) return rnd()<1-math.sqrt(1-p) end
+
+-- 原生actor提供怪群移动、软分离与子弹邻域查询；不维护第二套Lua空间网格。
+-- 敌人表的x/y直接读取原生对象位置（像素坐标的一半），不每帧抄回Lua。
+local enemy_query={}
+local ENEMY={__index=function(e,k)
+  local o=rawget(e,"phys")
+  if k=="x" then return o.x/2 elseif k=="y" then return o.y/2 end
+end}
+local function enemy_body(e)
+  local o=rawget(e,"phys")
+  if o then return o end
+  o=pspr(e.first_sprite or 64,rawget(e,"x")*2,rawget(e,"y")*2)
+  o:box(8,8,4,4)
+  o.layer=2 o.mask=2 o.push=1
+  o.data=e
+  rawset(e,"x",nil) rawset(e,"y",nil)
+  rawset(e,"phys",o)
+  return setmetatable(e,ENEMY).phys
+end
+function enemy_release(e)
+  local o=rawget(e,"phys")
+  if o then
+    -- 删除后保留最后位置供结算特效读取。
+    rawset(e,"x",o.x/2) rawset(e,"y",o.y/2)
+    o:del() rawset(e,"phys",nil)
+  end
+end
+function enemy_first(x,y,radius)
+  local found=pnear(x*2,y*2,radius*2,2,enemy_query)
+  return found[1] and found[1].data or nil
+end
 
 function _update()
+  ppause(true)
     if game_state=="intro" then
-    intro_t=(intro_t or 0)+1
-    if btnp(11) then
+    if btnp("menu") then
       sfx(36)
       if tutorial_screen==1 then
         tutorial_screen=2
@@ -215,7 +247,7 @@ function _update()
       end
     end
     if tutorial_slide>0 then
-      tutorial_slide=min(tutorial_slide+0.1*DT,1)
+      tutorial_slide=math.min(tutorial_slide+0.1*DT,1)
       if tutorial_slide>=1 then
         game_state="playing"
         t=time
@@ -235,11 +267,11 @@ function _update()
       local gx,gy=ghost_gun.x+4,ghost_gun.y+4
       local n=nearest_enemy(gx,gy,false)
       local dx,dy=cos(gun_angle),sin(gun_angle)
-      if n then dx=n.x+4-gx dy=n.y+4-gy local l=sqrt(dx*dx+dy*dy) if l>0 then dx = dx / l dy = dy / l end end
+      if n then dx=n.x+4-gx dy=n.y+4-gy local l=math.sqrt(dx*dx+dy*dy) if l>0 then dx = dx / l dy = dy / l end end
       add(bullets,{x=gx,y=gy,dx=dx*bullet_speed,dy=dy*bullet_speed,color=11,trail={},source="ghost"})
       ghost_gun.recoil=2
     end
-    ghost_gun.recoil=max((ghost_gun.recoil or 0)-0.2*DT,0)
+    ghost_gun.recoil=math.max((ghost_gun.recoil or 0)-0.2*DT,0)
   end
 
   -- ghost sword orbiting logic
@@ -252,7 +284,7 @@ function _update()
     for e in all(enemies) do
       local dx=ghost_sword_x-(e.x+4)
       local dy=ghost_sword_y-(e.y+4)
-      if sqrt(dx*dx+dy*dy)<8 then
+      if math.sqrt(dx*dx+dy*dy)<8 then
         e.hp = e.hp - 20*DT e.hit_timer=10 e.last_damage=20 e.damage_color=11
         if e.hp<=0 then on_enemy_killed(e,ghost_sword_x-(e.x+4),ghost_sword_y-(e.y+4)) end
       end
@@ -263,8 +295,8 @@ function _update()
     time=function()
       if game_over then return death_time else return t() end
     end
-    game_over_slide=min(game_over_slide+0.1*DT,1)
-    if btnp(11) then
+    game_over_slide=math.min(game_over_slide+0.1*DT,1)
+    if btnp("menu") then
       sfx(36)
       game_state="playing"
       _init()
@@ -276,15 +308,15 @@ function _update()
     time=function()
       if level_up_pending then return 0 else return t() end
     end
-    if dirp(0) then
-      selected_card=max(1,selected_card-1)
+    if dirp("left") then
+      selected_card=math.max(1,selected_card-1)
       sfx(32, 1)
     end
-    if dirp(1) then
-      selected_card=min(3,selected_card+1)
+    if dirp("right") then
+      selected_card=math.min(3,selected_card+1)
       sfx(32, 1)
     end
-    if btnp(5) then
+    if btnp("b") then
       sfx(36)
       level_up_pending=false
       local upgrade=offered_upgrades[selected_card]
@@ -296,11 +328,12 @@ function _update()
     return
   end
 
+  ppause(false)
   local px=player_x
   local py=player_y
 
-  local input_x = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
-  local input_y = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
+  local input_x = (dir("right") and 1 or 0) - (dir("left") and 1 or 0)
+  local input_y = (dir("down") and 1 or 0) - (dir("up") and 1 or 0)
   local move_x = input_x * player_speed*DT
   local move_y = input_y * player_speed*DT
   
@@ -315,7 +348,7 @@ function _update()
     player_facing_left=false 
   end
   
-  local input_len = sqrt(input_x*input_x + input_y*input_y)
+  local input_len = math.sqrt(input_x*input_x + input_y*input_y)
   if input_len > 1 then
     move_x = move_x / input_len
     move_y = move_y / input_len
@@ -388,7 +421,7 @@ function _update()
   end
   
   if direction_transition_timer>0 then
-    direction_transition_timer = max(0,direction_transition_timer-DT)
+    direction_transition_timer = math.max(0,direction_transition_timer-DT)
     if direction_transition_timer<=0 and player_target_direction then
       player_direction=player_target_direction
       player_target_direction=nil
@@ -396,7 +429,7 @@ function _update()
   end
   
   if turn_transition_timer>0 then
-    turn_transition_timer = max(0,turn_transition_timer-DT)
+    turn_transition_timer = math.max(0,turn_transition_timer-DT)
     if turn_transition_timer<=0 then
       turn_transition_stage=0
     end
@@ -417,11 +450,11 @@ function _update()
   if (input_x~=0 or input_y~=0) and chance30(0.6) then
     local px=player_x+8
     local py=player_y+16
-    emit(px,py,input_x*0.3+(rnd(1)-0.5)*0.4,input_y*0.3+(rnd(1)-0.5)*0.4-0.2,15+flr(rnd(10)),5+flr(rnd(3)),1,nil,true)
+    emit(px,py,input_x*0.3+(rnd(1)-0.5)*0.4,input_y*0.3+(rnd(1)-0.5)*0.4-0.2,15+math.floor(rnd(10)),5+math.floor(rnd(3)),1,nil,true)
   end
 
 
-  if btnp(5) and dash_timer==0 and dash_cooldown_timer==0 then
+  if btnp("b") and dash_timer==0 and dash_cooldown_timer==0 then
     dash_timer=5
     sfx(35)
     invulnerable_timer=60
@@ -430,13 +463,13 @@ function _update()
     local dy_input=input_y
     dash_dx=dx_input
     dash_dy=dy_input
-    local len=sqrt(dash_dx*dash_dx+dash_dy*dash_dy)
+    local len=math.sqrt(dash_dx*dash_dx+dash_dy*dash_dy)
     if len==0 then
       local d=player_direction or player_last_movement_direction or "down"
       local sx=player_facing_left and -1 or 1
       dash_dx=(d=="side" or d=="up_diag" or d=="down_diag") and sx or 0
       dash_dy=(d=="up" or d=="up_diag") and -1 or ((d=="down" or d=="down_diag") and 1 or 0)
-      len=sqrt(dash_dx*dash_dx+dash_dy*dash_dy)
+      len=math.sqrt(dash_dx*dash_dx+dash_dy*dash_dy)
     end
     if len>0 then
       dash_dx = dash_dx / len
@@ -446,17 +479,17 @@ function _update()
   end
 
   if dash_timer>0 then
-    dash_timer = max(0,dash_timer-DT)
+    dash_timer = math.max(0,dash_timer-DT)
     player_x = player_x + dash_dx*dash_speed*DT
     player_y = player_y + dash_dy*dash_speed*DT
     
     -- Fire dash damage and particles
     if fire_dash_unlocked then
       -- Make player invulnerable during fire dash
-      invulnerable_timer=max(invulnerable_timer,60)
+      invulnerable_timer=math.max(invulnerable_timer,60)
       
        for e in all(enemies) do
-        if abs(e.x-player_x)<12 and abs(e.y-player_y)<12 then
+        if math.abs(e.x-player_x)<12 and math.abs(e.y-player_y)<12 then
           e.hp = e.hp - 15*DT e.hit_timer=10 e.last_damage=15 e.damage_color=8
           if e.hp<=0 then on_enemy_killed(e,player_x-e.x,player_y-e.y) end
         end
@@ -500,24 +533,26 @@ function _update()
 
   for e in all(enemies) do
     local dx,dy=player_x-e.x,player_y-e.y
-    local d=sqrt(dx*dx+dy*dy)
-    if d>1 then 
-      local speed_mult = min(0.8, 0.5 + (player_level - 1) * 0.03)
-      local s = player_speed * speed_mult
-      e.x = e.x + (dx/d) * s*DT
-      e.y = e.y + (dy/d) * s*DT
+    local d=math.sqrt(dx*dx+dy*dy)
+    if d>1 then
+      local speed_mult=math.min(0.8,0.5+(player_level-1)*0.03)
+      local speed=player_speed*speed_mult*DT*2
+      local o=enemy_body(e)
+      o.vx=dx/d*speed o.vy=dy/d*speed
+    else
+      local o=enemy_body(e)
+      o.vx=0 o.vy=0
     end
-    for o in all(enemies) do if e~=o and abs(e.x-o.x)<16 and abs(e.y-o.y)<16 then local x=e.x-o.x local y=e.y-o.y if x*x+y*y<16 then e.x = e.x + x*0.1*DT e.y = e.y + y*0.1*DT end end end
-    if abs(e.x-player_x)<8 and abs(e.y-player_y)<8 and invulnerable_timer==0 then
+    if math.abs(e.x-player_x)<8 and math.abs(e.y-player_y)<8 and invulnerable_timer==0 then
       player_health = player_health - 1 camera_shake_timer=10 hit_flash_timer=10 invulnerable_timer=60
       -- 受伤反馈：轻震；死亡加重并延长（SPEC §12.5，无手柄时静默忽略）
       if player_health<=0 then
-        game_over=true death_time=flr(time()) game_over_slide=0 sfx(38)
+        game_over=true death_time=math.floor(time()) game_over_slide=0 sfx(38)
         rumble(255, 180, 40)
       else
         rumble(160, 90, 12)
       end
-      del(enemies,e)
+      enemy_release(e) del(enemies,e)
     end
   end
 
@@ -530,7 +565,7 @@ function _update()
     local py=player_y+4
     bullet_target_enemy=nearest_enemy(px,py,true)
 
-  if btnp(4) and revolver_current>0 and not revolver_reloading and manual_fire_cooldown<=0 then
+  if btnp("a") and revolver_current>0 and not revolver_reloading and manual_fire_cooldown<=0 then
     sfx(33, 1)
     bullet_timer=0
     revolver_current = revolver_current - 1
@@ -551,7 +586,7 @@ function _update()
     local nearest=bullet_target_enemy
     if nearest then
       dx=nearest.x+4-px dy=nearest.y+4-py
-      local len=sqrt(dx*dx+dy*dy)
+      local len=math.sqrt(dx*dx+dy*dy)
       if len>0 then dx = dx / len dy = dy / len last_target_dx=dx last_target_dy=dy gun_angle=atan2(dy,dx) end
     else dx=last_target_dx dy=last_target_dy end
 
@@ -566,7 +601,7 @@ function _update()
 
     if bullet_multi_count>0 then
         for i=1,bullet_multi_count do
-            local angle_offset=bullet_multi_angle*(i%2==0 and 1 or -1)*ceil(i/2)
+            local angle_offset=bullet_multi_angle*(i%2==0 and 1 or -1)*math.ceil(i/2)
             local spread_dx=cos(gun_angle+angle_offset)*bullet_speed
             local spread_dy=sin(gun_angle+angle_offset)*bullet_speed
             add(bullets,{
@@ -592,8 +627,9 @@ function _update()
     if not b.bounces then b.bounces = 0 end
     
     local hit = false
-    for e in all(enemies) do
-        if not hit and abs(b.x - e.x) < 6 and abs(b.y - e.y) < 6 then
+    local e = enemy_first(b.x,b.y,6)
+    if e then
+        if not hit then
             -- Apply damage (ghost gun ignores upgrades)
             local dmg = (b.source=="ghost") and 10 or bullet_damage
             e.hp = e.hp - dmg
@@ -606,13 +642,13 @@ function _update()
             if bullet_bounce_enabled and b.bounces < bullet_ricochet_count and b.source~="ghost" then
                 -- Find next closest enemy
                 local next_target = nil
-                local closest_dist = 999
+                local closest_dist = 999 * 999
                 
-                for next_e in all(enemies) do
+                for _, next_e in ipairs(enemies) do
                     if next_e ~= e then
                         local dx = next_e.x - b.x
                         local dy = next_e.y - b.y
-                        local dist = sqrt(dx*dx + dy*dy)
+                        local dist = dx*dx + dy*dy
                         if dist < closest_dist then
                             closest_dist = dist
                             next_target = next_e
@@ -624,7 +660,7 @@ function _update()
                 if next_target then
                     local dx = next_target.x - b.x
                     local dy = next_target.y - b.y
-                    local dist = sqrt(dx*dx + dy*dy)
+                    local dist = math.sqrt(dx*dx + dy*dy)
                     b.dx = (dx/dist) * bullet_speed
                     b.dy = (dy/dist) * bullet_speed
                     b.bounces = b.bounces + 1
@@ -644,7 +680,6 @@ function _update()
                 end
                 on_enemy_killed(e,b.dx,b.dy)
             end
-            break
         end
     end
   end
@@ -698,7 +733,7 @@ function _update()
     if d.height > 0 then
       d.height = 0
       d.vyz = -d.vyz * 0.6
-      if abs(d.vyz) < 0.4 then
+      if math.abs(d.vyz) < 0.4 then
         d.vyz = 0
       end
     end
@@ -709,11 +744,11 @@ function _update()
       -- explosion flash and shake
       shake_timer = 5
       circfill(((px)*2), ((py)*2), ((12)*2), COL[7])
-      for j=1,18 do local a=rnd(1) local s=1+rnd(1) emit(px,py,cos(a)*s,sin(a)*s,10,8+flr(rnd(2)),1) end
+      for j=1,18 do local a=rnd(1) local s=1+rnd(1) emit(px,py,cos(a)*s,sin(a)*s,10,8+math.floor(rnd(2)),1) end
       for e in all(enemies) do
         local dx = px - (e.x + 4)
         local dy = py - (e.y + 4)
-      if sqrt(dx*dx + dy*dy) < 18 then
+      if math.sqrt(dx*dx + dy*dy) < 18 then
           -- Area damage: 50 damage to all enemies in range
           e.hp = e.hp - 50
           e.hit_timer = 10
@@ -724,7 +759,7 @@ function _update()
           for i=1, 6 do
             local a = rnd(1)
             local s = rnd(1)
-            emit(e.x+rnd(8)-4,e.y+rnd(8)-4,cos(a)*s,sin(a)*s,8,8+flr(rnd(2)))
+            emit(e.x+rnd(8)-4,e.y+rnd(8)-4,cos(a)*s,sin(a)*s,8,8+math.floor(rnd(2)))
           end
           
           -- Kill enemy if HP reaches 0
@@ -737,8 +772,11 @@ function _update()
     end
   end
 
-  -- update particles
-  for p in all(particles) do
+  -- 原顺序更新并稳定压缩，不逐粒子移动整个数组。
+  local particle_count = #particles
+  local kept_particles = 0
+  for i = 1, particle_count do
+    local p = particles[i]
       p.x = p.x + p.dx*DT
       p.y = p.y + p.dy*DT
     
@@ -748,9 +786,8 @@ function _update()
     end
     
     p.life = p.life - DT
-    if p.life <= 0 then
-      del(particles, p)
-    else
+    if p.life > 0 then
+      kept_particles += 1 particles[kept_particles] = p
       -- Handle fading for walking dust particles
       if p.fade then
         local ratio = p.life / (p.max_life or 20)
@@ -767,23 +804,27 @@ function _update()
     end
   end
 
-  -- update blood stains life and fade
-  for b in all(blood_stains) do
+  for i = kept_particles + 1, particle_count do particles[i] = nil end
+
+  local blood_count, kept_blood = #blood_stains, 0
+  for i = 1, blood_count do
+    local b = blood_stains[i]
     b.life = b.life - DT
-    if b.life<=0 then del(blood_stains,b) end
+    if b.life > 0 then kept_blood += 1 blood_stains[kept_blood] = b end
   end
+  for i = kept_blood + 1, blood_count do blood_stains[i] = nil end
 
   -- gradually increase spawn rate
   spawn_increase_timer = spawn_increase_timer + DT
   if spawn_increase_timer >= spawn_increase_delay then
     spawn_increase_timer = 0
-    enemy_spawn_delay = max(10, enemy_spawn_delay - 5) -- cap minimum delay
+    enemy_spawn_delay = math.max(10, enemy_spawn_delay - 5) -- cap minimum delay
   end
 
   -- xp gem logic (reset & simplified)
   for g in all(xp_gems) do
     -- If collected, always switch to collect_bounce state and reset bounce
-    if not g.collected and abs(g.x - player_x) < 8 and abs(g.y - player_y) < 8 then
+    if not g.collected and math.abs(g.x - player_x) < 8 and math.abs(g.y - player_y) < 8 then
         g.collected = true
         g.collect_timer = 0
         g.collect_duration = 15
@@ -804,7 +845,7 @@ function _update()
             g.z = 0
             g.vz = -g.vz * 0.5
             g.bounce = g.bounce + 1
-            if abs(g.vz) < 0.2 or g.bounce >= g.max_bounces then
+            if math.abs(g.vz) < 0.2 or g.bounce >= g.max_bounces then
                 g.state = "idle"
                 g.vz = 0
                 g.z = 0
@@ -822,7 +863,7 @@ function _update()
             g.z = 0
             g.vz = -g.vz * 0.5
             g.bounce = g.bounce + 1
-            if abs(g.vz) < 0.2 or g.bounce >= g.max_bounces then
+            if math.abs(g.vz) < 0.2 or g.bounce >= g.max_bounces then
                 g.state = "collected_done"
             end
         end
@@ -845,11 +886,14 @@ function _update()
   end
 
   -- Add cleanup for old particles
-  for p in all(particles) do
-    if p.life <= 0 or not is_visible(p.x, p.y) then
-        del(particles, p)
+  particle_count, kept_particles = #particles, 0
+  for i = 1, particle_count do
+    local p = particles[i]
+    if p.life > 0 and is_visible(p.x, p.y) then
+      kept_particles += 1 particles[kept_particles] = p
     end
   end
+  for i = kept_particles + 1, particle_count do particles[i] = nil end
 
   if player_xp >= xp_to_next then
     player_level = player_level + 1
@@ -857,7 +901,7 @@ function _update()
     level_up_pending = true
     player_xp = 0
     -- tiered xp: 30%->35%->40%->45% based on level
-    xp_to_next = flr(xp_to_next * (1.3 + (player_level > 5 and 0.05 or 0) + (player_level > 10 and 0.05 or 0) + (player_level > 15 and 0.05 or 0)))
+    xp_to_next = math.floor(xp_to_next * (1.3 + (player_level > 5 and 0.05 or 0) + (player_level > 10 and 0.05 or 0) + (player_level > 15 and 0.05 or 0)))
     local upgrades = choose_random_upgrades()
     offered_upgrades = {}
     for u in all(upgrades) do
@@ -869,10 +913,10 @@ function _update()
         })
     end
   end
-  if invulnerable_timer > 0 then invulnerable_timer = max(0,invulnerable_timer-DT) end
-  if dash_cooldown_timer > 0 then dash_cooldown_timer = max(0,dash_cooldown_timer-DT) end
-  if manual_fire_cooldown > 0 then manual_fire_cooldown = max(0,manual_fire_cooldown-DT) end
-  if revolver_shake_timer > 0 then revolver_shake_timer = max(0,revolver_shake_timer-DT) end
+  if invulnerable_timer > 0 then invulnerable_timer = math.max(0,invulnerable_timer-DT) end
+  if dash_cooldown_timer > 0 then dash_cooldown_timer = math.max(0,dash_cooldown_timer-DT) end
+  if manual_fire_cooldown > 0 then manual_fire_cooldown = math.max(0,manual_fire_cooldown-DT) end
+  if revolver_shake_timer > 0 then revolver_shake_timer = math.max(0,revolver_shake_timer-DT) end
   
   if revolver_reloading then
     revolver_rotation = revolver_rotation + 0.3*DT
@@ -897,7 +941,7 @@ function _draw()
   cls(COL[1])   -- 原作 cls(1) 深蓝底（地面精灵会覆盖整屏）
   if hit_flash_timer > 0 then
     -- 受击闪红：PICO 白对应的 FC 7 整帧画成红色（原作 pal(7,8)）
-    hit_flash_timer = max(0,hit_flash_timer-DT)
+    hit_flash_timer = math.max(0,hit_flash_timer-DT)
     pal() pal(COL[7], COL[8])
   else
     pal()
@@ -930,21 +974,19 @@ function _draw()
         spr(106 + i, ((x + i * 8)*2), ((y + 16)*2))
       end
       
-      if (intro_t or 0) > 90 then
-        print(btnicon("menu") .. " 继续", ((256 - tw(btnicon("menu") .. " 继续")) / 2), ((105 - s)*2), COL[7])
-      end
+      local cont = btnicon("menu") .. " 继续"
+      print(cont, ((256 - textw(cont)) / 2), ((105 - s)*2), COL[7])
     else
       print("收集詛咒寶石獲得經驗", ((5)*2), ((20 - s)*2), COL[7])
       print("尽可能长时间生存", ((10)*2), ((30 - s)*2), COL[7])
-      -- 操作表（图标 + 说明，两列）
-      print(btnicon("dpad"), ((30)*2), ((55 - s)*2), COL[8])
-      print("移动", ((44)*2), ((55 - s)*2), COL[7])
+      print(btnicon("pad"), ((30)*2), ((55 - s)*2), COL[8])
+      print("移动", ((75)*2), ((55 - s)*2), COL[7])
       print(btnicon("b"), ((30)*2), ((65 - s)*2), COL[8])
-      print("冲刺", ((44)*2), ((65 - s)*2), COL[7])
+      print("冲刺", ((75)*2), ((65 - s)*2), COL[7])
       print(btnicon("a"), ((30)*2), ((75 - s)*2), COL[8])
-      print("射击", ((44)*2), ((75 - s)*2), COL[7])
-      print("弹尽自动装填", ((30)*2), ((85 - s)*2), COL[8])
-      print(btnicon("menu") .. " 进入游戏", ((256 - tw(btnicon("menu") .. " 进入游戏")) / 2), ((105 - s)*2), COL[8])
+      print("射击", ((75)*2), ((75 - s)*2), COL[7])
+      local enter = btnicon("menu") .. " 进入游戏"
+      print(enter, ((256 - textw(enter)) / 2), ((105 - s)*2), COL[8])
     end
     return
   end
@@ -952,11 +994,11 @@ function _draw()
   -- camera shake logic (explosion flash and shake)
   if shake_timer and shake_timer > 0 then
     camera(((rnd(2) - 1 + cam_x)*2), ((rnd(2) - 1 + cam_y)*2))
-    shake_timer = max(0,shake_timer-DT)
+    shake_timer = math.max(0,shake_timer-DT)
   else
     local shake_x, shake_y = 0, 0
     if camera_shake_timer > 0 then
-      camera_shake_timer = max(0,camera_shake_timer-DT)
+      camera_shake_timer = math.max(0,camera_shake_timer-DT)
       shake_x, shake_y = rnd(3) - 1, rnd(3) - 1
     end
     camera(((cam_x + shake_x)*2), ((cam_y + shake_y)*2))
@@ -965,14 +1007,14 @@ function _draw()
 
 
   -- Draw floor tiles with proper distribution (screen-only for performance)
-  for x = flr(cam_x / 10) - 1, flr((cam_x + 128) / 10) + 1 do
-    for y = flr(cam_y / 10) - 1, flr((cam_y + 128) / 10) + 1 do
+  for x = math.floor(cam_x / 10) - 1, math.floor((cam_x + 128) / 10) + 1 do
+    for y = math.floor(cam_y / 10) - 1, math.floor((cam_y + 128) / 10) + 1 do
       local fx = x * 10
       local fy = y * 10
       if fx >= cam_x - 8 and fx <= cam_x + 128 and fy >= cam_y - 8 and fy <= cam_y + 128 then
         local spr_id = get_floor_sprite(fx, fy)
         -- Simple alternating pattern for tile flipping
-        local hflip = (flr(fx / 10) + flr(fy / 10)) % 2 == 1
+        local hflip = (math.floor(fx / 10) + math.floor(fy / 10)) % 2 == 1
         spr(spr_id, ((fx)*2), ((fy)*2), 1, 1, hflip)
       end
     end
@@ -994,7 +1036,7 @@ function _draw()
     local frame = walk_animations[player_direction][1]
     local px1 = player_facing_left and t.x + 8 or t.x
     local px2 = player_facing_left and t.x or t.x + 8
-    pal(COL[7], COL[5 + flr(t.life / 3)])
+    pal(COL[7], COL[5 + math.floor(t.life / 3)])
     -- spr(frame[1], ((px1)*2), ((t.y)*2), 1, 1, player_facing_left)
     -- spr(frame[2], ((px2)*2), ((t.y)*2), 1, 1, player_facing_left)
     -- spr(frame[3], ((px1)*2), ((t.y + 8)*2), 1, 1, player_facing_left)
@@ -1007,7 +1049,7 @@ function _draw()
     if player_direction == "side" then
       offset_x = player_facing_left and 8 or -8
     elseif player_direction == "up_diag" then
-      if dir(0) then
+      if dir("left") then
         spr_top1, spr_top2, spr_bot1, spr_bot2 = 165, 166, 181, 182
         hflip = true
       else
@@ -1033,7 +1075,7 @@ function _draw()
                 print(p.damage_text, ((p.x)*2), ((p.y)*2), COL[7])
         else
             local size = p.size or 1
-                rectfill(((p.x)*2), ((p.y)*2), size*2, size*2, COL[flr(p.color or 7) % 16])
+                rectfill(((p.x)*2), ((p.y)*2), size*2, size*2, COL[math.floor(p.color or 7) % 16])
         end
     end
   end
@@ -1053,7 +1095,7 @@ function _draw()
   
   -- handle turn transition
   if turn_transition_timer > 0 then
-    local stage = flr((8 - turn_transition_timer) / 2)
+    local stage = math.floor((8 - turn_transition_timer) / 2)
     if stage == 0 then
       -- stage 0: 32, 33, 48, 49
       spr(32, ((px1)*2), ((player_y)*2), 1, 1, flip)
@@ -1082,11 +1124,11 @@ function _draw()
   else
     -- normal player drawing
     local anim = walk_animations[player_direction]
-    local frame_index = flr(time() * 8) % #anim + 1
+    local frame_index = math.floor(time() * 8) % #anim + 1
     local frame = anim[frame_index]
     
     if invulnerable_timer > 0 then
-      local flash = (flr(invulnerable_timer / 2) % 2 == 0)
+      local flash = (math.floor(invulnerable_timer / 2) % 2 == 0)
       -- 原作把 PICO 色 4–8（棕/灰/浅灰/白/红）整组闪红或闪白；FC 对应色号为
       -- COL[4..8] 是玩家精灵实际用到的棕 / 灰 / 浅灰 / 白 / 红存储索引。
       local target = flash and COL[8] or COL[7]
@@ -1169,23 +1211,23 @@ function _draw()
     -- 原作 ovalfill(d.x+2, d.y+11, d.x+6, d.y+13)：中心 + 双半轴换算
     ovalfill(((d.x + 4)*2), ((d.y + 12)*2), 4, 2, COL[0])
     -- dynamite body (use sprite 147 for icon), with wobble
-    local offset = flr(d.timer) % 2 == 0 and 0 or 1
+    local offset = math.floor(d.timer) % 2 == 0 and 0 or 1
     spr(147, ((d.x - 4 + offset)*2), ((d.y - 4 + d.height)*2))
     -- explosion indicator: flashing ring before detonation
     if not d.exploded and d.timer >= 3 then
-      local col = COL[flr(d.timer) % 2 == 1 and 8 or 9]
+      local col = COL[math.floor(d.timer) % 2 == 1 and 8 or 9]
       circ(((bx)*2), ((by)*2), ((14)*2), col)
     end
   end
 
   -- draw xp gems with bounce animation (draw before enemies)
   local xp_frames = {131, 132, 133, 134}
-  local xp_frame = xp_frames[flr(time() * 12) % #xp_frames + 1]
+  local xp_frame = xp_frames[math.floor(time() * 12) % #xp_frames + 1]
   for g in all(xp_gems) do
     local y = g.y + (g.z or 0)
     -- Draw drop shadow: shrink and darken as gem bounces higher
     if is_visible(g.x, g.y) then
-        local shadow_scale = max(0.4, 1 - min(1, abs((g.z or 0) / 12)))
+        local shadow_scale = math.max(0.4, 1 - math.min(1, math.abs((g.z or 0) / 12)))
         local shadow_w = 6 * shadow_scale
         local shadow_h = 2 * shadow_scale
         local shadow_col = COL[0] -- always black
@@ -1217,8 +1259,8 @@ function _draw()
   print(kill_text, ((kill_x + 10)*2), ((4)*2), COL[7])  -- Kill number
 
   -- draw timer at top-right with sprite
-  local total_seconds = flr(time())
-  local minutes = flr(total_seconds / 60)
+  local total_seconds = math.floor(time())
+  local minutes = math.floor(total_seconds / 60)
   local seconds = total_seconds % 60
   local timer_text = minutes..":"..(seconds < 10 and "0"..seconds or seconds)
   local timer_x = 128 - (#timer_text * 4 + 10) - 5  -- Right align with icon with 2px spacing (moved 4 pixels left)
@@ -1248,7 +1290,7 @@ function _draw()
     
     -- game over text - centered
     local game_over_text = "游戏结束"
-    print(game_over_text, ((256 - tw(game_over_text)) / 2), ((45 - slide_offset)*2), COL[8])
+    print(game_over_text, ((256 - textw(game_over_text)) / 2), ((45 - slide_offset)*2), COL[8])
     
     -- stats section - aligned vertically
     local stats_y = 60 - slide_offset
@@ -1268,9 +1310,12 @@ function _draw()
     spr(173, ((icon_x)*2), ((stats_y + 24)*2))
     print(""..total_xp, ((text_x)*2), ((stats_y + 25)*2), COL[7])
 
-    -- restart prompt - centered（原作 press ❎ to restart；本移植死亡重启走 Menu）
-    local restart_s = btnicon("menu") .. " 重新开始"
-    print(restart_s, ((256 - tw(restart_s)) / 2), ((110 - slide_offset)*2), COL[7])
+    -- 重启提示：整体居中，Menu 图标高亮（原作 press ❎ to restart；本移植死亡重启走 Menu）
+    local pre, key, post = "按 ", btnicon("menu"), " 重新开始"
+    local restart_x = (256 - (textw(pre) + textw(key) + textw(post))) / 2
+    print(pre, restart_x, ((110 - slide_offset)*2), COL[7])
+    print(key, restart_x + textw(pre), ((110 - slide_offset)*2), COL[8])
+    print(post, restart_x + textw(pre) + textw(key), ((110 - slide_offset)*2), COL[7])
     return
   end
 
@@ -1295,7 +1340,7 @@ function _draw()
   spr(173, ((bar_x - 8)*2), ((bar_y - 1)*2), 1, 1)
   
   -- Calculate fill width based on XP progress
-  local fill_width = flr((player_xp / xp_to_next) * (bar_width - 4)) -- Use full bar width minus padding
+  local fill_width = math.floor((player_xp / xp_to_next) * (bar_width - 4)) -- Use full bar width minus padding
   if fill_width > 0 then
     -- Draw yellow fill from left to right (1 pixel tall in center, starting from bar beginning)
     rectfill(((bar_x + 2)*2), ((bar_y + 3)*2), (fill_width + 1)*2, 2, COL[9])
@@ -1333,7 +1378,7 @@ function _draw()
     spr(skill[1], ((x)*2), ((104)*2))
     -- Draw cooldown bar only for skills that have cooldowns
     if skill[2] > 0 then
-    local filled = flr(8 * mid(0, skill[2], 1))
+    local filled = math.floor(8 * mid(0, skill[2], 1))
     rectfill(((x)*2), ((114)*2), filled*2, 2, skill[2] >= 1 and COL[11] or COL[8])
     end
   end
@@ -1388,16 +1433,13 @@ function _draw()
     spr(237, ((120)*2), ((106)*2), 1, 1, true)
     spr(237, ((0)*2), ((120)*2), 1, 1, false, true)
     spr(237, ((120)*2), ((120)*2), 1, 1, true, true)
-    print("选择一项升级", ((256 - tw("选择一项升级")) / 2), ((110)*2), COL[0])
+    print("选择一项升级", ((256 - textw("选择一项升级")) / 2), ((110)*2), COL[0])
 
     local current_upgrade = offered_upgrades[selected_card]
     if current_upgrade then
-      -- Fusion 比例步进，用 tw 计宽居中（#str 是字节数，不适用）
-      print(current_upgrade.name, ((256 - tw(current_upgrade.name)) / 2), ((115)*2), COL[7])
+      -- Fusion 比例步进，用 textw 计宽居中（#str 是字节数，不适用）
+      print(current_upgrade.name, ((256 - textw(current_upgrade.name)) / 2), ((118)*2), COL[7])
     end
-    -- 升级选择操作提示（一行图标）
-    local pick = btnicon("dpad") .. " 选择　" .. btnicon("b") .. " 确认"
-    print(pick, ((256 - tw(pick)) / 2), ((122)*2), COL[0])
   end
 
   -- update collected xp gems positions
@@ -1412,7 +1454,7 @@ function _draw()
         g.z = 0
         g.vz = -g.vz * 0.5
         g.bounce = g.bounce + 1
-        if abs(g.vz) < 0.2 or g.bounce >= g.max_bounces then
+        if math.abs(g.vz) < 0.2 or g.bounce >= g.max_bounces then
           g.state = "collected_done"
         end
       end
@@ -1424,7 +1466,7 @@ function _draw()
     else
       local dx = player_x + 4 - g.x
       local dy = player_y + 4 - g.y
-      local dist = sqrt(dx * dx + dy * dy)
+      local dist = math.sqrt(dx * dx + dy * dy)
       if dist < magnet_range then
         local k=ease60(0.2 + (1 - dist/magnet_range) * 0.4)
         g.x = g.x + dx*k
@@ -1470,13 +1512,13 @@ function on_enemy_killed(e,hx,hy)
   end
   add_blood(bx,by)
   kill_count = kill_count + 1
-  del(enemies,e)
+  enemy_release(e) del(enemies,e)
 end
 
 function nearest_enemy(ax,ay,onscreen)
   local best=nil
   local bestd=999999
-  for e in all(enemies) do
+  for _, e in ipairs(enemies) do
     if not onscreen or (e.x>cam_x-8 and e.x<cam_x+136 and e.y>cam_y-8 and e.y<cam_y+136) then
       local dx=e.x+4-ax
       local dy=e.y+4-ay
@@ -1489,7 +1531,7 @@ end
 
 function add_blood(x,y)
   for i=1,28 do
-    local l=60+flr(rnd(90))
+    local l=60+math.floor(rnd(90))
     add(blood_stains,{x=x+rnd(12)-6,y=y+rnd(8)-4,life=l,max=l})
   end
 end
@@ -1517,39 +1559,44 @@ end
 
 function spawn_enemy()
     local available_types={}
-    local game_time=flr(time())
+    local game_time=math.floor(time())
     for i,etype in ipairs(enemy_types) do
         if game_time>=etype.unlock_time then add(available_types,i) end
     end
     if #available_types==0 then add(available_types,1) end
-    local type_idx=available_types[flr(rnd(#available_types))+1]
+    local type_idx=available_types[math.floor(rnd(#available_types))+1]
     local enemy_type=enemy_types[type_idx]
     local margin=20
     local ex,ey
-    local side=flr(rnd(4))
+    local side=math.floor(rnd(4))
     if side==0 then ex=cam_x-margin ey=cam_y+rnd(128)
     elseif side==1 then ex=cam_x+128+margin ey=cam_y+rnd(128)
     elseif side==2 then ex=cam_x+rnd(128) ey=cam_y-margin
     else ex=cam_x+rnd(128) ey=cam_y+128+margin end
-    add(enemies,{x=ex,y=ey,type=type_idx,hp=enemy_type.hp,first_sprite=enemy_type.first_sprite})
+    local e={x=ex,y=ey,type=type_idx,hp=enemy_type.hp,first_sprite=enemy_type.first_sprite}
+    enemy_body(e)
+    add(enemies,e)
 end
 
 function draw_enemy(e)
-    -- 原作 ovalfill(e.x+2, e.y+7, e.x+6, e.y+9)：FC-16 为中心 + 双半轴，
-    -- 中心 (e.x+4, e.y+8)、半轴 2/1（脚下扁椭圆）
-    ovalfill(((e.x + 4)*2), ((e.y + 8)*2), 4, 2, COL[0])
+    local o=enemy_body(e)
+    local ex,ey=o.x/2,o.y/2
+    -- 原作 ovalfill(ex+2, ey+7, ex+6, ey+9)：FC-16 为中心 + 双半轴，
+    -- 中心 (ex+4, ey+8)、半轴 2/1（脚下扁椭圆）
+    ovalfill(((ex + 4)*2), ((ey + 8)*2), 4, 2, COL[0])
     local frames={e.first_sprite,e.first_sprite+16,e.first_sprite+32,e.first_sprite+48}
-    local frame_index=flr(time()*6)%#frames+1
+    local frame_index=math.floor(time()*6)%#frames+1
     local current_frame=frames[frame_index]
-    local flip=e.x<player_x
-    spr(current_frame, ((e.x)*2), ((e.y)*2), 1, 1, flip)
+    local flip=ex<player_x
+    e.phys.spr=current_frame e.phys.fh=flip
+    spr(e.phys)
     
     -- draw targeting indicator (dotted circle) if this enemy is the bullet target - draw on top
     if e==bullet_target_enemy then
         for i=0,8 do
             local angle=i/9
-            local x=e.x+4+cos(angle)*10
-            local y=e.y+4+sin(angle)*10
+            local x=ex+4+cos(angle)*10
+            local y=ey+4+sin(angle)*10
             pset(((x)*2), ((y)*2), COL[8])
         end
     end
@@ -1559,13 +1606,13 @@ function draw_enemy(e)
         local max_hp=enemy_types[etype].hp
         local hp_width=8
         local hp_filled=(hp_width*e.hp)/max_hp
-        rectfill(((e.x)*2), ((e.y-2)*2), (hp_width+1)*2, 4, COL[0])
-        rectfill(((e.x)*2), ((e.y-2)*2), (hp_filled+1)*2, 4, COL[8])
+        rectfill(((ex)*2), ((ey-2)*2), (hp_width+1)*2, 4, COL[0])
+        rectfill(((ex)*2), ((ey-2)*2), (hp_filled+1)*2, 4, COL[8])
     end
     if e.hit_timer and e.hit_timer>0 then
-        e.hit_timer = max(0,e.hit_timer-DT)
+        e.hit_timer = math.max(0,e.hit_timer-DT)
         local damage_color=e.damage_color or 7
-        print(e.last_damage, ((e.x+4)*2), ((e.y-6-(10-e.hit_timer))*2), COL[flr(damage_color) % 16])
+        print(e.last_damage, ((ex+4)*2), ((ey-6-(10-e.hit_timer))*2), COL[math.floor(damage_color) % 16])
     end
 end
 

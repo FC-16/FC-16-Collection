@@ -1,0 +1,12 @@
+30 key right
+100 key -
+140 key up
+240 key -
+280 key a
+320 key -
+360 key a
+400 key -
+440 key a
+480 key -
+520 key a
+560 key -

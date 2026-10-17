@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""MIDI → FC-16 芯片编曲（demo/magetower/midi_arrange.py）
+"""MIDI → FC-16 芯片编曲（magetower/midi_arrange.py）
 
 50 层魔塔的 BGM 有原版 MIDI 源文件（Tower of the Sorcerer 1.2r1 自带
 `_source/BGM/Midi/*.MID`，floor→曲目映射由 TSW.exe 反汇编确认），直接读出

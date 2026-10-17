@@ -1,3 +1,9 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {best = 0, music_on = true}
+end
+
 -- 俄罗斯方块 ・ FC-16 演示卡带
 --
 -- 经典规则完整实现：
@@ -5,7 +11,7 @@
 --   Ⓧ 暂存换块（落锁后刷新）/ 三格预告 / 软降硬降计分 /
 --   触底锁定延迟（可被移动旋转重置，上限 15 次）/ 等级加速曲线 /
 --   消行闪白 + 由中心向外的碎裂动画与粒子 / 四消射线庆祝 /
---   最高分 dset 持久化 / Korobeiniki 双段循环 BGM（View 开关）
+-- 存档使用结构化数据（SPEC §13）。
 --
 -- 精灵表与全部 SFX/PATTERN 数据由 _init 程序化 poke 写入（SPEC §4.2/§5.2），
 -- 卡带不携带二进制资产。方块质感：主色 + 上左高光 + 下右暗边 + 深色外圈，
@@ -63,7 +69,7 @@ end
 -- 出生位置（矩阵左上角在井中的格坐标）；I 的格子位于矩阵第 2 行，上移一行出生
 local SX, SY = {}, {}
 for p = 1, 7 do
-  SX[p] = flr((COLS - SHAPES[p][1]) / 2)
+  SX[p] = math.floor((COLS - SHAPES[p][1]) / 2)
   SY[p] = p == 1 and -1 or 0
 end
 
@@ -76,7 +82,7 @@ local LINE_SCORE = {100, 300, 500, 800} -- 1-4 消基础分（×等级）
 
 -- 下落间隔：1 级 1 秒/格，随等级指数收紧，最快 2 幀/格
 local function fall_interval(lvl)
-  return max(2, flr(60 * pow(0.82, lvl - 1)))
+  return math.max(2, math.floor(60 * math.pow(0.82, lvl - 1)))
 end
 
 local function fmt(n) return string.format("%d", n) end
@@ -87,24 +93,24 @@ local function fmt3(n) return string.format("%03d", n) end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -118,22 +124,22 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）
 -- steps[i] = {音高, 音色, 音量[, 效果]}，nil 步与音高 0 均为休止
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function write_sfx(id, speed, steps, len)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, len or #steps)
   for i = 0, 31 do
     local a = base + 16 + i * 4
     local s = steps[i + 1]
     if s and (s[1] or 0) > 0 then
       u8(a, s[1] - 1)
-      u8(a + 1, WMAP[s[2] or 0])
+      u8(a + 1, TIMBRE_SOURCE[s[2] or 0])
       u8(a + 2, s[3] or 0)
       u8(a + 3, s[4] or 0)
     else
@@ -326,8 +332,8 @@ local function spawn_burst(px, py, cols, n)
     parts[#parts + 1] = {
       x = px + rnd(-3, 3), y = py + rnd(-2, 2),
       vx = rnd(-1.8, 1.8), vy = rnd(-3.2, -0.6),
-      c = cols[flr(rnd(#cols)) + 1],
-      life = 16 + flr(rnd(16)),
+      c = cols[math.floor(rnd(#cols)) + 1],
+      life = 16 + math.floor(rnd(16)),
     }
   end
   while #parts > 180 do table.remove(parts, 1) end
@@ -372,11 +378,11 @@ local function game_over()
   if score > best then -- 纯下落得分也要计入最高分
     best = score
     new_best = true
-    dset(0, best)
-    fflush()
+    progress.best = best; assert(save(progress))
+
   end
   if bgm_on then
-    music(-1, 900)
+    music_stop(900)
     bgm_on = false
   end
   sfx(10, 3)
@@ -388,7 +394,7 @@ local function refill()
     if #bag == 0 then
       bag = {1, 2, 3, 4, 5, 6, 7}
       for i = 7, 2, -1 do
-        local j = flr(rnd(i)) + 1
+        local j = math.floor(rnd(i)) + 1
         bag[i], bag[j] = bag[j], bag[i]
       end
     end
@@ -413,18 +419,18 @@ local function apply_score(n, rows)
   lines = lines + n
   local txt = "+" .. fmt(gain)
   pops[#pops + 1] = {
-    txt = txt, x = flr(WX + 60 - tw(txt) / 2),
+    txt = txt, x = math.floor(WX + 60 - textw(txt) / 2),
     y = WY + rows[1] * CELL + 2, t = 0,
   }
   if n == 4 then
-    shake = max(shake, 12)
+    shake = math.max(shake, 12)
     sfx(6, 1) sfx(7, 2) sfx(8, 3)
     pops[#pops + 1] = {txt = "四消！", big = true, x = 0, y = WY + rows[1] * CELL - 8, t = 0}
   else
     sfx(5, 1)
-    if n >= 2 then shake = max(shake, 4) end
+    if n >= 2 then shake = math.max(shake, 4) end
   end
-  local nl = 1 + flr(lines / 10)
+  local nl = 1 + math.floor(lines / 10)
   if nl > level then
     level = nl
     lvl_flash = 45
@@ -433,8 +439,8 @@ local function apply_score(n, rows)
   if score > best then
     best = score
     new_best = true
-    dset(0, best)
-    fflush()
+    progress.best = best; assert(save(progress))
+
   end
 end
 
@@ -499,7 +505,7 @@ local function update_clearing()
   for _, ry in ipairs(clearing.rows) do
     for x = 0, COLS - 1 do
       local v = board[ry][x]
-      if v ~= 0 and ct >= flr(12 + abs(x - 4.5) * 1.4) then
+      if v ~= 0 and ct >= math.floor(12 + math.abs(x - 4.5) * 1.4) then
         spawn_burst(WX + x * CELL + 6, WY + ry * CELL + 6,
           {PC[v][1], PC[v][2], PC[v][3], 7}, 2)
         board[ry][x] = 0
@@ -572,7 +578,7 @@ local function hard_drop()
   local dist = gy - cur.y
   if dist > 0 then score = score + dist * 2 end
   cur.y = gy
-  shake = max(shake, 3)
+  shake = math.max(shake, 3)
   sfx(3, 0)
   for i = 1, 4 do
     local c = ROT[cur.p][cur.r][i]
@@ -587,12 +593,12 @@ end
 
 -- 横移：按下立即走一格，充电 DAS 幀后每 ARR 幀重复；换向时重新充电
 local function das_step()
-  local L, R = dir(0), dir(1)
-  if dirp(0) and not R then
+  local L, R = dir("left"), dir("right")
+  if dirp("left") and not R then
     das_dir, das_t = -1, 0
     try_move(-1)
     return
-  elseif dirp(1) and not L then
+  elseif dirp("right") and not L then
     das_dir, das_t = 1, 0
     try_move(1)
     return
@@ -625,7 +631,7 @@ end
 
 -- 软降：每 SOFT_INT 幀下落一格并 +1 分；贴地时加速锁定计时
 local function soft_step()
-  if dir(3) then
+  if dir("down") then
     soft_t = soft_t + 1
     if soft_t >= SOFT_INT then
       soft_t = 0
@@ -661,16 +667,16 @@ local function gravity_step()
 end
 
 local function play_step()
-  if btnp(10) then toggle_music() end
+  if btnp("view") then toggle_music() end
   if not cur then return end
-  if btnp(6) then do_hold() end
+  if btnp("x") then do_hold() end
   if not cur then return end
-  if dirp(2) or btnp(4) then try_rotate(1) end
-  if btnp(5) then try_rotate(-1) end
+  if dirp("up") or btnp("a") then try_rotate(1) end
+  if btnp("b") then try_rotate(-1) end
   das_step()
   if not cur then return end
   soft_step()
-  if btnp(9) then
+  if btnp("rb") then
     hard_drop()
     return
   end
@@ -681,13 +687,13 @@ end
 
 function toggle_music()
   music_on = not music_on
-  dset(1, music_on and 0 or 1)
-  fflush()
+  progress.music_on = music_on; assert(save(progress))
+
   if music_on then
     music(0, 400, 0xF0) -- ch4-7 交给音乐，ch0-3 留给音效
     bgm_on = true
   else
-    music(-1, 400)
+    music_stop(400)
     bgm_on = false
   end
 end
@@ -726,20 +732,20 @@ local function update_title()
     local q = tpieces[i]
     q.y = q.y + q.sp
     if q.y > 262 then
-      q.p = 1 + flr(rnd(7))
+      q.p = 1 + math.floor(rnd(7))
       q.x = rnd(6, 236)
       q.y = -30 - rnd(50)
       q.sp = 0.25 + rnd(0.75)
       q.ph = rnd(1)
     end
   end
-  if btnp(4) then start_game() end
-  if btnp(7) then state = "help" sfx(9, 0) end
-  if btnp(10) then toggle_music() end
+  if btnp("a") then start_game() end
+  if btnp("y") then state = "help" sfx(9, 0) end
+  if btnp("view") then toggle_music() end
 end
 
 local function update_help()
-  if btnp(5) or btnp(7) then state = "title" sfx(9, 0) end
+  if btnp("b") or btnp("y") then state = "title" sfx(9, 0) end
 end
 
 -- 结束收场：从底行向上每 2 幀把已有格子灰化，随后浮出结算面板
@@ -755,9 +761,9 @@ local function update_over()
     return
   end
   if over_t > 52 then
-    if btnp(4) then
+    if btnp("a") then
       start_game()
-    elseif btnp(11) then
+    elseif btnp("menu") then
       state = "title"
       if music_on and not bgm_on then
         music(0, 500, 0xF0)
@@ -772,7 +778,8 @@ end
 local function draw_page()
   cls(14)
   fillp(0x0842) -- 稀疏点阵底纹
-  rectfill(0, 0, 256, 256, 13 * 256 + 14)
+  fillp(0x0842, 13)
+  rectfill(0, 0, 256, 256, 14)
   fillp()
   local s = "TETRIS"
   for i = 1, #s do
@@ -803,12 +810,12 @@ local function draw_board()
     for x = 0, COLS - 1 do
       local v = row[x]
       if v ~= 0 then
-        sspr((v % 16) * 16, flr(v / 16) * 16, 12, 12,
+        sspr((v % 16) * 16, math.floor(v / 16) * 16, 12, 12,
           WX + x * CELL, WY + y * CELL)
       end
     end
   end
-  if clearing and clearing.t < 12 and flr(clearing.t / 3) % 2 == 0 then
+  if clearing and clearing.t < 12 and math.floor(clearing.t / 3) % 2 == 0 then
     for _, ry in ipairs(clearing.rows) do
       rectfill(WX, WY + ry * CELL, COLS * CELL, CELL, 7)
     end
@@ -865,20 +872,20 @@ end
 local function draw_parts()
   for i = 1, #parts do
     local q = parts[i]
-    rectfill(flr(q.x), flr(q.y), 2, 2, q.c)
+    rectfill(math.floor(q.x), math.floor(q.y), 2, 2, q.c)
   end
 end
 
 local function draw_pops()
   for _, p in ipairs(pops) do
     if p.big then
-      local x = flr(76 - tw(p.txt) / 2)
-      local y = flr(p.y - p.t * 0.4)
+      local x = math.floor(76 - textw(p.txt) / 2)
+      local y = math.floor(p.y - p.t * 0.4)
       rectfill(WX + 6, y - 3, 108, 22, 1)
       print(p.txt, x + 1, y + 1, 1)
-      print(p.txt, x, y, flr(p.t / 3) % 2 == 0 and 31 or 7)
+      print(p.txt, x, y, math.floor(p.t / 3) % 2 == 0 and 31 or 7)
     else
-      local y = flr(p.y - p.t * 0.55)
+      local y = math.floor(p.y - p.t * 0.55)
       print(p.txt, p.x + 1, y + 1, 1)
       print(p.txt, p.x, y, p.t < 14 and 31 or (p.t < 28 and 30 or 29))
     end
@@ -891,16 +898,16 @@ local function mini_bbox(p)
   local minx, maxx, miny, maxy = 9, 0, 9, 0
   for i = 1, 4 do
     local c = cells[i]
-    minx = min(minx, c[1]) maxx = max(maxx, c[1])
-    miny = min(miny, c[2]) maxy = max(maxy, c[2])
+    minx = math.min(minx, c[1]) maxx = math.max(maxx, c[1])
+    miny = math.min(miny, c[2]) maxy = math.max(maxy, c[2])
   end
   return cells, minx, miny, (maxx - minx + 1), (maxy - miny + 1)
 end
 
 local function draw_mini(cx, cy, p, s)
   local cells, minx, miny, bw, bh = mini_bbox(p)
-  local x0 = flr(cx - bw * s / 2)
-  local y0 = flr(cy - bh * s / 2)
+  local x0 = math.floor(cx - bw * s / 2)
+  local y0 = math.floor(cy - bh * s / 2)
   local col = PC[p]
   for i = 1, 4 do
     local c = cells[i]
@@ -916,8 +923,8 @@ end
 -- 暂存不可用时的空心样式
 local function draw_mini_outline(cx, cy, p, s, c)
   local cells, minx, miny, bw, bh = mini_bbox(p)
-  local x0 = flr(cx - bw * s / 2)
-  local y0 = flr(cy - bh * s / 2)
+  local x0 = math.floor(cx - bw * s / 2)
+  local y0 = math.floor(cy - bh * s / 2)
   for i = 1, 4 do
     local q = cells[i]
     rect(x0 + (q[1] - minx) * s, y0 + (q[2] - miny) * s, s, s, c)
@@ -926,7 +933,7 @@ end
 
 local function stat_row(label, val, y, c)
   print(label, PX + 6, y, 9)
-  print(val, PX + PW - 6 - tw(val), y, c)
+  print(val, PX + PW - 6 - textw(val), y, c)
 end
 
 local function draw_panel()
@@ -967,15 +974,16 @@ end
 
 local function draw_lvl_banner()
   local s = "等级 " .. fmt(level)
-  local x = flr(WX + 60 - tw(s) / 2)
-  rectfill(x - 8, 60, tw(s) + 16, 24, 1)
-  rect(x - 8, 60, tw(s) + 16, 24, 11)
-  print(s, x, 64, flr(lvl_flash / 4) % 2 == 0 and 31 or 42)
+  local x = math.floor(WX + 60 - textw(s) / 2)
+  rectfill(x - 8, 60, textw(s) + 16, 24, 1)
+  rect(x - 8, 60, textw(s) + 16, 24, 11)
+  print(s, x, 64, math.floor(lvl_flash / 4) % 2 == 0 and 31 or 42)
 end
 
 local function draw_pause()
   fillp(0xa5a5) -- 棋盘抖动压暗全屏
-  rectfill(0, 0, 256, 256, 14 * 256 + 0)
+  fillp(0xa5a5, 14)
+  rectfill(0, 0, 256, 256, 0)
   fillp()
   local bx, by, bw, bh = 28, 66, 200, 140
   rectfill(bx, by, bw, bh, 15)
@@ -983,15 +991,16 @@ local function draw_pause()
   rectfill(bx + 2, by + 2, bw - 4, 1, 55)
   rectfill(bx + 2, by + bh - 3, bw - 4, 1, 50)
   local s = "暂停"
-  print(s, 128 - tw(s) / 2 + 1, 75, 1)
-  print(s, 128 - tw(s) / 2, 74, 7)
+  print(s, 128 - textw(s) / 2 + 1, 75, 1)
+  print(s, 128 - textw(s) / 2, 74, 7)
   local h = btnicon("menu") .. " 继续　" .. btnicon("view") .. " 音乐"
-  print(h, (256 - tw(h)) / 2, 104, 9)
+  print(h, (256 - textw(h)) / 2, 104, 9)
 end
 
 local function draw_over_panel()
   fillp(0x8421) -- 稀疏压暗，灰化后的井仍隐约可见
-  rectfill(0, 0, 256, 256, 14 * 256 + 0)
+  fillp(0x8421, 14)
+  rectfill(0, 0, 256, 256, 0)
   fillp()
   local bx, by, bw, bh = 44, 56, 168, 152
   rectfill(bx, by, bw, bh, 15)
@@ -1000,34 +1009,35 @@ local function draw_over_panel()
   rectfill(bx + 2, by + bh - 3, bw - 4, 1, 50)
 
   local s = "游戏结束"
-  print(s, 128 - tw(s) / 2 + 1, 67, 1)
-  print(s, 128 - tw(s) / 2, 66, 63)
+  print(s, 128 - textw(s) / 2 + 1, 67, 1)
+  print(s, 128 - textw(s) / 2, 66, 63)
 
   s = "分数 " .. fmt(score)
-  print(s, (256 - tw(s)) / 2, 98, 7)
+  print(s, (256 - textw(s)) / 2, 98, 7)
   s = "最高 " .. fmt(best)
-  print(s, (256 - tw(s)) / 2, 118, 30)
-  if new_best and flr(t / 6) % 2 == 0 then
+  print(s, (256 - textw(s)) / 2, 118, 30)
+  if new_best and math.floor(t / 6) % 2 == 0 then
     s = "★ 新纪录 ★"
-    print(s, (256 - tw(s)) / 2, 140, 31)
+    print(s, (256 - textw(s)) / 2, 140, 31)
   end
-  if flr(t / 16) % 2 == 0 then
+  if math.floor(t / 16) % 2 == 0 then
     s = btnicon("a") .. " 再来一局"
-    print(s, (256 - tw(s)) / 2, 168, 7)
+    print(s, (256 - textw(s)) / 2, 168, 7)
   end
   s = btnicon("menu") .. " 回标题"
-  print(s, (256 - tw(s)) / 2, 190, 9)
+  print(s, (256 - textw(s)) / 2, 190, 9)
 end
 
 -- 标题画面：背景落块 + 彩色大标题 + 操作说明
 local function draw_title()
   cls(14)
   fillp(0x0842)
-  rectfill(0, 0, 256, 256, 13 * 256 + 14)
+  fillp(0x0842, 13)
+  rectfill(0, 0, 256, 256, 14)
   fillp()
   for i = 1, #tpieces do
     local q = tpieces[i]
-    spr(q.p, flr(q.x + sin(t * 0.012 + q.ph) * 7), flr(q.y))
+    spr(q.p, math.floor(q.x + sin(t * 0.012 + q.ph) * 7), math.floor(q.y))
   end
 
   -- 标题板（斜面紫匾）
@@ -1040,22 +1050,22 @@ local function draw_title()
   local tcol = {43, 31, 55, 33, 58}
   for i = 1, 5 do
     local x = 88 + (i - 1) * 16
-    local y = 56 + flr(sin(t * 0.05 + i * 0.12) * 2)
+    local y = 56 + math.floor(sin(t * 0.05 + i * 0.12) * 2)
     print(chars[i], x + 2, y + 2, 1)
     print(chars[i], x, y, tcol[i])
   end
 
   local s = "经典拼块　下落成行"
-  print(s, (256 - tw(s)) / 2, 96, 9)
+  print(s, (256 - textw(s)) / 2, 96, 9)
   s = "最高分 " .. fmt(best)
-  print(s, (256 - tw(s)) / 2, 118, 30)
+  print(s, (256 - textw(s)) / 2, 118, 30)
 
   s = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
-  print(s, (256 - tw(s)) / 2 + 1, 145, 1)
-  print(s, (256 - tw(s)) / 2, 144, 7)
+  print(s, (256 - textw(s)) / 2 + 1, 145, 1)
+  print(s, (256 - textw(s)) / 2, 144, 7)
 
   s = "FrostMiKu ・ FC-16"
-  print(s, (256 - tw(s)) / 2, 236, 10)
+  print(s, (256 - textw(s)) / 2, 236, 10)
 end
 
 -- 帮助页：完整操作表（Ⓨ 进入，Ⓑ 返回）
@@ -1066,7 +1076,7 @@ local function draw_help()
   rect(bx, by, bw, bh, 53)
   rectfill(bx + 2, by + 2, bw - 4, 1, 55)
   local s = "操作说明"
-  print(s, 128 - tw(s) / 2, 54, 7)
+  print(s, 128 - textw(s) / 2, 54, 7)
   local rows = {
     { btnicon("left") .. btnicon("right"), "移动" },
     { btnicon("up") .. " / " .. btnicon("a"), "顺时针旋转" },
@@ -1083,14 +1093,15 @@ local function draw_help()
     print(r[2], 120, y, 9)
   end
   s = btnicon("b") .. " 返回"
-  print(s, 128 - tw(s) / 2, 205, 6)
+  print(s, 128 - textw(s) / 2, 205, 6)
 end
 
 -- Splash：纯主视觉封面（0-90 帧）——井底堆叠 + 致胜 I 块 + 大 logo，零菜单零提示
 local function draw_splash()
   cls(14)
   fillp(0x0842)
-  rectfill(0, 0, 256, 256, 13 * 256 + 14)
+  fillp(0x0842, 13)
+  rectfill(0, 0, 256, 256, 14)
   fillp()
   -- 大 logo（scale 3，黑影 + 逐字彩色）
   local chars = { "俄", "罗", "斯", "方", "块" }
@@ -1101,7 +1112,7 @@ local function draw_splash()
     print(chars[i], x, 30, 0, 3)
     print(chars[i], x, 30, tcol[i], 3)
   end
-  print("T E T R I S", 128 - tw("T E T R I S") / 2, 72, 9)
+  print("T E T R I S", 128 - textw("T E T R I S") / 2, 72, 9)
   -- 井：两壁内 10×8 格
   local wx, wy = 48, 100
   rectfill(wx, wy, 160, 128, 15)
@@ -1112,7 +1123,7 @@ local function draw_splash()
     { 0, 6, 6 }, { 1, 6, 7 }, { 2, 6, 1 }, { 7, 6, 2 }, { 8, 6, 3 }, { 9, 6, 4 },
   }
   for _, c in ipairs(stack) do
-    sspr((c[3] % 16) * 16, flr(c[3] / 16) * 16, 12, 12,
+    sspr((c[3] % 16) * 16, math.floor(c[3] / 16) * 16, 12, 12,
       wx + 4 + c[1] * 16, wy + 4 + c[2] * 16)
   end
   -- 下落中的 I 块悬在缺口上方，虚线示轨迹
@@ -1132,8 +1143,8 @@ function _init()
     bake_cell(p, PC[p][1], PC[p][2], PC[p][3], PC[p][4])
   end
   init_audio()
-  best = dget(0)
-  music_on = dget(1) == 0 -- 槽位 1：0 = 开（默认）
+  best = progress.best
+  music_on = progress.music_on
   bgm_on = false
   if music_on then
     music(0, 500, 0xF0)
@@ -1147,7 +1158,7 @@ function _init()
   tpieces = {}
   for i = 1, 9 do
     tpieces[i] = {
-      p = 1 + flr(rnd(7)), x = rnd(6, 236), y = rnd(-220, 230),
+      p = 1 + math.floor(rnd(7)), x = rnd(6, 236), y = rnd(-220, 230),
       sp = 0.25 + rnd(0.75), ph = rnd(1),
     }
   end
@@ -1165,13 +1176,13 @@ function _update()
   update_pops()
 
   if state == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then state = "title" end
   elseif state == "title" then
     update_title()
   elseif state == "help" then
     update_help()
   elseif state == "play" then
-    if btnp(11) then
+    if btnp("menu") then
       state = "pause"
       sfx(12, 0)
     elseif clearing then
@@ -1180,12 +1191,12 @@ function _update()
       play_step()
     end
   elseif state == "pause" then
-    if btnp(11) then
+    if btnp("menu") then
       state = "play"
       das_dir, das_t = 0, 0
       sfx(12, 0)
     end
-    if btnp(10) then toggle_music() end
+    if btnp("view") then toggle_music() end
   elseif state == "over" then
     update_over()
   end
@@ -1205,8 +1216,8 @@ function _draw()
     return
   end
   if shake > 0 then -- 硬降/四消震屏（与幀号绑定，保持确定性）
-    local a = min(5, shake * 0.7)
-    camera(flr(sin(t * 0.11) * a), flr(cos(t * 0.17) * a * 0.6))
+    local a = math.min(5, shake * 0.7)
+    camera(math.floor(sin(t * 0.11) * a), math.floor(cos(t * 0.17) * a * 0.6))
   end
   draw_page()
   draw_frame()
@@ -1214,7 +1225,7 @@ function _draw()
   draw_board()
   if clearing and clearing.n == 4 and clearing.t < 22 then
     draw_rays(WX + 60, WY + clearing.rows[1] * CELL + 6,
-      flr(t / 3) % 2 == 0 and 31 or 30)
+      math.floor(t / 3) % 2 == 0 and 31 or 30)
   end
   draw_ghost()
   draw_cur()

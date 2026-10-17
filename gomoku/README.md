@@ -31,8 +31,8 @@
 | ⬅ ➡ ⬆ ⬇ | 移动光标（按住自动重复：首帧一格，停 14 帧后每 4 帧一格） |
 | Ⓐ | 落子（已占点会蜂鸣拒绝） |
 | Ⓑ | 悔棋 |
-| Start | 标题画面开始 / 对局中回标题 / 终局回标题 |
-| Select | 环境音乐开关（持久化） |
+| Menu | 标题画面开始 / 对局中回标题 / 终局回标题 |
+| View | 环境音乐开关（持久化） |
 
 胜负演出：五连子闪烁高亮 + 红色连线动画 + 胜负横幅（横幅自动落在
 五连行下方，不遮挡棋型）。
@@ -48,15 +48,15 @@
 ## 存档
 
 战绩统计（双人：黑胜/白胜/和；人机：胜/负/和）与音乐开关经
-`dset`/`fflush` 持久化（save-id `gomoku`）。
 
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "五子棋" --author "FrostMiKu" \
-  --version 1 --save-id gomoku --code gomoku/gomoku.lua --cover 30 \
-  --out gomoku/gomoku.fc16 --png carts/gomoku.fc16.png
-cargo run -p fc16-host -- gomoku/gomoku.fc16
+python3 tools/build_all.py gomoku
+../FC-16/target/debug/fc16 gomoku/gomoku.fc16
 ```
 
 封面取标题画面第 90 帧（`--cover 30`）。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

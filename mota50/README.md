@@ -12,8 +12,8 @@
 | ⬅⬆⬇➡ | 移动（按住约 8 帧连续步进）；撞向怪物弹出战斗预览 |
 | Ⓐ | 确认 / 对话翻页 / 确认战斗 |
 | Ⓑ | 取消 / 关闭面板 |
-| Start | 菜单：存档×3 / 读档×3 / 怪物手册 / 道具使用 / 音效开关 / 回标题 |
-| Select | 背景音乐开关 |
+| Menu | 菜单：存档×3 / 读档×3 / 怪物手册 / 道具使用 / 音效开关 / 回标题 |
+| View | 背景音乐开关 |
 
 ## 音乐
 
@@ -50,14 +50,12 @@ BGM 改进行为一致。转录管线见 `../magetower/midi_arrange.py`（声部
 ## 重建
 
 ```bash
-python magetower/convert_art.py             # 生成美术块写入两张卡带源
-python magetower/transcribe_music.py mota50 # MIDI 精确转录写入本卡带源
-python magetower/verify_music.py mota50     # 渲染验收（相似度应 ≥0.55）
-cargo run -p fc16-tools --bin fc16mk -- --name "50层魔塔" --author "FrostMiKu" \
-  --version 1 --save-id mota50 --code mota50/mota50.lua \
-  --out mota50/mota50.fc16 --png carts/mota50.fc16.png --cover 30
-cargo run -p fc16-host -- mota50/mota50.fc16
+python3 tools/build_all.py mota50
+../FC-16/target/debug/fc16 mota50/mota50.fc16
 ```
 
 音频源（MIDI/MP3 留档与 tswKai 整合包下载说明）见 `../magetower/README.md`；
 源文件仅存本地 `_source/`（不入库）。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "50层魔塔",
+    "author": "FrostMiKu",
+    "saveId": "mota50",
+    "version": 1,
+    "flags": 0,
+    "output": "mota50.fc16",
+    "release": "mota50.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "mota50.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

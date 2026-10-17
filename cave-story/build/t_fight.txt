@@ -1,0 +1,17 @@
+# Cave：向右走接近跳跳虫，连射
+30 key right
+120 key right+b
+160 key right
+200 key right+b
+240 key right
+280 key right+b
+320 key right
+360 key right+b
+400 key right
+440 key right+b
+480 key right
+520 key right+b
+560 key right
+600 key right+b
+640 key right
+700 key -

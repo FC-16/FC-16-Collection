@@ -1,12 +1,18 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {best_seconds = {0, 0, 0}, music_on = true}
+end
+
 -- =====================================================================
--- FC-16 扫雷演示卡带（demo/minesweeper）
+-- FC-16 扫雷演示卡带（minesweeper）
 --
 -- 完整规则：三难度（初级 9×9/10、中级 16×16/40、高级 20×16/70 横向滚动）/
 --   首击安全（首击及其 8 邻不放雷，雷在首击后布置，首击必定开出空区）/
 --   洪泛展开（逐圈波纹动画）/ Ⓑ 插旗循环（旗→问号→无）/
 --   Ⓧ 和弦（已开数字格周围旗数等于数字时齐开其余邻格，误旗则爆炸）/
 --   计时（首击起，frame/60）/ 剩余雷数 / 笑脸状态（正常・惊恐 O・阵亡 X・胜利墨镜）
--- 胜利：未标雷格自动补旗 + 最佳时间存档（dset 槽 0-2；槽 3 音乐开关）；
+-- 存档使用结构化数据（SPEC §13）。
 --   失败：踩雷爆红、逐雷揭幕、错旗划叉、震屏；Ⓐ 重开同难度。
 -- 演出：洪泛逐圈波纹、爆炸震屏、胜利彩带；数字 1-8 高对比固定查表色。
 -- 资产全部程序化：14px 格子精灵 poke 烘焙；SFX / BGM 按 SPEC §5.2 位写入。
@@ -115,7 +121,7 @@ local title_sel = 1
 local music_on = true
 local t = 0
 
-local function cprint(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+local function cprint(s, y, c) print(s, math.floor((256 - textw(s)) / 2), y, c) end
 
 local function idx(x, y) return y * W + x + 1 end
 local function cur_i() return idx(cx, cy) end
@@ -123,7 +129,7 @@ local function cur_i() return idx(cx, cy) end
 -- 计时（秒）：首击起；终局定格（min 返回浮点子类型，外层 flr 还原整数显示）
 local function elapsed_sec()
   if start_f == nil then return 0 end
-  return flr(min(999, flr((t - start_f) / 60)))
+  return math.floor(math.min(999, math.floor((t - start_f) / 60)))
 end
 
 local function shown_sec()
@@ -144,19 +150,19 @@ end
 
 -- 首击安全：safe 及其 8 邻为禁区，其余格做选择抽样布 M 雷（确定性）
 local function place_mines(safe)
-  local sx, sy = (safe - 1) % W, flr((safe - 1) / W)
+  local sx, sy = (safe - 1) % W, math.floor((safe - 1) / W)
   local function excl(x, y)
-    return abs(x - sx) <= 1 and abs(y - sy) <= 1
+    return math.abs(x - sx) <= 1 and math.abs(y - sy) <= 1
   end
   local need = M
   local rem = 0
   for i = 1, W * H do
     mine[i] = false
-    if not excl((i - 1) % W, flr((i - 1) / W)) then rem = rem + 1 end
+    if not excl((i - 1) % W, math.floor((i - 1) / W)) then rem = rem + 1 end
   end
   for i = 1, W * H do
-    if not excl((i - 1) % W, flr((i - 1) / W)) then
-      if need > 0 and flr(rnd(rem)) < need then
+    if not excl((i - 1) % W, math.floor((i - 1) / W)) then
+      if need > 0 and math.floor(rnd(rem)) < need then
         mine[i] = true
         need = need - 1
       end
@@ -166,7 +172,7 @@ local function place_mines(safe)
   for i = 1, W * H do adj[i] = 0 end
   for i = 1, W * H do
     if mine[i] then
-      local x, y = (i - 1) % W, flr((i - 1) / W)
+      local x, y = (i - 1) % W, math.floor((i - 1) / W)
       for dy = -1, 1 do
         for dx = -1, 1 do
           if not (dx == 0 and dy == 0) then
@@ -191,13 +197,13 @@ local function win_game()
     if mine[i] then mark[i] = 1 end
   end
   -- 最佳时间存档（槽 0-2 按难度；0 = 暂无）
-  local best = dget(di - 1)
+  local best = progress.best_seconds[di]
   new_record = best == 0 or final_sec < best
-  if new_record then dset(di - 1, final_sec) end
-  dset(3, music_on and 0 or 1)
-  fflush()
+  if new_record then progress.best_seconds[di] = final_sec; assert(save(progress)) end
+  progress.music_on = music_on; assert(save(progress))
+
   sfx(S_WIN)
-  music(-1, 400)
+  music_stop(400)
   for i = 1, 34 do
     local cols = { 23, 31, 42, 33, 58, 30, 44 }
     confetti[#confetti + 1] = {
@@ -218,15 +224,15 @@ local function explode(i)
   boom = { i = i, t0 = t }
   mark[i] = 0
   -- 逐雷揭幕次序：按与爆点的切比雪夫距离
-  local bx, by = (i - 1) % W, flr((i - 1) / W)
+  local bx, by = (i - 1) % W, math.floor((i - 1) / W)
   for j = 1, W * H do
     if mine[j] then
-      local x, y = (j - 1) % W, flr((j - 1) / W)
-      mine_show[j] = max(abs(x - bx), abs(y - by)) * 2
+      local x, y = (j - 1) % W, math.floor((j - 1) / W)
+      mine_show[j] = math.max(math.abs(x - bx), math.abs(y - by)) * 2
     end
   end
   sfx(S_BOOM)
-  music(-1, 300)
+  music_stop(300)
 end
 
 -- 洪泛展开：逐圈记录出现时刻（波纹动画），旗格不被洪泛翻开
@@ -242,7 +248,7 @@ local function flood(i0)
     for k = 1, #ring do
       local i = ring[k]
       if adj[i] == 0 then
-        local x, y = (i - 1) % W, flr((i - 1) / W)
+        local x, y = (i - 1) % W, math.floor((i - 1) / W)
         for dy = -1, 1 do
           for dx = -1, 1 do
             if not (dx == 0 and dy == 0) then
@@ -298,7 +304,7 @@ end
 local function do_chord()
   local i = cur_i()
   if state[i] ~= 1 or adj[i] == 0 then return end
-  local x, y = (i - 1) % W, flr((i - 1) / W)
+  local x, y = (i - 1) % W, math.floor((i - 1) / W)
   local f = 0
   for dy = -1, 1 do
     for dx = -1, 1 do
@@ -366,8 +372,8 @@ local function start_game(d)
   di = d
   local dd = DIFF[d]
   W, H, M = dd.w, dd.h, dd.m
-  x0 = flr((256 - W * CS) / 2)
-  y0 = BOARD_TOP + flr((BOARD_H - H * CS) / 2)
+  x0 = math.floor((256 - W * CS) / 2)
+  y0 = BOARD_TOP + math.floor((BOARD_H - H * CS) / 2)
   mine, state, mark, adj, ot, mine_show = {}, {}, {}, {}, {}, {}
   -- 显式清零：state/mark 依赖 == 0 判定（nil ~= 0 会让洪泛/和弦失效）
   for i = 1, W * H do
@@ -380,7 +386,7 @@ local function start_game(d)
   dead, won, boom = false, false, nil
   over_t, jingled = 0, false
   start_f, final_sec, new_record = nil, 0, false
-  cx, cy = flr(W / 2), flr(H / 2)
+  cx, cy = math.floor(W / 2), math.floor(H / 2)
   camx, chord_flash = 0, nil
   confetti = {}
   mode = "play"
@@ -396,32 +402,32 @@ end
 
 local function toggle_music()
   music_on = not music_on
-  dset(3, music_on and 0 or 1)
-  if music_on then music(0, 300, 0xE0) else music(-1, 200) end
+  progress.music_on = music_on; assert(save(progress))
+  if music_on then music(0, 300, 0xE0) else music_stop(200) end
 end
 
 -- ---------------------------------------------------------------- 音频
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -435,17 +441,17 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 
 -- 按 SPEC §5.2 写一条 SFX（144B = 头 16B + 32 步 × 4B）；vol 可为单值或逐步表；fx 为逐步效果码
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function init_sfx(id, notes, wave, vol, speed, fx)
   local base = 0x0C0000 + id * 144
   local spd = speed or 1
-  poke2(base, (spd == 0 and 1 or spd) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (spd == 0 and 1 or spd) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   for i = 0, 31 do
     local a = base + 16 + i * 4
@@ -453,7 +459,7 @@ local function init_sfx(id, notes, wave, vol, speed, fx)
     if n and n > 0 then
       local v = type(vol) == "table" and vol[i + 1] or vol
       u8(a, n - 1)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, v)
       u8(a + 3, fx or 0)
     else
@@ -558,7 +564,7 @@ local function mine_px(x, y, ball, spike, glint)
   if (y == 6 or y == 7) and (x <= 1 or x >= 12) then return spike end
   if (x == 6 or x == 7) and (y <= 1 or y >= 12) then return spike end
   -- 对角尖刺
-  local ax, ay = abs(dx), abs(dy)
+  local ax, ay = math.abs(dx), math.abs(dy)
   if ax <= 5 and ax >= 3.5 and ay <= 5 and ay >= 3.5 then return spike end
   return nil
 end
@@ -572,8 +578,8 @@ local function bake_cells()
     if y >= 11 and y <= 12 and x >= 4 and x <= 8 then return C_CELL_L end
   end)
   bake(4, function(x, y)                   -- 问号（透明底覆盖层）
-    local r = flr(y / 2)
-    local c = flr((x - 2) / 2)
+    local r = math.floor(y / 2)
+    local c = math.floor((x - 2) / 2)
     if r < 7 and c >= 0 and c < 5 and x >= 2 and x < 12 then
       local row = QPAT[r + 1]
       if row:sub(c + 1, c + 1) == "1" then return C_GOLD end
@@ -589,7 +595,7 @@ local function bake_cells()
     return mine_px(x, y, 14, 14, nil) or C_EXPL
   end)
   bake(7, function(x, y)                   -- 错旗：已开格 + 暗雷 + 红叉（雷优先）
-    if abs(x - y) <= 1 or abs(x + y - 13) <= 1 then
+    if math.abs(x - y) <= 1 or math.abs(x + y - 13) <= 1 then
       if x >= 2 and x <= 11 and y >= 2 and y <= 11 then return C_EXPL_L end
     end
     return mine_px(x, y, 4, 4, nil) or open_px(x, y)
@@ -599,8 +605,8 @@ local function bake_cells()
     local pat = DIGPAT[d]
     local col = NUMC[d]
     bake(7 + d, function(x, y)
-      local c = flr((x - 4) / 2)
-      local r = flr((y - 2) / 2)
+      local c = math.floor((x - 4) / 2)
+      local r = math.floor((y - 2) / 2)
       if c >= 0 and c < 3 and r >= 0 and r < 5 and x >= 4 and x < 10 and y >= 2 and y < 12 then
         if pat[r + 1]:sub(c + 1, c + 1) == "1" then return col end
       end
@@ -614,7 +620,7 @@ local function bake_cells()
       if dx <= -1 and dy <= -1 and dx >= -5 and dy >= -5 then return 7 end
       return 6
     end
-    local ax, ay = abs(dx), abs(dy)
+    local ax, ay = math.abs(dx), math.abs(dy)
     if ax <= 7 and ay <= 0.5 or ay <= 7 and ax <= 0.5 then
       if ax + ay >= 6 then return 5 end
     end
@@ -624,7 +630,7 @@ end
 
 -- 瓦片 → 精灵表源坐标
 local function tile_src(id)
-  return (id % 16) * 16, flr(id / 16) * 16
+  return (id % 16) * 16, math.floor(id / 16) * 16
 end
 
 -- 画 14×14 格子瓦片
@@ -661,15 +667,15 @@ end
 local function led_show(x, v)
   rectfill(x, 2, 25, 12, 0)
   rect(x, 2, 25, 12, C_BARLINE)
-  local av = min(abs(v), 999)
+  local av = math.min(math.abs(v), 999)
   if v < 0 then
-    av = min(av, 99)
+    av = math.min(av, 99)
     led_digit(x + 3, 3, 10)
-    led_digit(x + 10, 3, flr(av / 10))
+    led_digit(x + 10, 3, math.floor(av / 10))
     led_digit(x + 17, 3, av % 10)
   else
-    led_digit(x + 3, 3, flr(av / 100) % 10)
-    led_digit(x + 10, 3, flr(av / 10) % 10)
+    led_digit(x + 3, 3, math.floor(av / 100) % 10)
+    led_digit(x + 10, 3, math.floor(av / 10) % 10)
     led_digit(x + 17, 3, av % 10)
   end
 end
@@ -686,15 +692,15 @@ local function draw_face()
       line(fx + ox - 1, fy - 2, fx + ox + 1, fy, C_INK)
       line(fx + ox + 1, fy - 2, fx + ox - 1, fy, C_INK)
     end
-    for dx = -2, 2 do pset(fx + dx, fy + 3 - flr((4 - dx * dx) / 2), C_INK) end
+    for dx = -2, 2 do pset(fx + dx, fy + 3 - math.floor((4 - dx * dx) / 2), C_INK) end
   elseif won then
     -- 胜利：墨镜 + 笑
     rectfill(fx - 5, fy - 2, 4, 2, C_INK)
     rectfill(fx + 1, fy - 2, 4, 2, C_INK)
     pset(fx, fy - 1, C_INK)
-    if flr(t / 8) % 4 == 0 then pset(fx - 3, fy - 1, C_WHITE) end
-    for dx = -2, 2 do pset(fx + dx, fy + 2 + flr((4 - dx * dx) / 2), C_INK) end
-  elseif mode == "play" and btn(4) then
+    if math.floor(t / 8) % 4 == 0 then pset(fx - 3, fy - 1, C_WHITE) end
+    for dx = -2, 2 do pset(fx + dx, fy + 2 + math.floor((4 - dx * dx) / 2), C_INK) end
+  elseif mode == "play" and btn("a") then
     -- 按下惊恐：圆睁眼 + O 形嘴
     circ(fx - 3, fy - 1, 1, C_INK)
     circ(fx + 3, fy - 1, 1, C_INK)
@@ -702,7 +708,7 @@ local function draw_face()
   else
     pset(fx - 3, fy - 1, C_INK)
     pset(fx + 3, fy - 1, C_INK)
-    for dx = -2, 2 do pset(fx + dx, fy + 2 + flr((4 - dx * dx) / 2), C_INK) end
+    for dx = -2, 2 do pset(fx + dx, fy + 2 + math.floor((4 - dx * dx) / 2), C_INK) end
   end
 end
 
@@ -750,7 +756,8 @@ local function draw_board()
             -- 波纹展开闪现：出现后 2 幀叠白色抖动
             if t - ot[i] < 2 then
               fillp(0x7777)
-              rectfill(sx, sy, CS, CS, 8 * 256 + C_OPEN)
+              fillp(0x7777, 8)
+              rectfill(sx, sy, CS, CS, C_OPEN)
               fillp()
             end
           else
@@ -770,9 +777,9 @@ local function draw_board()
   -- 和弦不匹配提示：白框闪
   if chord_flash and t - chord_flash.t < 12 then
     local i = chord_flash.i
-    if flr((t - chord_flash.t) / 4) % 2 == 0 then
+    if math.floor((t - chord_flash.t) / 4) % 2 == 0 then
       local sx = x0 + ((i - 1) % W) * CS
-      local sy = y0 + flr((i - 1) / W) * CS
+      local sy = y0 + math.floor((i - 1) / W) * CS
       rect(sx, sy, CS, CS, C_WHITE)
     end
   end
@@ -780,7 +787,7 @@ local function draw_board()
   if not dead and not won then
     local sx = x0 + cx * CS
     local sy = y0 + cy * CS
-    local c = flr(t / 6) % 2 == 0 and C_GOLD_L or C_GOLD
+    local c = math.floor(t / 6) % 2 == 0 and C_GOLD_L or C_GOLD
     line(sx, sy, sx + 4, sy, c)
     line(sx, sy, sx, sy + 4, c)
     line(sx + CS - 5, sy, sx + CS, sy, c)
@@ -803,7 +810,7 @@ end
 local function draw_bottom()
   rectfill(0, 240, 256, 16, C_BAR)
   line(0, 240, 255, 240, C_BARLINE)
-  cprint(HINTS[flr(t / 150) % 3 + 1], 240, C_GRAY)
+  cprint(HINTS[math.floor(t / 150) % 3 + 1], 240, C_GRAY)
 end
 
 local function draw_confetti()
@@ -815,15 +822,15 @@ end
 
 local function draw_over_panel()
   if over_t <= 36 then return end
-  -- dget 返回浮点数，显示前取整（秒数恒为整数，避免 "34.0"）
-  local best = flr(dget(di - 1))
+  -- 存档使用结构化数据（SPEC §13）。
+  local best = math.floor(progress.best_seconds[di])
   if won then
     rrectfill(28, 80, 200, 84, 6, 36)
     rrect(28, 80, 200, 84, 6, 33)
     cprint("胜利！", 88, C_GOLD_L)
     cprint("用时 " .. final_sec .. " 秒", 110, C_TEXT)
     if new_record then
-      if flr(t / 6) % 2 == 0 then cprint("新纪录！", 128, C_GOLD_L) end
+      if math.floor(t / 6) % 2 == 0 then cprint("新纪录！", 128, C_GOLD_L) end
     else
       cprint("最快 " .. best .. " 秒", 128, C_TEXT)
     end
@@ -872,7 +879,7 @@ end
 local function draw_splash()
   cls(C_BG)
   -- 大 logo（scale 4：暗影 + 金/旗红）
-  local cw = tw("扫") * 4
+  local cw = textw("扫") * 4
   local xs = { 128 - cw - 10, 128 + 10 }
   local chars, cols = { "扫", "雷" }, { C_GOLD_L, C_FLAG }
   for i = 1, 2 do
@@ -883,7 +890,7 @@ local function draw_splash()
   -- 主视觉：大地雷（钢雷高光，scale 7）居中 + 金色角括号对焦
   sspr(0, 16, 16, 16, 72, 96, 112, 112)
   local function brackets(x, y, w, h)
-    local c = flr(t / 6) % 2 == 0 and C_GOLD_L or C_GOLD
+    local c = math.floor(t / 6) % 2 == 0 and C_GOLD_L or C_GOLD
     line(x, y, x + 12, y, c) line(x, y, x, y + 12, c)
     line(x + w - 1, y, x + w - 13, y, c) line(x + w - 1, y, x + w - 1, y + 12, c)
     line(x, y + h - 1, x + 12, y + h - 1, c) line(x, y + h - 1, x, y + h - 13, c)
@@ -928,9 +935,9 @@ local function draw_title()
     print(nm, 48, y, sel and C_GOLD_L or C_TEXT)
     local spec = dd.w .. "×" .. dd.h .. "・" .. dd.m .. "雷"
     print(spec, 94, y, sel and C_TEXT or C_GRAY)
-    local best = flr(dget(i - 1))
+    local best = math.floor(progress.best_seconds[i])
     local bs = best > 0 and best .. "秒" or "无"
-    print(bs, 232 - tw(bs), y, best > 0 and C_GOLD or C_GRAY)
+    print(bs, 232 - textw(bs), y, best > 0 and C_GOLD or C_GRAY)
   end
   -- 操作 / 开始提示（图标、稳定不闪烁；Ⓑ 插旗・Ⓧ 和弦在此写明）
   local h1 = btnicon("a") .. " 翻开　" .. btnicon("b") .. " 插旗　" .. btnicon("x") .. " 和弦"
@@ -954,7 +961,7 @@ function _draw()
   -- 震屏：爆炸后 22 幀查表抖动（叠加横向滚动）
   local shx, shy = 0, 0
   if dead and t - boom.t0 < 22 then
-    local o = SHK[flr((t - boom.t0) / 2) % 8 + 1]
+    local o = SHK[math.floor((t - boom.t0) / 2) % 8 + 1]
     shx, shy = o[1], o[2]
   end
   camera(camx + shx, shy)
@@ -978,8 +985,8 @@ end
 
 -- 方向键按住重复（btnp 无自动重复：首按 1 步，按住 14 幀后每 5 幀一步）
 local function cursor_repeat()
-  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
-  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
+  local dx = (dir("right") and 1 or 0) - (dir("left") and 1 or 0)
+  local dy = (dir("down") and 1 or 0) - (dir("up") and 1 or 0)
   if dx == 0 and dy == 0 then
     hold_dx, hold_dy, rep_t = 0, 0, 0
     return
@@ -996,37 +1003,37 @@ end
 
 -- 高级 20 列横向滚动：光标保持在屏内舒适带（缓动趋近）
 local function update_scroll()
-  local range = max(0, W * CS - 256)
+  local range = math.max(0, W * CS - 256)
   if range <= 0 then camx = 0 return end
   local px = x0 + cx * CS
-  local target = mid(max(0, px + CS - 196), camx, min(range, px - 60))
+  local target = mid(math.max(0, px + CS - 196), camx, math.min(range, px - 60))
   camx = camx + mid(-3, target - camx, 3)
 end
 
 local function update_title()
-  if dirp(2) then
+  if dirp("up") then
     title_sel = title_sel == 1 and 3 or title_sel - 1
     sfx(S_CUR)
   end
-  if dirp(3) then
+  if dirp("down") then
     title_sel = title_sel % 3 + 1
     sfx(S_CUR)
   end
-  if btnp(10) then toggle_music() end
-  if btnp(4) or btnp(11) then start_game(title_sel) end
+  if btnp("view") then toggle_music() end
+  if btnp("a") or btnp("menu") then start_game(title_sel) end
 end
 
 function _update()
   t = t + 1
   if mode == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then mode = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then mode = "title" end
     return
   end
   if mode == "title" then
     update_title()
     return
   end
-  if btnp(10) then toggle_music() end
+  if btnp("view") then toggle_music() end
   if won or dead then
     over_t = over_t + 1
     if won then
@@ -1048,17 +1055,17 @@ function _update()
       end
     end
     if over_t > 36 then
-      if btnp(4) then start_game(di) end
-      if btnp(11) then goto_title() end
+      if btnp("a") then start_game(di) end
+      if btnp("menu") then goto_title() end
     end
     return
   end
-  if btnp(11) then start_game(di) end
+  if btnp("menu") then start_game(di) end
   cursor_repeat()
   update_scroll()
-  if btnp(4) then do_reveal() end
-  if btnp(5) then cycle_mark() end
-  if btnp(6) then do_chord() end
+  if btnp("a") then do_reveal() end
+  if btnp("b") then cycle_mark() end
+  if btnp("x") then do_chord() end
 end
 
 -- ---------------------------------------------------------------- 初始化
@@ -1066,7 +1073,7 @@ end
 function _init()
   bake_cells()
   init_audio()
-  music_on = dget(3) == 0
+  music_on = progress.music_on
   W, H, M = 9, 9, 10
   mine, state, mark, adj, ot, mine_show = {}, {}, {}, {}, {}, {}
   placed, opened = false, 0
@@ -1074,7 +1081,7 @@ function _init()
   start_f, final_sec, new_record = nil, 0, false
   cx, cy = 4, 4
   camx, chord_flash = 0, nil
-  x0, y0 = flr((256 - W * CS) / 2), BOARD_TOP + flr((BOARD_H - H * CS) / 2)
+  x0, y0 = math.floor((256 - W * CS) / 2), BOARD_TOP + math.floor((BOARD_H - H * CS) / 2)
   title_sel = 1
   mode = "splash"
   t = 0

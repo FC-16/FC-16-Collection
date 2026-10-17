@@ -1,3 +1,9 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {high_score = 0, furthest_stage = 0, music_on = true}
+end
+
 -- =====================================================================
 -- FC-16 打砖块（Breakout / Arkanoid 风格）演示卡带
 --
@@ -9,7 +15,7 @@
 -- 演出：砖碎四溅粒子、球拖尾、挡板受击闪光、胶囊飘落旋转、
 --       过关清屏波、掉球失败演出（挡板爆碎 + 全屏调光）。
 -- 音频：SFX 音高随砖耐久变化；A 小调四声部循环 BGM（View 开关）。
--- 存档：最高分 + 最远关卡（dset + fflush）。
+-- 存档使用结构化数据（SPEC §13）。
 --
 -- 美术与音乐均为本卡带原创，全部由 _init 逐像素 / 逐字节程序化生成，
 -- 卡带不携带二进制资产。
@@ -142,7 +148,7 @@ end
 -- 精灵表像素坐标直写（供 64 宽条带用）
 local function bake_px(x, y, c)
   if c == nil then c = 0 end
-  local addr = (flr(y / 16) * 16 + flr(x / 16)) * 256 + (y % 16) * 16 + (x % 16)
+  local addr = (math.floor(y / 16) * 16 + math.floor(x / 16)) * 256 + (y % 16) * 16 + (x % 16)
   poke(addr, c)
 end
 
@@ -171,8 +177,8 @@ local function bake_brick(id, cols, crack)
   bake(id, function(x, y)
     local ax, ay = x - 1, y
     if ax < 0 or ax > 13.5 or ay > 7.5 then return nil end
-    if chip_hit(crack, flr(ax), flr(ay)) then return nil end
-    if crack_hit(crack, flr(ax), flr(ay)) then return cols[4] end
+    if chip_hit(crack, math.floor(ax), math.floor(ay)) then return nil end
+    if crack_hit(crack, math.floor(ax), math.floor(ay)) then return cols[4] end
     if ay <= 0.5 then return cols[1] end        -- 顶面高光
     if ay >= 6.5 then return cols[3] end        -- 底面阴影
     if ax <= 0.5 then return cols[2] end        -- 左缘亮
@@ -217,10 +223,10 @@ local function bake_sprites()
     if ax < 0 or ax > 13.5 or ay > 7.5 then return nil end
     -- 中央四芒星
     local dx, dy = ax - 6.5, ay - 3.5
-    if (abs(dx) <= 2.5 and abs(dy) <= 0.5) or (abs(dy) <= 2.5 and abs(dx) <= 0.5) then
+    if (math.abs(dx) <= 2.5 and math.abs(dy) <= 0.5) or (math.abs(dy) <= 2.5 and math.abs(dx) <= 0.5) then
       return 7
     end
-    if abs(dx) <= 3 and abs(dy) <= 3 and (dx * dx + dy * dy) <= 1.2 then return 44 end
+    if math.abs(dx) <= 3 and math.abs(dy) <= 3 and (dx * dx + dy * dy) <= 1.2 then return 44 end
     if ay <= 0.5 then return 31 end
     if ay >= 6.5 then return 19 end
     if ax <= 0.5 then return 23 end
@@ -240,7 +246,7 @@ local function bake_sprites()
   -- 11: 大块碎屑（5x5 金属板，挡板爆碎用）
   bake(11, function(x, y)
     local dx, dy = x - 7.5, y - 7.5
-    if abs(dx) > 2.5 or abs(dy) > 2.5 then return nil end
+    if math.abs(dx) > 2.5 or math.abs(dy) > 2.5 then return nil end
     if dy <= -1.5 then return 8 end
     if dy >= 1.5 then return 11 end
     if dx <= -1.5 then return 9 end
@@ -267,7 +273,7 @@ local function bake_sprites()
   for key, skin in pairs(CAP_SKIN) do
     local rows_l = LETTERS[key]
     local lw = #rows_l[1]
-    local ox = flr((12 - lw) / 2)
+    local ox = math.floor((12 - lw) / 2)
     bake(CAP_INFO[key].tile, function(x, y)
       local ax, ay = x - 2, y - 4
       if ax < 0 or ax > 11.5 or ay < 0 or ay > 7.5 then return nil end
@@ -282,7 +288,7 @@ local function bake_sprites()
       end
       if not inside then return nil end
       -- 字母图标
-      local lx, ly = flr(ax) - ox, flr(ay) - 1
+      local lx, ly = math.floor(ax) - ox, math.floor(ay) - 1
       if lx >= 0 and lx < lw and ly >= 0 and ly < 5 then
         local ch = rows_l[ly + 1]:sub(lx + 1, lx + 1)
         if ch == "1" then return skin[4] end
@@ -358,9 +364,9 @@ local function bake_sprites()
   -- 32: 四芒星光斑（拾取道具 / 得分闪烁）
   bake(32, function(x, y)
     local dx, dy = x - 3.5, y - 3.5
-    if abs(dx) <= 3.5 and abs(dy) <= 0.5 then return (abs(dx) > 2) and 44 or 7 end
-    if abs(dy) <= 3.5 and abs(dx) <= 0.5 then return (abs(dy) > 2) and 44 or 7 end
-    if abs(dx) <= 1.5 and abs(dy) <= 1.5 then
+    if math.abs(dx) <= 3.5 and math.abs(dy) <= 0.5 then return (math.abs(dx) > 2) and 44 or 7 end
+    if math.abs(dy) <= 3.5 and math.abs(dx) <= 0.5 then return (math.abs(dy) > 2) and 44 or 7 end
+    if math.abs(dx) <= 1.5 and math.abs(dy) <= 1.5 then
       if (dx * dx + dy * dy) <= 2.2 then return 44 end
     end
     return nil
@@ -370,24 +376,24 @@ end
 -- ---------------------------------------------------------------- 音频
 
 local function u8(a, val) poke(a, val % 256) end
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -401,23 +407,23 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- init_sfx(id, notes, wave, vol, speed, o)：o 可含 loop 与逐步 effect
--- notes 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- notes 音高为乐谱值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
 local function init_sfx(id, notes, wave, vol, speed, o)
   o = o or {}
   local base = 0x0C0000 + id * 144
   local sp = speed or 2
-  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   if o.loop then u8(base + 3, o.loop) u8(base + 4, #notes - 1) u8(base + 5, 1) end
   for i = 0, 31 do
     local a = base + 16 + i * 4
     if i < #notes and (notes[i + 1] or 0) > 0 then
       u8(a, notes[i + 1] - 1)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, vol)
       u8(a + 3, o.effect or 0)
     else
@@ -429,14 +435,14 @@ end
 -- 逐步音效（打击乐等需要每步独立波形 / 音量的场合）
 local function sfx_steps(id, speed, steps)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #steps)
   for i = 0, 31 do
     local a = base + 16 + i * 4
     local st = steps[i + 1]
     if st and (st[1] or 0) > 0 then
       u8(a, st[1] - 1)
-      u8(a + 1, WMAP[st[2] or 3])
+      u8(a + 1, TIMBRE_SOURCE[st[2] or 3])
       u8(a + 2, st[3] or 8)
       u8(a + 3, 0)
     else
@@ -454,10 +460,10 @@ local function expand(notes, n)
   return out
 end
 
--- BGM：A 小调四声部循环（Am-F-C-G），速度 4（旧每步 4 幀 → SPD 16，每小节 32 步）
+-- BGM：A 小调四声部循环（Am-F-C-G），速度 4（乐谱每步 4 幀 → SPD 16，每小节 32 步）
 local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
 local function init_bgm()
-  -- 音名辅助：P(八度, 半音) → 旧固件 SFX 音高（C0=1，写入时换算新 0-95）
+  -- 音名辅助：P(八度, 半音) → 乐谱半音编号（C0=1，写入时换算新 0-95）
   local function P(oct, semi) return oct * 12 + semi + 1 end
   local bars = {
     { root = P(2, 9), fifth = P(3, 4), arp = { P(3, 9), P(4, 0), P(4, 4), P(4, 9) },
@@ -570,17 +576,17 @@ local demo = {}            -- 标题演示球 + 演示挡板
 -- ---------------------------------------------------------------- 小工具
 
 local function cprint(s, y, c)
-  print(s, flr((256 - tw(s)) / 2), y, c)
+  print(s, math.floor((256 - textw(s)) / 2), y, c)
 end
 
 local function ball_spd()
-  return (2.15 + 0.11 * min(level - 1, 10)) * (slow_t > 0 and 0.68 or 1)
+  return (2.15 + 0.11 * math.min(level - 1, 10)) * (slow_t > 0 and 0.68 or 1)
 end
 
 -- 归一化到当前球速，并给垂直分量保底（防水平死循环）
 local function renorm(b)
   local spd = ball_spd()
-  local s = sqrt(b.vx * b.vx + b.vy * b.vy)
+  local s = math.sqrt(b.vx * b.vx + b.vy * b.vy)
   if s < 0.001 then
     b.vx, b.vy = 0.2 * spd, -0.98 * spd
     return
@@ -589,12 +595,12 @@ local function renorm(b)
   b.vx = b.vx * k
   b.vy = b.vy * k
   local mv = 0.2 * spd
-  if abs(b.vy) < mv then
+  if math.abs(b.vy) < mv then
     b.vy = (b.vy <= 0 and -1 or 1) * mv
     local rx = spd * spd - b.vy * b.vy
     local sx = b.vx
     if sx == 0 then sx = (rnd(2) < 1) and -1 or 1 end
-    b.vx = sgn(sx) * sqrt(max(0, rx))
+    b.vx = sgn(sx) * math.sqrt(math.max(0, rx))
   end
 end
 
@@ -611,19 +617,19 @@ local function spark(x, y, n)
   for _ = 1, n do
     add(parts, {
       x = x, y = y, vx = rnd(-1.4, 1.4), vy = rnd(-1.4, 0.4),
-      g = 0.06, life = 12 + flr(rnd(8)),
+      g = 0.06, life = 12 + math.floor(rnd(8)),
       c = (rnd(2) < 1) and 31 or 7, kind = 2, s = rnd(1),
     })
   end
 end
 
 local function add_parts(x, y, n, cols, kind, pw)
-  n = min(n, 220 - #parts)
+  n = math.min(n, 220 - #parts)
   for _ = 1, n do
     add(parts, {
       x = x, y = y, vx = rnd(-pw, pw), vy = rnd(-pw, 0.5),
-      g = 0.09, life = 20 + flr(rnd(25)),
-      c = cols[1 + flr(rnd(#cols))], kind = kind, s = rnd(1),
+      g = 0.09, life = 20 + math.floor(rnd(25)),
+      c = cols[1 + math.floor(rnd(#cols))], kind = kind, s = rnd(1),
     })
   end
 end
@@ -632,19 +638,19 @@ local function add_sparkle(x, y, n)
   for _ = 1, n do
     add(parts, {
       x = x + rnd(-10, 10), y = y + rnd(-8, 8), vx = 0, vy = -0.2,
-      g = 0, life = 14 + flr(rnd(10)), c = 7, kind = 3, s = rnd(1),
+      g = 0, life = 14 + math.floor(rnd(10)), c = 7, kind = 3, s = rnd(1),
     })
   end
 end
 
 local function toggle_music()
   music_on = not music_on
-  dset(2, music_on and 0 or 1)
-  fflush()
+  progress.music_on = music_on; assert(save(progress))
+
   if music_on then
     music(0, 200, 0xF0)
   else
-    music(-1, 200)
+    music_stop(200)
   end
 end
 
@@ -659,8 +665,8 @@ local function brick_tile(br)
 end
 
 local function brick_at_point(px, py)
-  local i = flr((px - GRID_X) / CELL_W) + 1
-  local j = flr((py - GRID_Y) / CELL_H) + 1
+  local i = math.floor((px - GRID_X) / CELL_W) + 1
+  local j = math.floor((py - GRID_Y) / CELL_H) + 1
   if i < 1 or i > NCOLS or j < 1 or j > nrows then return nil end
   local br = grid[j][i]
   if not br then return nil end
@@ -754,8 +760,8 @@ local function collide_bricks(b)
   }
   local best, bpenx, bpeny = nil, 0, 0
   for _, c in ipairs(corners) do
-    local i = flr((c[1] - GRID_X) / CELL_W) + 1
-    local j = flr((c[2] - GRID_Y) / CELL_H) + 1
+    local i = math.floor((c[1] - GRID_X) / CELL_W) + 1
+    local j = math.floor((c[2] - GRID_Y) / CELL_H) + 1
     if i >= 1 and i <= NCOLS and j >= 1 and j <= nrows then
       local br = grid[j][i]
       if br then
@@ -763,8 +769,8 @@ local function collide_bricks(b)
         local ny = mid(br.y, b.y, br.y + 8)
         local dx, dy = b.x - nx, b.y - ny
         if dx * dx + dy * dy <= BR * BR then
-          local penx = (7 + BR) - abs(b.x - (br.x + 7))
-          local peny = (4 + BR) - abs(b.y - (br.y + 4))
+          local penx = (7 + BR) - math.abs(b.x - (br.x + 7))
+          local peny = (4 + BR) - math.abs(b.y - (br.y + 4))
           if not best or penx + peny > bpenx + bpeny then
             best, bpenx, bpeny = br, penx, peny
           end
@@ -778,12 +784,12 @@ local function collide_bricks(b)
     -- 垂直反弹 + 按击点加英式旋转（防纯垂直循环）
     local s = (b.y < br.y + 4) and -1 or 1
     b.y = br.y + 4 + s * (4 + BR + 0.2)
-    b.vy = s * abs(b.vy)
+    b.vy = s * math.abs(b.vy)
     b.vx = b.vx + (b.x - (br.x + 7)) / 7 * 0.12
   else
     local s = (b.x < br.x + 7) and -1 or 1
     b.x = br.x + 7 + s * (7 + BR + 0.2)
-    b.vx = s * abs(b.vx)
+    b.vx = s * math.abs(b.vx)
   end
   renorm(b)
   hit_brick(br, b.x, b.y)
@@ -802,26 +808,26 @@ local function update_balls()
       add(b.trail, { b.x, b.y }, 1)
       if #b.trail > 7 then deli(b.trail) end
       -- 子步推进（每步 <= 2px，杜绝隧穿）
-      local steps = max(1, ceil(spd / 2))
+      local steps = math.max(1, math.ceil(spd / 2))
       for _ = 1, steps do
         b.x = b.x + b.vx / steps
         b.y = b.y + b.vy / steps
         -- 侧墙
         if b.x - BR < FX0 then
           b.x = FX0 + BR
-          b.vx = abs(b.vx)
+          b.vx = math.abs(b.vx)
           sfx(1)
           spark(FX0, b.y, 2)
         elseif b.x + BR > FX1 then
           b.x = FX1 - BR
-          b.vx = -abs(b.vx)
+          b.vx = -math.abs(b.vx)
           sfx(1)
           spark(FX1, b.y, 2)
         end
         -- 顶墙
         if b.y - BR < FY0 then
           b.y = FY0 + BR
-          b.vy = abs(b.vy)
+          b.vy = math.abs(b.vy)
           sfx(1)
           spark(b.x, FY0, 2)
         end
@@ -878,13 +884,13 @@ end
 
 local function update_paddle()
   local move = 0
-  if dir(0) then move = move - 1 end
-  if dir(1) then move = move + 1 end
+  if dir("left") then move = move - 1 end
+  if dir("right") then move = move + 1 end
   if move ~= 0 then
     paddle_vx = mid(-4.4, paddle_vx + move * 0.6, 4.4)
   else
     paddle_vx = paddle_vx * 0.75
-    if abs(paddle_vx) < 0.05 then paddle_vx = 0 end
+    if math.abs(paddle_vx) < 0.05 then paddle_vx = 0 end
   end
   paddle_x = paddle_x + paddle_vx
   -- 宽度动画（加宽道具）
@@ -892,7 +898,7 @@ local function update_paddle()
   if paddle_w ~= tgt then
     local old = paddle_w
     paddle_w = paddle_w + (tgt - paddle_w) * 0.25
-    if abs(paddle_w - tgt) < 0.5 then paddle_w = tgt end
+    if math.abs(paddle_w - tgt) < 0.5 then paddle_w = tgt end
     paddle_x = paddle_x - (paddle_w - old) / 2
   end
   paddle_x = mid(FX0, paddle_x, FX1 - paddle_w)
@@ -938,7 +944,7 @@ local function apply_cap(c)
   elseif c.kind == "n" then
     slow_t = 480
   elseif c.kind == "p" then
-    lives = min(6, lives + 1)
+    lives = math.min(6, lives + 1)
   end
 end
 
@@ -984,7 +990,7 @@ end
 
 local function load_level(n)
   level = n
-  far = max(far, n)
+  far = math.max(far, n)
   grid = {}
   bricks_left = 0
   local lv = LEVELS[n]
@@ -1021,9 +1027,9 @@ local function save_record()
     hi = score
     new_hi = true
   end
-  dset(0, hi)
-  dset(1, far)
-  fflush()
+  progress.high_score = hi; assert(save(progress))
+  progress.furthest_stage = far; assert(save(progress))
+
 end
 
 local function advance_level()
@@ -1075,16 +1081,16 @@ local function update_demo()
   demo.px = mid(6, demo.px, 250 - 40)
   if demo.x < 6 + BR then
     demo.x = 6 + BR
-    demo.vx = abs(demo.vx)
+    demo.vx = math.abs(demo.vx)
     spark(demo.x, demo.y, 2)
   elseif demo.x > 250 - BR then
     demo.x = 250 - BR
-    demo.vx = -abs(demo.vx)
+    demo.vx = -math.abs(demo.vx)
     spark(demo.x, demo.y, 2)
   end
   if demo.y < 64 then
     demo.y = 64
-    demo.vy = abs(demo.vy)
+    demo.vy = math.abs(demo.vy)
     spark(demo.x, demo.y, 2)
   end
   if demo.vy > 0 and demo.y >= 92 then
@@ -1105,12 +1111,12 @@ function _init()
   init_bgm()
 
   -- 以机器码低位播随机种子（每台机器手感微异，单机内仍完全确定）
-  srand(abs(peek4(0x0C1038)) + 1)
+  srand(math.abs(peek4(0x0C1038)) + 1)
 
-  -- dget 返回浮点数，flr 归一为整数子类型（拼接不出现 .0）
-  hi = flr(dget(0))
-  far = flr(dget(1))
-  music_on = dget(2) == 0 -- 槽位 2：0 = 开（默认）
+  -- 存档使用结构化数据（SPEC §13）。
+  hi = math.floor(progress.high_score)
+  far = math.floor(progress.furthest_stage)
+  music_on = progress.music_on
   score, lives, level = 0, 3, 1
   won = false
   new_hi = false
@@ -1154,17 +1160,17 @@ function _update()
   update_pops()
 
   -- View：任意时刻音乐开关
-  if btnp(10) then toggle_music() end
+  if btnp("view") then toggle_music() end
 
   if state == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then state = "title" end
     return
   end
 
   if state == "title" then
     state_t = state_t + 1
     update_demo()
-    if btnp(4) then
+    if btnp("a") then
       new_game()
       sfx(14)
     end
@@ -1173,7 +1179,7 @@ function _update()
 
   if state == "over" then
     state_t = state_t + 1
-    if state_t > 40 and btnp(4) then
+    if state_t > 40 and btnp("a") then
       to_title()
       init_demo()
     end
@@ -1191,7 +1197,7 @@ function _update()
   end
 
   -- Menu：暂停（过关演出中不可暂停）
-  if state ~= "clear" and btnp(11) then
+  if state ~= "clear" and btnp("menu") then
     paused = not paused
     sfx(14)
   end
@@ -1220,14 +1226,14 @@ function _update()
         b.y = PY - 6
       end
     end
-    if btnp(4) then launch_balls() end
+    if btnp("a") then launch_balls() end
   else -- play
     state_t = state_t + 1
     update_paddle()
     update_balls()
     update_caps()
     update_beams()
-    if laser_t > 0 and btnp(4) then fire_lasers() end
+    if laser_t > 0 and btnp("a") then fire_lasers() end
   end
 end
 
@@ -1235,7 +1241,7 @@ end
 
 -- 挡板通用绘制：左帽 12px / 中段拉伸 / 右帽 12px，帽部保持清晰
 local function draw_paddle_at(px, pw, laser, flash, py)
-  px, pw = flr(px), flr(pw)
+  px, pw = math.floor(px), math.floor(pw)
   local sx, sh
   if laser then
     sx, sh = 192, 10
@@ -1246,7 +1252,7 @@ local function draw_paddle_at(px, pw, laser, flash, py)
   sspr(sx, 16, 12, sh, px, py, 12, sh)
   sspr(sx + 12, 16, 40, sh, px + 12, py, pw - 24, sh)
   sspr(sx + 52, 16, 12, sh, px + pw - 12, py, 12, sh)
-  if flash > 0 and flr(t / 2) % 2 == 0 then
+  if flash > 0 and math.floor(t / 2) % 2 == 0 then
     line(px + 3, py + 1, px + pw - 4, py + 1, 7)
     line(px + 3, py + sh - 2, px + pw - 4, py + sh - 2, 7)
   end
@@ -1256,7 +1262,7 @@ local function draw_field()
   -- 场地底色 + 稀疏星点
   rectfill(FX0, FY0, FX1 - FX0, 214, 0)
   for i, s in ipairs(stars) do
-    if (flr(t / 40) + i) % 3 ~= 0 then
+    if (math.floor(t / 40) + i) % 3 ~= 0 then
       pset(s.x, s.y, 1)
     end
   end
@@ -1301,8 +1307,8 @@ local function draw_caps()
   for _, c in ipairs(caps) do
     local info = CAP_INFO[c.kind]
     local bob = sin(c.ph) * 1.5       -- 飘落起伏
-    local spin = flr(c.ph / 4) % 2 == 0 -- 翻转模拟旋转
-    spr(info.tile, flr(c.x) - 8, flr(c.y + bob) - 8, 1, 1, spin)
+    local spin = math.floor(c.ph / 4) % 2 == 0 -- 翻转模拟旋转
+    spr(info.tile, math.floor(c.x) - 8, math.floor(c.y + bob) - 8, 1, 1, spin)
   end
 end
 
@@ -1315,10 +1321,10 @@ end
 
 local function draw_parts()
   for _, p in ipairs(parts) do
-    local x, y = flr(p.x), flr(p.y)
+    local x, y = math.floor(p.x), math.floor(p.y)
     if p.kind == 1 then
       -- 大块碎屑：翻转交替模拟翻滚
-      spr(11, x - 8, y - 8, 1, 1, flr(p.s) % 2 == 0, flr(p.s * 1.7) % 2 == 0)
+      spr(11, x - 8, y - 8, 1, 1, math.floor(p.s) % 2 == 0, math.floor(p.s * 1.7) % 2 == 0)
     elseif p.kind == 3 then
       -- 四芒星
       spr(32, x - 4, y - 4)
@@ -1337,17 +1343,17 @@ local function draw_balls()
     for i = #b.trail, 1, -1 do
       local tp = b.trail[i]
       local c = (i <= 2) and 42 or ((i <= 4) and 41 or 40)
-      circfill(tp[1], tp[2], max(1, 3 - flr(i / 2)), c)
+      circfill(tp[1], tp[2], math.max(1, 3 - math.floor(i / 2)), c)
     end
-    spr(10, flr(b.x) - 8, flr(b.y) - 8)
+    spr(10, math.floor(b.x) - 8, math.floor(b.y) - 8)
   end
 end
 
 local function draw_pops()
   for _, p in ipairs(pops) do
     local c = p.tt < 20 and 31 or 30
-    print(p.s, flr(p.x) - tw(p.s) / 2 + 1, flr(p.y) + 1, 26)
-    print(p.s, flr(p.x) - tw(p.s) / 2, flr(p.y), c)
+    print(p.s, math.floor(p.x) - textw(p.s) / 2 + 1, math.floor(p.y) + 1, 26)
+    print(p.s, math.floor(p.x) - textw(p.s) / 2, math.floor(p.y), c)
   end
 end
 
@@ -1357,8 +1363,8 @@ local function draw_hud()
   print("分 " .. score, 6, 0, 7)
   print("高 " .. hi, 84, 0, 30)
   local lv = "关 " .. level
-  local nl = min(lives, 6)
-  local lx = 194 - tw(lv)
+  local nl = math.min(lives, 6)
+  local lx = 194 - textw(lv)
   print(lv, lx, 0, 33)
   for i = 1, nl do
     local bx = 200 + (i - 1) * 8
@@ -1397,19 +1403,19 @@ local function draw_title()
   -- 演示球与挡板（在彩条砖与标题之间弹跳）
   draw_paddle_at(demo.px, 40, false, 0, 92)
   circfill(demo.x - demo.vx * 2, demo.y - demo.vy * 2, 2, 41)
-  spr(10, flr(demo.x) - 8, flr(demo.y) - 8)
+  spr(10, math.floor(demo.x) - 8, math.floor(demo.y) - 8)
   draw_parts()
   -- 标题
   local s = "打砖块"
-  local x = flr((256 - tw(s)) / 2)
+  local x = math.floor((256 - textw(s)) / 2)
   big_text(s, x, 112, 30)
   spr(32, x - 12, 112)              -- 两侧四芒星常亮，不闪
-  spr(32, x + tw(s) + 4, 112)
+  spr(32, x + textw(s) + 4, 112)
   cprint("FC-16 街机经典", 140, 6)
   -- 开始提示（稳定不闪烁）
   local st = "按 " .. btnicon("a") .. " 开始"
-  print(st, (256 - tw(st)) / 2 + 1, 169, 26)
-  print(st, (256 - tw(st)) / 2, 168, 31)
+  print(st, (256 - textw(st)) / 2 + 1, 169, 26)
+  print(st, (256 - textw(st)) / 2, 168, 31)
   cprint("最高 " .. hi .. "・最远 第 " .. far .. " 关", 196, 9)
   cprint("FrostMiKu ・ FC-16", 240, 10)
 end
@@ -1419,7 +1425,7 @@ end
 local function draw_splash()
   cls(0)
   for i, s in ipairs(stars) do
-    if (flr(t / 40) + i) % 3 ~= 0 then pset(s.x, s.y, 1) end
+    if (math.floor(t / 40) + i) % 3 ~= 0 then pset(s.x, s.y, 1) end
   end
   -- 彩条砖墙（绿→橙→蓝→金→钢，错缝排列；底行中央是被击碎的缺口）
   local canopy = { 1, 2, 4, 8, 7 }
@@ -1450,12 +1456,12 @@ local function draw_splash()
   draw_paddle_at(95, 88, false, 0, 142)
   -- 大 logo（scale 4，深影 + 金色）
   local s = "打砖块"
-  print(s, 128 - tw(s) * 4 / 2 + 3, 169, 26, 4)
-  print(s, 128 - tw(s) * 4 / 2, 166, 30, 4)
+  print(s, 128 - textw(s) * 4 / 2 + 3, 169, 26, 4)
+  print(s, 128 - textw(s) * 4 / 2, 166, 30, 4)
   spr(32, 60, 182)
   spr(32, 188, 182)
   s = "FC-16 街机经典"
-  print(s, (256 - tw(s)) / 2, 224, 6)
+  print(s, (256 - textw(s)) / 2, 224, 6)
 end
 
 -- 失败 / 结算调光：显示期调色映射把亮色压暗（幀缓冲不变）
@@ -1487,10 +1493,10 @@ local function draw_over_panel()
   cprint("得分 " .. score, 120, 7)
   cprint("最高 " .. hi, 136, 30)
   cprint("到达 第 " .. level .. " 关", 152, 30)
-  if new_hi and flr(t / 12) % 2 == 0 then
+  if new_hi and math.floor(t / 12) % 2 == 0 then
     cprint("★ 新纪录！ ★", 168, 63)
   end
-  if state_t > 40 and flr(t / 20) % 2 == 0 then
+  if state_t > 40 and math.floor(t / 20) % 2 == 0 then
     cprint(btnicon("a") .. " 返回标题", 186, 31)
   end
 end
@@ -1499,7 +1505,7 @@ function _draw()
   pal()
   camera(0, 0)
   if shake_t > 0 then
-    camera(flr(rnd(5)) - 2, flr(rnd(5)) - 2)
+    camera(math.floor(rnd(5)) - 2, math.floor(rnd(5)) - 2)
   end
   cls(0)
 
@@ -1539,7 +1545,7 @@ function _draw()
       rectfill(FX0, sy + 10, FX1 - FX0, 2, 7)
     end
     if state_t > 20 then
-      cprint("过关！", 118, flr(t / 4) % 2 == 0 and 31 or 30)
+      cprint("过关！", 118, math.floor(t / 4) % 2 == 0 and 31 or 30)
       cprint("奖励 +" .. clear_bonus, 136, 23)
     end
   end
@@ -1557,7 +1563,7 @@ function _draw()
   draw_bottom()
 
   -- 掉球瞬间红闪描边
-  if state == "dying" and state_t < 12 and flr(state_t / 3) % 2 == 0 then
+  if state == "dying" and state_t < 12 and math.floor(state_t / 3) % 2 == 0 then
     rect(2, 18, 252, 218, 59)
     rect(4, 20, 248, 214, 63)
   end

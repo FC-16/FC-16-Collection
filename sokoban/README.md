@@ -41,8 +41,8 @@ SFX 与 BGM 均由 `_init` 程序化写入：脚步、推箱、归位、无效�
 | 方向 | 移动（新按立即走一步，按住每 8 帧一步） |
 | Ⓑ | 悔棋（无限栈，上限 1024 步） |
 | Ⓧ | 重开本关 |
-| Start | 回选关菜单 |
-| Select | 音乐开关 |
+| Menu | 回选关菜单 |
+| View | 音乐开关 |
 
 选关网格自由选关，★ 与数字标记已通关关卡的最佳推动数。箱子被推进
 死角（对角/沿墙无目标）时底栏上方闪烁红色"卡住了 Ⓑ 悔棋"提示；
@@ -50,25 +50,23 @@ SFX 与 BGM 均由 `_init` 程序化写入：脚步、推箱、归位、无效�
 
 ## 存档
 
-`save-id: sokoban`；槽 1..16 为各关最佳推动数，槽 20 为音乐开关，
-过关时 `dset` + `fflush` 落盘。
-
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "推箱子" --author "FrostMiKu" \
-  --version 1 --save-id sokoban --code sokoban/sokoban.lua --cover 30 \
-  --out sokoban/sokoban.fc16 --png carts/sokoban.fc16.png
-cargo run -p fc16-host -- sokoban/sokoban.fc16
+python3 tools/build_all.py sokoban
+../FC-16/target/debug/fc16 sokoban/sokoban.fc16
 ```
 
 开发期验证（headless + 输入脚本）：
 
 ```bash
-cargo run -p fc16-host -- sokoban/sokoban.fc16 --frames 400 \
+../FC-16/target/debug/fc16 sokoban/sokoban.fc16 --frames 400 \
   --screenshot out.png
 ```
 
 每关可解性由仓库外求解器逐关验证（最优推动数即卡内"最少推"参考值）；
 第 1 关与第 16 关另经 `--script` 完整通关回放复核（含无效推、悔棋、
 重开、死锁提示、过关演出与终章）。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

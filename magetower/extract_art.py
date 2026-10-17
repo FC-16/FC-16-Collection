@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""魔塔 SWF 美术/音频提取脚本（demo/magetower/extract_art.py）
+"""魔塔 SWF 美术/音频提取脚本（magetower/extract_art.py）
 
 从两份原版 Flash（24 层 / 50 层魔塔）中提取图像与声音 tag，产出：
   _source/art24/、_source/art50/   位图 PNG（img_<id>.png）、按导出名解出的

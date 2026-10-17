@@ -1,0 +1,25 @@
+{
+  "$schema": "../../FC-16/spec/fc16.project.schema.json",
+  "format": 2,
+  "cart": {
+    "name": "小丑牌",
+    "author": "FrostMiKu",
+    "saveId": "balatro",
+    "version": 1,
+    "flags": 0,
+    "output": "balatro.fc16",
+    "release": "balatro.fc16.png",
+    "icon": "icon.bin",
+    "coverFrame": 40
+  },
+  "code": "main.lua",
+  "sections": {
+    "sprites": "sprites.bin",
+    "maps": "maps.bin",
+    "sfx": "sfx.bin",
+    "waveforms": "waveforms.bin",
+    "music": "music.bin"
+  },
+  "inputs": [],
+  "files": []
+}

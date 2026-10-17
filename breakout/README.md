@@ -11,7 +11,6 @@ Breakout / Arkanoid 风格的街机打砖块。挡板带惯性微加速，反弹
 - 砖块有 1-3 击多耐久（外观随破损渐变、音高随剩余耐久变化）；
   `#` 为不可毁钢砖；金砖内含道具胶囊。
 - 清光全部可破坏砖过关，共 8 关；最高分与最远关卡自动存档
-  （`dset` + `fflush`，save-id `breakout`）。
 
 ## 道具（接住胶囊生效）
 
@@ -44,8 +43,8 @@ Breakout / Arkanoid 风格的街机打砖块。挡板带惯性微加速，反弹
 |---|---|
 | ⬅ ➡ | 移动挡板（带惯性微加速，挡板速度还会给球加英式旋转） |
 | Ⓐ | 发射小球 / 激光形态下发射双束激光 |
-| Start | 暂停 / 继续 |
-| Select | 音乐开关（任意时刻） |
+| Menu | 暂停 / 继续 |
+| View | 音乐开关（任意时刻） |
 
 键盘默认映射：W/A/S/D 方向、J/K/U/I 面键、Q/L 扳机、Tab / Enter。
 
@@ -57,15 +56,16 @@ Breakout / Arkanoid 风格的街机打砖块。挡板带惯性微加速，反弹
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "打砖块" --author "FrostMiKu" \
-  --version 1 --save-id breakout --code breakout/breakout.lua --cover 30 \
-  --out breakout/breakout.fc16 --png carts/breakout.fc16.png
-cargo run -p fc16-host -- breakout/breakout.fc16
+python3 tools/build_all.py breakout
+../FC-16/target/debug/fc16 breakout/breakout.fc16
 ```
 
 headless 验证（`--script` 可按帧注入按键脚本，覆盖开始、发射、左右移动、
 掉球与重生路径）：
 
 ```bash
-cargo run -p fc16-host -- breakout/breakout.fc16 --frames 400 --screenshot out.png
+../FC-16/target/debug/fc16 breakout/breakout.fc16 --frames 400 --screenshot out.png
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

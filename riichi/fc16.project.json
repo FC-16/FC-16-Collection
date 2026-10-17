@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "日本麻将",
+    "author": "FrostMiKu",
+    "saveId": "riichi",
+    "version": 1,
+    "flags": 0,
+    "output": "riichi.fc16",
+    "release": "riichi.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "riichi.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

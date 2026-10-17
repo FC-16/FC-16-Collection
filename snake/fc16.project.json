@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "snake",
+    "author": "FrostMiKu",
+    "saveId": "snake",
+    "version": 1,
+    "flags": 0,
+    "output": "snake.fc16",
+    "release": "snake.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "snake.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

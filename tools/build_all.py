@@ -1,58 +1,48 @@
 #!/usr/bin/env python3
-"""重建全部 FC-16 卡带（v0.177 格式）。
-
-用法：python3 tools/build_all.py [游戏名 ...]   # 缺省全部
-数据：tools/carts_meta.json（卡带名/作者/save_id/版本，取自原 .fc16 头）。
-"""
-import json
-import pathlib
+"""按每款游戏的 fc16.project.json 使用当前 FC-16 工具重建卡带。"""
+import argparse
+import os
+import shutil
+from pathlib import Path
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-FC16MK = pathlib.Path('/Users/lex/Codes/FC-16/target/release/fc16mk')
-
-# 封面帧号：来自各 README 的 --cover 参数；缺失的取标题画面稳定帧
-COVER = {}  # 标题画面即封面：全部取第 30 帧
-
-# 二进制资产段（crimson_night 由 tools/convert_assets.py 预先转换；holdem/doudizhu 用 tools/cards.bin）
-ASSETS = {
-    'doudizhu': ['--sprites', 'tools/cards.bin'],
-    'holdem': ['--sprites', 'tools/cards.bin'],
-    'crimson_night': ['--sprites', 'crimson_night/sprites.bin',
-                      '--maps', 'crimson_night/maps_new.bin',
-                      '--sfx', 'crimson_night/sfx_new.bin',
-                      '--music', 'crimson_night/music_new.bin',
-                      '--sflags', 'crimson_night/sflags_new.bin'],
-}
+ROOT = Path(__file__).resolve().parent.parent
 
 
-def build(game):
-    meta = META[game]
-    out = ROOT / game / f'{game}.fc16'
-    png = ROOT / 'carts' / f'{game}.fc16.png'  # 发布封面统一输出到 carts/
-    cmd = [str(FC16MK),
-           '--name', meta['name'], '--author', meta['author'],
-           '--version', meta['version'], '--flags', meta['flags'],
-           '--code', str(ROOT / game / f'{game}.lua'),
-           '--cover', str(COVER.get(game, 30)),
-           '--out', str(out), '--png', str(png)]
-    if meta['save_id']:
-        cmd[cmd.index('--version'):cmd.index('--version')] = ['--save-id', meta['save_id']]
-    for a in ASSETS.get(game, []):
-        cmd.append(str(ROOT / a) if not a.startswith('--') else a)
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        return False, r.stdout + r.stderr
-    return True, (r.stdout + r.stderr).strip()
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('games', nargs='*')
+    parser.add_argument('--fc16-root', type=Path, default=Path(os.environ.get('FC16_ROOT', ROOT.parent / 'FC-16')))
+    parser.add_argument('--profile', choices=('debug', 'release'), default='debug')
+    parser.add_argument('--skip-tools-build', action='store_true')
+    args = parser.parse_args()
+    root = args.fc16_root.resolve()
+    if not args.skip_tools_build:
+        cmd = ['cargo', 'build', '--locked', '-p', 'fc16-tools', '--bins', '-p', 'fc16-host']
+        if args.profile == 'release':
+            cmd.append('--release')
+        subprocess.run(cmd, cwd=root, check=True)
+    binary = root / 'target' / args.profile / ('fc16-tools.exe' if os.name == 'nt' else 'fc16-tools')
+    projects = {p.parent.name: p for p in ROOT.glob('*/fc16.project.json')}
+    unknown = set(args.games) - projects.keys()
+    if unknown:
+        parser.error('未知游戏：' + ', '.join(sorted(unknown)))
+    failures = []
+    for game in args.games or sorted(projects):
+        if game in ("doudizhu", "holdem"):
+            shutil.copyfile(ROOT / "tools/cards.bin", ROOT / game / "cards.bin")
+        if game == 'cave-story':
+            subprocess.run([sys.executable, str(ROOT / game / 'tools/cs_luabuild.py')], check=True)
+        result = subprocess.run([str(binary), 'project', 'build', str(projects[game])], capture_output=True, text=True)
+        print(('OK   ' if result.returncode == 0 else 'FAIL ') + game, flush=True)
+        if result.returncode:
+            failures.append(game)
+            print(result.stdout + result.stderr)
+    if not failures:
+        subprocess.run([sys.executable, str(ROOT / 'tools/gen_gallery.py')], check=True)
+    return bool(failures)
 
 
 if __name__ == '__main__':
-    META = json.loads((ROOT / 'tools' / 'carts_meta.json').read_text())
-    games = sys.argv[1:] or sorted(META)
-    fail = 0
-    for g in games:
-        ok, msg = build(g)
-        print(('OK  ' if ok else 'FAIL') + f' {g}: {msg.splitlines()[-1] if msg else ""}')
-        fail += not ok
-    sys.exit(1 if fail else 0)
+    raise SystemExit(main())

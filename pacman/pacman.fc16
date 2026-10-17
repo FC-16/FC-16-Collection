@@ -22,8 +22,18 @@ ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff
 ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
 @custom 0
-@code 40670
--- FC-16 吃豆人（demo/pacman）・迷宫追逐
+@code 41366
+-- module: pacman.lua
+(function()
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {high_score = 0, music_on = true}
+end
+
+local DIRECTIONS = {"left", "right", "up", "down"}
+
+-- FC-16 吃豆人（pacman）・迷宫追逐
 -- 美术与音乐原创：精灵、配色、音效、旋律均为本卡带自绘自编；
 -- 迷宫骨架（四角能量豆、鬼屋、左右隧道）与鬼行为规则致敬经典街机。
 --
@@ -81,7 +91,7 @@ local MAZE_SRC = {
 -- 格内容编码
 local C_PATH, C_WALL, C_DOT, C_ENER, C_DOOR, C_VOID = 0, 1, 2, 3, 4, 5
 
--- 四鬼：名字 / 性格 / 主体色 / 裙摆暗色 / 散点角 / 鬼屋槽位 x
+-- 存档使用结构化数据（SPEC §13）。
 local GHOST_DEF = {
   { name = "布林奇", trait = "直追不止", main = 59, shade = 61, corner = { 25, 0 },  slot = 128 },
   { name = "平琪",   trait = "前路设伏", main = 46, shade = 56, corner = { 2, 0 },   slot = 128 },
@@ -139,7 +149,7 @@ local function seg_d(px, py, ax, ay, bx, by)
     u = mid(0, u, 1)
   end
   local qx, qy = ax + dx * u, ay + dy * u
-  return sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy))
+  return math.sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy))
 end
 
 -- 逐像素烘焙 16×16 瓦片：fn(x, y) 返回色号或 nil（0 透明）
@@ -185,9 +195,9 @@ local function bake_walls()
     bake(v, function(x, y)
       -- 四方向 2px 臂 + 中心 2×2 节点
       if (v % 2 == 1) and y <= 2.5 and x >= 2.5 and x <= 4.5 then return 41 end
-      if (flr(v / 2) % 2 == 1) and x >= 5.5 and y >= 2.5 and y <= 4.5 then return 41 end
-      if (flr(v / 4) % 2 == 1) and y >= 5.5 and x >= 2.5 and x <= 4.5 then return 41 end
-      if (flr(v / 8) % 2 == 1) and x <= 2.5 and y >= 2.5 and y <= 4.5 then return 41 end
+      if (math.floor(v / 2) % 2 == 1) and x >= 5.5 and y >= 2.5 and y <= 4.5 then return 41 end
+      if (math.floor(v / 4) % 2 == 1) and y >= 5.5 and x >= 2.5 and x <= 4.5 then return 41 end
+      if (math.floor(v / 8) % 2 == 1) and x <= 2.5 and y >= 2.5 and y <= 4.5 then return 41 end
       if x >= 2.5 and x <= 4.5 and y >= 2.5 and y <= 4.5 then return 41 end
     end)
   end
@@ -199,7 +209,7 @@ local function bake_fruits()
   bake(20, function(x, y)
     local function berry(cx, cy)
       local dx, dy = x - cx, y - cy
-      local d = sqrt(dx * dx + dy * dy)
+      local d = math.sqrt(dx * dx + dy * dy)
       if d <= 3.2 then
         if dx * dx + (dy + 1) * (dy + 1) < 0.7 then return 22 end
         if d > 2.4 then return 61 end
@@ -222,13 +232,13 @@ local function bake_fruits()
       if y > 12 then return 61 end
       return 59
     end
-    if y >= 3 and y <= 5 and abs(x - 8) <= 3 - (y - 3) then return 35 end
+    if y >= 3 and y <= 5 and math.abs(x - 8) <= 3 - (y - 3) then return 35 end
     if seg_d(x, y, 8, 3, 8, 1) < 0.6 then return 24 end
   end)
   -- 22 橘子：橙果 + 绿叶
   bake(22, function(x, y)
     local dx, dy = x - 8, y - 9.5
-    local d = sqrt(dx * dx + dy * dy)
+    local d = math.sqrt(dx * dx + dy * dy)
     if d <= 4.6 then
       if dx * dx + (dy + 1.5) * (dy + 1.5) < 0.9 then return 22 end
       if d > 3.8 and dy > 0 then return 28 end
@@ -241,7 +251,7 @@ local function bake_fruits()
   -- 23 苹果：红果 + 短梗
   bake(23, function(x, y)
     local dx, dy = x - 8, y - 10
-    local d = sqrt(dx * dx + dy * dy)
+    local d = math.sqrt(dx * dx + dy * dy)
     if d <= 4.6 then
       if dx * dx + (dy + 1.5) * (dy + 1.5) < 0.9 then return 22 end
       if d > 3.9 and dy > 1 then return 60 end
@@ -252,7 +262,7 @@ local function bake_fruits()
   -- 24 西瓜：绿瓜 + 深色条纹
   bake(24, function(x, y)
     local dx, dy = x - 8, y - 9.5
-    local d = sqrt(dx * dx + dy * dy)
+    local d = math.sqrt(dx * dx + dy * dy)
     if d <= 5.2 then
       if (x == 5 or x == 8 or x == 11) and d < 4.6 then return 36 end
       if d > 4.5 then return 36 end
@@ -262,11 +272,11 @@ local function bake_fruits()
   end)
   -- 25 星星：五角星
   bake(25, function(x, y)
-    local a = atan2(x - 8, y - 8)
-    local r = sqrt((x - 8) * (x - 8) + (y - 8) * (y - 8))
+    local a = atan2(y - 8, x - 8)
+    local r = math.sqrt((x - 8) * (x - 8) + (y - 8) * (y - 8))
     -- 五角星半径函数：外 6.4 内 2.7
     local seg = (a + 0.1) % 0.2
-    local rr = 2.7 + (6.4 - 2.7) * abs(seg - 0.1) / 0.1
+    local rr = 2.7 + (6.4 - 2.7) * math.abs(seg - 0.1) / 0.1
     if r <= rr then
       if r > rr - 1.1 then return 31 end
       return 30
@@ -276,23 +286,23 @@ local function bake_fruits()
   bake(26, function(x, y)
     if y >= 3 and y <= 9 then
       local hw = 1.4 + (y - 3) * 0.52
-      if abs(x - 8) <= hw then
+      if math.abs(x - 8) <= hw then
         if x < 6 then return 23 end
         return 30
       end
     end
-    if y >= 10 and y <= 11 and abs(x - 8) <= 5.5 then
+    if y >= 10 and y <= 11 and math.abs(x - 8) <= 5.5 then
       if y == 11 then return 24 end
       return 30
     end
     local dx, dy = x - 8, y - 12.5
     if dx * dx + dy * dy <= 1.6 then return 59 end
-    if y >= 1 and y <= 2 and abs(x - 8) <= 1 then return 30 end
+    if y >= 1 and y <= 2 and math.abs(x - 8) <= 1 then return 30 end
   end)
   -- 27 钥匙：银钥匙
   bake(27, function(x, y)
     local dx, dy = x - 5, y - 5
-    local d = sqrt(dx * dx + dy * dy)
+    local d = math.sqrt(dx * dx + dy * dy)
     if d <= 3.1 and d >= 1.7 then return 8 end
     if seg_d(x, y, 7, 7, 12.5, 12.5) < 0.8 then return 9 end
     if seg_d(x, y, 11, 12, 9, 14) < 0.8 then return 9 end
@@ -304,24 +314,24 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -335,15 +345,15 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
--- 写一条 SFX：notes 为音高表（0 休止，旧固件值 1-96 = C0-B7），wave 波形，vol 音量，
--- speed 旧每步帧数（写卡带前换算 SPD = speed*4）
+-- 写一条 SFX：notes 为音高表（0 休止，乐谱值 1-96 = C0-B7），wave 波形，vol 音量，
+-- speed 乐谱每步帧数（写卡带前换算 SPD = speed*4）
 local function init_sfx(id, notes, wave, vol, speed, o)
   o = o or {}
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   if o.loop then
     u8(base + 3, o.loop)
@@ -354,7 +364,7 @@ local function init_sfx(id, notes, wave, vol, speed, o)
     local a = base + 16 + i * 4
     if i < #notes and (notes[i + 1] or 0) > 0 then
       u8(a, notes[i + 1] - 1)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, vol)
       u8(a + 3, o.fx or 0)
     else
@@ -525,7 +535,7 @@ local function advance(e, dist, on_center)
       e.ty = e.ty + DY[e.dir]
       on_center(e)
     else
-      local s = min(dist, room)
+      local s = math.min(dist, room)
       e.prog = e.prog + s
       dist = dist - s
       if e.prog >= 7.999 then
@@ -551,7 +561,7 @@ end
 -- ============================================================ 速度
 
 local function pac_speed()
-  return 1.25 * min(1 + (level - 1) * 0.04, 1.18)
+  return 1.25 * math.min(1 + (level - 1) * 0.04, 1.18)
 end
 
 local function ghost_speed(g)
@@ -606,7 +616,7 @@ local function ghost_center(g)
     return
   end
   if g.fr then
-    g.dir = cand[flr(rnd(#cand)) + 1]
+    g.dir = cand[math.floor(rnd(#cand)) + 1]
     return
   end
   local best, bd = cand[1], nil
@@ -628,10 +638,10 @@ local function update_ghost(g)
   if g.state == "leave" then
     -- 出屋脚本：先对齐中轴，再穿门上行到门上走廊
     local s = 1.0
-    if abs(g.fx - 128) > 0.6 then
-      g.fx = g.fx + sgn(128 - g.fx) * min(s, abs(g.fx - 128))
+    if math.abs(g.fx - 128) > 0.6 then
+      g.fx = g.fx + sgn(128 - g.fx) * math.min(s, math.abs(g.fx - 128))
     elseif g.fy > 100.6 then
-      g.fy = max(100, g.fy - s)
+      g.fy = math.max(100, g.fy - s)
     else
       g.fx, g.fy = 128, 100
       g.state = "normal"
@@ -640,19 +650,19 @@ local function update_ghost(g)
     return
   end
   if g.state == "enter" then
-    -- 回巢脚本：对齐中轴 → 降到屋内 → 滑回槽位
+    -- 存档使用结构化数据（SPEC §13）。
     local s = 2.2
     if g.stage == 1 then
-      g.fx = g.fx + sgn(128 - g.fx) * min(s, abs(g.fx - 128))
-      if abs(g.fx - 128) <= 0.6 then g.stage = 2 end
+      g.fx = g.fx + sgn(128 - g.fx) * math.min(s, math.abs(g.fx - 128))
+      if math.abs(g.fx - 128) <= 0.6 then g.stage = 2 end
     elseif g.stage == 2 then
-      g.fy = min(124, g.fy + s)
+      g.fy = math.min(124, g.fy + s)
       if g.fy >= 123.4 then g.stage = 3 end
     else
-      g.fx = g.fx + sgn(g.slot - g.fx) * min(s, abs(g.slot - g.fx))
-      if abs(g.fx - g.slot) <= 0.6 then
+      g.fx = g.fx + sgn(g.slot - g.fx) * math.min(s, math.abs(g.slot - g.fx))
+      if math.abs(g.fx - g.slot) <= 0.6 then
         eyes_count = eyes_count - 1
-        if eyes_count <= 0 then sfx(-1, JING_CH) end
+        if eyes_count <= 0 then voice_stop(JING_CH) end
         g.state = "leave"
       end
     end
@@ -693,7 +703,7 @@ local function next_mode()
 end
 
 local function start_fright()
-  local ft = FRIGHT_T[min(level, #FRIGHT_T)]
+  local ft = FRIGHT_T[math.min(level, #FRIGHT_T)]
   combo = 0
   if ft <= 0 then return end
   fright_t = ft
@@ -710,7 +720,7 @@ end
 local function end_fright()
   fright_t = 0
   for i = 1, 4 do ghosts[i].fr = false end
-  sfx(-1, FRIGHT_CH)
+  voice_stop(FRIGHT_CH)
 end
 
 local function begin_clear()
@@ -718,13 +728,13 @@ local function begin_clear()
   clear_t = 0
   fruit.on = false
   popups = {}
-  music(-1, 150)
+  music_stop(150)
   sfx(8, EVT_CH)
 end
 
 local function check_fruit_spawn()
   if dots_eaten == 70 or dots_eaten == 170 then
-    fruit = { on = true, t = 560, kind = min(level, 8) }
+    fruit = { on = true, t = 560, kind = math.min(level, 8) }
   end
 end
 
@@ -752,7 +762,7 @@ local function eat_at(x, y)
 end
 
 local function eat_ghost(g)
-  local val = 200 * POW2[min(combo, 3) + 1]
+  local val = 200 * POW2[math.min(combo, 3) + 1]
   combo = combo + 1
   add_score(val)
   add_popup(ent_x(g), ent_y(g), val, 43)
@@ -768,15 +778,15 @@ local function start_death()
   state = "dying"
   die_t = 0
   popups = {}
-  sfx(-1, FRIGHT_CH)
-  sfx(-1, JING_CH)
-  music(-1, 200)
+  voice_stop(FRIGHT_CH)
+  voice_stop(JING_CH)
+  music_stop(200)
 end
 
 local function save_game()
-  dset(0, hi)
-  dset(1, bgm_on and 0 or 1)
-  fflush()
+  progress.high_score = hi; assert(save(progress))
+  progress.music_on = bgm_on; assert(save(progress))
+
 end
 
 local function reset_positions()
@@ -815,7 +825,7 @@ local BTND = { 2, 1, 3, 4 }
 
 local function update_pac()
   for b = 0, 3 do
-    if dir(b) then pac.want = BTND[b + 1] end
+    if dir(DIRECTIONS[b + 1]) then pac.want = BTND[b + 1] end
   end
   if pac.stop then
     local w = pac.want
@@ -888,11 +898,11 @@ end
 
 local function toggle_bgm()
   bgm_on = not bgm_on
-  dset(1, bgm_on and 0 or 1)
+  progress.music_on = bgm_on; assert(save(progress))
   if bgm_on then
     music(0, 300, 0xE0)
   else
-    music(-1, 200)
+    music_stop(200)
   end
 end
 
@@ -900,14 +910,14 @@ end
 
 local function update_play()
   if paused then
-    if btnp(11) then paused = false end
+    if btnp("menu") then paused = false end
     return
   end
-  if btnp(11) then
+  if btnp("menu") then
     paused = true
     return
   end
-  if btnp(10) then toggle_bgm() end
+  if btnp("view") then toggle_bgm() end
   update_popups()
   if freeze_t > 0 then
     freeze_t = freeze_t - 1
@@ -963,17 +973,17 @@ local function update_clear()
 end
 
 local function update_title()
-  if btnp(4) or btnp(11) then
+  if btnp("a") or btnp("menu") then
     score, lives, level, extra_given = 0, 3, 1, false
     reset_level()
     reset_positions()
     state = "ready"
     ready_t, ready_long = 0, true
     sfx(7, JING_CH)
-  elseif btnp(10) then
+  elseif btnp("view") then
     bgm_on = not bgm_on
-    dset(1, bgm_on and 0 or 1)
-    fflush()
+    progress.music_on = bgm_on; assert(save(progress))
+
     sfx(10, EVT_CH)
   end
 end
@@ -993,10 +1003,10 @@ local EO = { { 2, -3 }, { -2, -3 }, { 3, -1 }, { 3, 1 } }
 
 local function draw_game_pac()
   local x, y = ent_x(pac), ent_y(pac)
-  local h = 0.03 + abs(sin(pac.anim * 0.12)) * 0.19
+  local h = 0.03 + math.abs(sin(pac.anim * 0.12)) * 0.19
   draw_pac(x, y, ANG[pac.dir], h, 6, 30)
   local eo = EO[pac.dir]
-  rectfill(flr(x + eo[1]) - 1, flr(y + eo[2]) - 1, 2, 2, 0)
+  rectfill(math.floor(x + eo[1]) - 1, math.floor(y + eo[2]) - 1, 2, 2, 0)
 end
 
 -- 死亡演出：定格 → 嘴张大 → 缩小消失 → 消散粒子
@@ -1026,10 +1036,10 @@ local function draw_ghost(x, y, main, shade, dir, mode, r)
   r = r or 6
   local es = r / 6
   if mode == 3 then
-    rectfill(x - 4 * es, y - 4 * es, max(2, 3 * es), max(3, 5 * es), 7)
-    rectfill(x + es, y - 4 * es, max(2, 3 * es), max(3, 5 * es), 7)
+    rectfill(x - 4 * es, y - 4 * es, math.max(2, 3 * es), math.max(3, 5 * es), 7)
+    rectfill(x + es, y - 4 * es, math.max(2, 3 * es), math.max(3, 5 * es), 7)
     local pd = PD[dir] or { 0, 0 }
-    local pw = max(1, flr(2 * es))
+    local pw = math.max(1, math.floor(2 * es))
     rectfill(x - 3 * es + pd[1] * es, y - 2 * es + pd[2] * es, pw, pw, 0)
     rectfill(x + 2 * es + pd[1] * es, y - 2 * es + pd[2] * es, pw, pw, 0)
     return
@@ -1041,20 +1051,20 @@ local function draw_ghost(x, y, main, shade, dir, mode, r)
   elseif mode == 2 then
     body, face = 7, 59
   end
-  local straight = flr(r * 0.7)
+  local straight = math.floor(r * 0.7)
   for ry = -r, straight do
     local hw
     if ry < 0 then
-      hw = sqrt(r * r - ry * ry)
+      hw = math.sqrt(r * r - ry * ry)
     else
       hw = r
     end
-    local x0 = flr(x - hw)
-    local x1 = flr(x + hw)
+    local x0 = math.floor(x - hw)
+    local x1 = math.floor(x + hw)
     rectfill(x0, y + ry, x1 - x0 + 1, 1, body)
   end
   -- 裙摆波浪（两幀交替）
-  local f = (flr(t / 9) % 2) * 2
+  local f = (math.floor(t / 9) % 2) * 2
   local q = r > 9 and 5 or 4
   for i = -r, r - 1 do
     local k = (i + f + r * 2) % q
@@ -1063,7 +1073,7 @@ local function draw_ghost(x, y, main, shade, dir, mode, r)
   end
   if mode >= 1 then
     -- 惊恐脸：圆点眼 + 波浪嘴
-    local ez = max(2, flr(2 * es))
+    local ez = math.max(2, math.floor(2 * es))
     rectfill(x - 4 * es, y - 3 * es, ez, ez, face)
     rectfill(x + 2 * es, y - 3 * es, ez, ez, face)
     for i = -4, 3 do
@@ -1072,9 +1082,9 @@ local function draw_ghost(x, y, main, shade, dir, mode, r)
     end
   else
     local pd = PD[dir] or { 0, 0 }
-    local pw = max(1, flr(2 * es))
-    rectfill(x - 4 * es, y - 4 * es, max(2, 3 * es), max(3, 5 * es), 7)
-    rectfill(x + es, y - 4 * es, max(2, 3 * es), max(3, 5 * es), 7)
+    local pw = math.max(1, math.floor(2 * es))
+    rectfill(x - 4 * es, y - 4 * es, math.max(2, 3 * es), math.max(3, 5 * es), 7)
+    rectfill(x + es, y - 4 * es, math.max(2, 3 * es), math.max(3, 5 * es), 7)
     rectfill(x - 3 * es + pd[1] * es, y - 2 * es + pd[2] * es, pw, pw, 0)
     rectfill(x + 2 * es + pd[1] * es, y - 2 * es + pd[2] * es, pw, pw, 0)
   end
@@ -1085,7 +1095,7 @@ local function draw_game_ghost(g)
   if g.state == "eyes" or g.state == "enter" then
     mode = 3
   elseif g.fr then
-    if fright_t < 120 and flr(fright_t / 8) % 2 == 1 then
+    if fright_t < 120 and math.floor(fright_t / 8) % 2 == 1 then
       mode = 2
     else
       mode = 1
@@ -1098,7 +1108,7 @@ end
 
 local function fruit_src(kind)
   local id = 19 + kind
-  return (id % 16) * 16, flr(id / 16) * 16
+  return (id % 16) * 16, math.floor(id / 16) * 16
 end
 
 local function draw_field()
@@ -1106,12 +1116,12 @@ local function draw_field()
   print("1UP", 16, 0, 6)
   print(string.format("%06d", score), 44, 0, 7)
   local lv = "第 " .. level .. " 关"
-  print(lv, 130 - tw(lv) / 2, 0, 30)
+  print(lv, 130 - textw(lv) / 2, 0, 30)
   local hs = "HI " .. string.format("%06d", hi)
-  print(hs, 240 - tw(hs), 0, 6)
+  print(hs, 240 - textw(hs), 0, 6)
 
   -- 迷宫墙（过关时白蓝闪）
-  if state == "clear" and flr(clear_t / 16) % 2 == 0 then pal(41, 7) end
+  if state == "clear" and math.floor(clear_t / 16) % 2 == 0 then pal(41, 7) end
   for i = 1, #wv do
     sspr(wv[i] * 16, 0, 8, 8, wx[i], wy[i])
   end
@@ -1128,7 +1138,7 @@ local function draw_field()
       if c == C_DOT then
         rectfill(OX + x * TS + 3, cy - 1, 2, 2, 23)
       elseif c == C_ENER then
-        circfill(OX + x * TS + 4, cy, (flr(t / 10) % 2 == 0) and 3 or 2, 23)
+        circfill(OX + x * TS + 4, cy, (math.floor(t / 10) % 2 == 0) and 3 or 2, 23)
       end
     end
   end
@@ -1158,16 +1168,16 @@ local function draw_field()
   for i = 1, #popups do
     local p = popups[i]
     local s = "" .. p.v
-    draw_tiny(s, flr(p.x - tiny_w(s) / 2), flr(p.y - 2), p.c)
+    draw_tiny(s, math.floor(p.x - tiny_w(s) / 2), math.floor(p.y - 2), p.c)
   end
 
   -- 底栏：命数（小帕）与关卡水果
   for i = 1, lives - 1 do
     draw_pac(24 + i * 16, 248, 0.5, 0.12, 4, 30)
   end
-  local n = min(level, 7)
+  local n = math.min(level, 7)
   for i = 0, n - 1 do
-    local k = min(level - i, 8)
+    local k = math.min(level - i, 8)
     local sx, sy = fruit_src(k)
     sspr(sx, sy, 14, 14, 230 - i * 14, 241)
   end
@@ -1199,11 +1209,11 @@ local function draw_title()
   print(s, 106, 15, 62)
   print(s, 105, 14, 30)
   local sub = "迷宫追逐"
-  print(sub, 128 - tw(sub) / 2, 34, 6)
+  print(sub, 128 - textw(sub) / 2, 34, 6)
 
   -- 巡游队伍：四鬼追帕（装饰可动，t=0 时已入场）
   local mx = (t * 1.1 + 310) % 620 - 160
-  draw_pac(mx, 60, 0, 0.03 + abs(sin(t * 0.1)) * 0.2, 7, 30)
+  draw_pac(mx, 60, 0, 0.03 + math.abs(sin(t * 0.1)) * 0.2, 7, 30)
   for i = 1, 4 do
     local d = GHOST_DEF[i]
     draw_ghost(mx - 24 * i, 60, d.main, d.shade, 1, 0, 7)
@@ -1211,21 +1221,21 @@ local function draw_title()
 
   -- 中央：大口吃豆的静态构图（嘴部动画可动）
   for i = 0, 8 do circfill(44 + i * 16, 104, 2, 23) end
-  draw_pac(196, 104, 0, 0.04 + abs(sin(t * 0.06)) * 0.18, 13, 30)
+  draw_pac(196, 104, 0, 0.04 + math.abs(sin(t * 0.06)) * 0.18, 13, 30)
   rectfill(199, 97, 3, 3, 0)
 
   -- 开始提示（稳定不闪烁）
   local st = "按 " .. btnicon("a") .. " 开始"
-  print(st, 128 - tw(st) / 2 + 1, 151, 0)
-  print(st, 128 - tw(st) / 2, 150, 30)
+  print(st, 128 - textw(st) / 2 + 1, 151, 0)
+  print(st, 128 - textw(st) / 2, 150, 30)
 
   -- 最高分（一行小字）
   local hs = "最高分 " .. hi
-  print(hs, 128 - tw(hs) / 2, 174, 23)
+  print(hs, 128 - textw(hs) / 2, 174, 23)
 
   -- 底部一行图标化按键提示
   local cr = btnicon("dpad") .. " 移动　" .. btnicon("menu") .. " 暂停　" .. btnicon("view") .. " 音乐"
-  print(cr, 128 - tw(cr) / 2, 244, 5)
+  print(cr, 128 - textw(cr) / 2, 244, 5)
 end
 
 -- Splash：纯主视觉封面（0-90 帧）——大吃豆人张嘴追逐四鬼的特写构图，
@@ -1244,14 +1254,14 @@ local function draw_splash()
     draw_ghost(34 + (i - 1) * 38, gy, d.main, d.shade, 3, 0, 14)
   end
   -- 大吃豆人（r=30）张嘴追击（朝左）
-  draw_pac(198, 92, 0.5, 0.4 + abs(sin(t * 0.08)) * 0.12, 30, 30)
+  draw_pac(198, 92, 0.5, 0.4 + math.abs(sin(t * 0.08)) * 0.12, 30, 30)
   rectfill(174, 74, 6, 6, 0)  -- 眼
   -- 大 logo（scale 4，深影 + 金色）
   local s = "吃豆人"
-  print(s, 128 - tw(s) * 4 / 2 + 3, 171, 62, 4)
-  print(s, 128 - tw(s) * 4 / 2, 168, 30, 4)
+  print(s, 128 - textw(s) * 4 / 2 + 3, 171, 62, 4)
+  print(s, 128 - textw(s) * 4 / 2, 168, 30, 4)
   s = "迷宫追逐"
-  print(s, (256 - tw(s)) / 2, 228, 6)
+  print(s, (256 - textw(s)) / 2, 228, 6)
 end
 
 -- ============================================================ 幀循环
@@ -1262,9 +1272,9 @@ function _init()
   init_all_sfx()
   init_bgm()
 
-  hi = flr(dget(0))          -- dget 可能返回浮点子类型，flr 归一为整数显示
+  hi = math.floor(progress.high_score)
   if hi < 0 then hi = 0 end
-  bgm_on = dget(1) == 0
+  bgm_on = progress.music_on
 
   t = 0
   state = "splash"
@@ -1276,12 +1286,12 @@ end
 function _update()
   t = t + 1
   if state == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then state = "title" end
   elseif state == "title" then
     update_title()
   elseif state == "ready" then
     for b = 0, 3 do
-      if dir(b) then pac.want = BTND[b + 1] end
+      if dir(DIRECTIONS[b + 1]) then pac.want = BTND[b + 1] end
     end
     ready_t = ready_t + 1
     if ready_t >= (ready_long and 170 or 110) then
@@ -1313,18 +1323,19 @@ function _draw()
   draw_field()
   if state == "ready" then
     local s = "准备！"
-    print(s, 128 - tw(s) / 2, 156, 30)
+    print(s, 128 - textw(s) / 2, 156, 30)
   elseif state == "gameover" then
     local s = "游戏结束"
-    print(s, 128 - tw(s) / 2, 156, 59)
+    print(s, 128 - textw(s) / 2, 156, 59)
   end
   if paused then
     fillp(0xa5a5)
     rectfill(0, 0, 256, 256, 0)
     fillp()
     local s = "已暂停"
-    print(s, 128 - tw(s) / 2, 112, 7)
+    print(s, 128 - textw(s) / 2, 112, 7)
     local s2 = btnicon("menu") .. " 继续　" .. btnicon("view") .. " 音乐"
-    print(s2, 128 - tw(s2) / 2, 136, 6)
+    print(s2, 128 - textw(s2) / 2, 136, 6)
   end
 end
+end)();

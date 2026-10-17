@@ -22,7 +22,9 @@ ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff
 ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
 @custom 0
-@code 3323
+@code 2096
+-- module: tunnel.lua
+(function()
 -- 螺旋矩形隧道（PICO-8 网络流传 tweetcart 的 FC-16 移植版，v0.6 原生 fillp）
 --
 -- 原作（PICO-8）：
@@ -43,45 +45,22 @@ ffffffffffffffff000000000000000000000000000000000000000000000000
 --     k=145/w → 290/w，i=35/w → 70/w，角度项 4/w → 8/w）
 --   · 三角函数圈制（§7.2 v0.6）：与原作同单位，角度表达式逐字不变
 --   · t() → time()（§7.2：time() = frame()/60）
+--   · flr/abs → math.floor/math.abs（§7.2：无 math.* 的全局别名）
 --   · 16 色 → ENDESGA-64 固定调色板（§2.2）：黑 0、深蓝 12、紫 53、红 63、
 --     粉 57、浅肤 21、白 7（对应原作 黑→蓝→紫→红→粉→白 的隧道配色）
---   · fillp 双色（§2.3 v0.6）：原生抖动；双色编码由 ×16 改为 ×256（本机 64 色）。
---     0xa5a5 在 §2.3 位格（bit15=左上、行优先）下恰为 (r+c) 偶数取 c₁ 的棋盘格，
---     与软件逐像素版 ((x+y)%2==0 → c₁) 逐位等效
+--   · fillp 双色（§2.3）：图案位 1 画 rect 原色，位 0 画 fillp 次色。
+--     0xa5a5 在 §2.3 位格（bit15=左上、行优先）下恰为棋盘格。
 --
 -- 画面四角半径 > 最大环到达半径（290/w + w 最大 138 < 181 半对角线），
 -- 与原作一样留暗角，形成圆形隧道构图，无需 cls。
 
 local c = {0, 12, 53, 63, 57, 21, 7}
 
--- 开机 Splash 段：splash（纯主视觉）→ 90 帧或 Ⓐ/Menu → title（交互菜单）
-local state = "splash"
-local boot = 0
-
-function _update()
-  boot = boot + 1
-  if state == "splash" and (boot > 90 or btnp(4) or btnp(11)) then
-    state = "title"
-  end
-end
-
 function f(i)
-  return c[flr(1.5 + abs(6 - i % 12))]
-end
-
--- 描边文字：隧道配色随时间轮转，黑描边保证任意底色上可读
-local function outlined(s, x, y, col, sc, ow)
-  local o = ow or 2
-  for dy = -o, o, o do
-    for dx = -o, o, o do
-      if dx ~= 0 or dy ~= 0 then print(s, x + dx, y + dy, 0, sc) end
-    end
-  end
-  print(s, x, y, col, sc)
+  return c[math.floor(1.5 + math.abs(6 - i % 12))]
 end
 
 function _draw()
-  fillp(0xa5a5)
   local tm = time()
   for w = 6, 136, 0.3 do
     local a = 8 / w + tm / 4 -- 圈制：与原作同式
@@ -90,22 +69,9 @@ function _draw()
     local y = 128 + sin(a) * k
     local i = 70 / w + 2 + tm * 3 -- 原作 35/w ×2（缩放保持，无额外散布项）
     -- 原作两点式 rect((x-w),(y-w),(x+w),(y+w)) 为闭区间，边长 2w+1 像素
-    rect(flr(x - w), flr(y - w), flr(2 * w + 1), flr(2 * w + 1), f(i) * 256 + f(i + 0.5))
+    fillp(0xa5a5, f(i + 0.5))
+    rect(math.floor(x - w), math.floor(y - w), math.floor(2 * w + 1), math.floor(2 * w + 1), f(i))
   end
-  fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
-  -- Splash（0-90 帧）：纯主视觉 —— 大 logo 压隧道，零提示零署名
-  if state == "splash" then
-    local s = "螺旋隧道"
-    outlined(s, flr((256 - tw(s, 4)) / 2), 52, 7, 4, 3)
-    local sub = "SPIRAL TUNNEL ・ FC-16"
-    outlined(sub, flr((256 - tw(sub)) / 2), 124, 7, 1, 1)
-    return
-  end
-  -- 交互菜单（title 态）：logo + 副题 + 署名
-  local s = "螺旋隧道"
-  outlined(s, flr((256 - tw(s, 3)) / 2), 48, 7, 3)
-  local sub = "SPIRAL TUNNEL ・ FC-16"
-  outlined(sub, flr((256 - tw(sub)) / 2), 96, 7, 1, 1)
-  local cr = "FrostMiKu"
-  outlined(cr, flr((256 - tw(cr)) / 2), 222, 9, 1, 1)
+  fillp()
 end
+end)();

@@ -45,15 +45,14 @@ X / O 棋子与全部音效均由 `_init` 程序化生成，卡带不携带二�
 | ⬅➡⬆⬇ | 移动光标（按住自动重复） |
 | Ⓐ | 落子 / 标题确认 |
 | Ⓑ | 悔棋（人机退两手；思考中按 Ⓑ 取消思考并退玩家那手） |
-| Start | 重开一局 / 标题开始 |
+| Menu | 重开一局 / 标题开始 |
 | Ⓨ | 回标题 |
-| Select | BGM 开关（存档记忆） |
+| View | BGM 开关（存档记忆） |
 
 标题菜单行数随模式动态变化：⬅➡ 调值、⬆⬇ 选行、Ⓐ 开始。
 
 ## 战绩存档
 
-`dset + fflush` 持久化（存档槽 0–8 + 音乐开关槽 9）：双人记 X 胜 / O 胜 /
 平；人机记胜 / 负 / 平；终极记先手胜 / 后手胜 / 平（观战演示局不计入）。
 标题与对局底栏轮换显示。
 
@@ -66,19 +65,20 @@ Select 开关）。
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "井字棋" --author "FrostMiKu" \
-  --version 1 --save-id tictactoe --code tictactoe/tictactoe.lua \
-  --cover 30 --out tictactoe/tictactoe.fc16 --png carts/tictactoe.fc16.png
-cargo run -p fc16-host -- tictactoe/tictactoe.fc16
+python3 tools/build_all.py tictactoe
+../FC-16/target/debug/fc16 tictactoe/tictactoe.fc16
 ```
 
 headless 验证（400 帧零错误 + 截图）：
 
 ```bash
-cargo run -p fc16-host -- tictactoe/tictactoe.fc16 --frames 400 \
+../FC-16/target/debug/fc16 tictactoe/tictactoe.fc16 --frames 400 \
   --screenshot tictactoe/_chk.png
 ```
 
 AI 自查已在开发期完成：困难 AI 自弈多随机种子共 40+ 局全部平局
 （含穷举最优子树 8550 节点全部取值的离线证明）；简单 AI 漏堵以
 "X 中心 + 双角双威胁"脚本局演示（AI 堵住一端、漏掉另一端落败）。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

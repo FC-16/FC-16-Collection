@@ -22,11 +22,13 @@ ffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff
 ffffffffffffffff000000000000000000000000000000000000000000000000
 @sflags 0
 @custom 0
-@code 55385
+@code 49800
+-- module: survivors.lua
+(function()
 -- 暗夜幸存者（FC-16）
 -- 吸血鬼幸存者式割草生存：无限墓园地图，武器自动出击，收集经验结晶升级
 --
--- 操作：dpad 移动 / 武器全自动 / 升级选卡 dpad + A / Menu 暂停
+-- 操作：WASD 移动 / 武器全自动 / 升级选卡 ZX + J / Menu 暂停
 -- 目标：活过 10 分钟，见到黎明（死神将在 10:00 降临）
 -- 纯 Lua 卡带：精灵表与地图在 _init 程序化生成（sset / poke2），音频 poke 写入（§5.2）
 
@@ -34,72 +36,36 @@ function u8(a, v) poke(a, v % 256) end
 
 -- ---------------------------------------------------------------- 音频合成器
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
--- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
-local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
-  {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
-  {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
-  {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
-  {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
-  {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
-  {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
-  {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
-  {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
-}
-
-local WAVEFORM_BASE = 0x0C4800  -- WAVEFORMS：8×80B（SPEC §5.2）
-
-local function init_waveforms()
-  for id = 0, 7 do
-    local base = WAVEFORM_BASE + id * 80
-    local t = WAVEFORM_DATA[id + 1]
-    for i = 0, 63 do u8(base + 16 + i, t[i + 1]) end
-  end
-end
-
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
-
--- 写一条 SFX（SPEC §5.2：每条 144B = 头 16B + 32 步 × 4B）
--- notes: 音高表（旧固件 1–96 = MIDI 12–107，0=休止）；wave 旧固件音色，经 WMAP 映射到新来源
+-- 写一条 SFX（SPEC §5.2：144B，头 16B + 32×4B）
+-- notes: 原作者音高表（1–96 = MIDI 12–107）；转成 C0=0
 function init_sfx(id, notes, wave, vol, spd, lps)
   local base = 0x0C0000 + id * 144
-  local sp = spd or 2
-  poke2(base, (sp == 0 and 1 or sp) * 4)  -- 速度：旧每步帧数(60Hz) → 新 SPD tick(240Hz)
-  u8(base + 2, #notes) -- 有效步数
-  if lps then u8(base + 3, lps) u8(base + 4, #notes - 1) u8(base + 5, 1) end  -- 旧 loop_end 排他 → 新包含
+  u8(base, (spd or 2) * 4)
+  u8(base + 1, 0)
+  u8(base + 2, #notes)
+  if lps then u8(base + 3, lps) u8(base + 4, #notes - 1) u8(base + 5, 1) end
   for i = 0, 31 do
     local a = base + 16 + i * 4
-    if i < #notes and notes[i + 1] > 0 then
-      u8(a, notes[i + 1] - 1)
-      u8(a + 1, WMAP[wave])
-      u8(a + 2, vol)
+    if i < #notes then
+      u8(a, notes[i + 1] > 0 and notes[i + 1] - 1 or 0)
+      u8(a + 1, wave == 11 and 0 or wave >= 14 and 6 or wave == 8 and 5 or wave)
+      u8(a + 2, notes[i + 1] > 0 and vol or 0)
       u8(a + 3, 0)
     else
-      u8(a, 0) u8(a + 1, 0) u8(a + 2, 0) u8(a + 3, 0)
+      u8(a + 2, 0)
     end
   end
 end
 
--- BGM：A 和声小调暗黑乐句。两条 SFX 各自按 speed/length 播放，
--- 控制声部完成后重触发 Music 行（Am F G E 安达卢西亚进行）
-local MUSIC_BASE = 0x0C5380  -- MUSIC 区（SPEC §5.2）：+0 LEN，行 r 在 +32+r*32
+-- BGM：A 和声小调暗黑乐句，Row 回到自身。
 function init_music()
   init_sfx(4, {22,34,22,34, 18,30,18,30, 20,32,20,32, 17,29,17,29}, 11, 12, 8) -- BASS
   init_sfx(5, {46,49,53,49, 42,46,49,46, 44,48,51,48, 41,45,44,41}, 0, 8, 8) -- TRIANGLE
-  local mb = MUSIC_BASE + 32  -- 行 0
-  for c = 0, 7 do u8(mb + c, 0xFF) end
-  u8(mb + 4, 4) u8(mb + 5, 5)
-  u8(mb + 16, 1) u8(mb + 17, 1)  -- LOOP_START / LOOP_BACK：单行自回环
-  u8(MUSIC_BASE, 1)  -- 全表 LEN = 1 行
+  local mb = 0x0C5380
+  u8(mb, 1)
+  for ch = 0, 7 do u8(mb + 32 + ch, 255) end
+  u8(mb + 32 + 4, 4) u8(mb + 32 + 5, 5)
+  u8(mb + 32 + 16, 1) u8(mb + 32 + 17, 1)
 end
 
 -- ---------------------------------------------------------------- 位图精灵
@@ -130,9 +96,9 @@ PIX = {
   p = 55, -- 亮紫
 }
 
--- 把字符位图画到精灵表瓦片 t（0–1023）
+-- 把字符位图画到精灵表瓦片 t（0–2047）
 function draw_bitmap(t, rows)
-  local bx, by = (t % 16) * 16, flr(t / 16) * 16
+  local bx, by = (t % 16) * 16, math.floor(t / 16) * 16
   for y = 0, #rows - 1 do
     local row = rows[y + 1]
     for x = 0, #row - 1 do
@@ -643,7 +609,6 @@ function _init()
   build_sprites()
   build_map()
   -- 音效：0 飞弹 1 敌死 2 受伤 3 宝石 4 升级 5 确认 6 回血 7 雷击 8 警报 9 结束 10 回旋镖 11 磁铁
-  init_waveforms()  -- 旧固件音色 → v0.177 自定义波形
   init_sfx(0, { 70, 82 }, 4, 6)
   init_sfx(1, { 40, 30, 18 }, 15, 12)
   init_sfx(2, { 36, 28, 20 }, 3, 14)
@@ -657,10 +622,11 @@ function _init()
   init_sfx(10, { 55, 67 }, 5, 7)
   init_sfx(11, { 46, 58, 70, 82 }, 4, 9)
   init_music()
-  init_stars()  -- 星星在 _init 定稿（封面帧 0 即完整星空）
-  best_t = dget(0)
+  -- 存档（SPEC §13）：{best_time=最佳存活秒数, best_kills=该局击杀数}
+  local d = load()
+  best_t = type(d) == "table" and type(d.best_time) == "number" and d.best_time or 0
   new_game()
-  state = "splash" -- 开机封面，Ⓐ/Menu 或 90 帧后进 title
+  state = "title"
 end
 
 -- ---------------------------------------------------------------- 数值与工具
@@ -686,7 +652,7 @@ function dist2(ax, ay, bx, by)
 end
 
 function clock_str(sec)
-  return string.format("%d:%02d", flr(sec / 60), flr(sec) % 60)
+  return string.format("%d:%02d", math.floor(sec / 60), math.floor(sec) % 60)
 end
 
 function dtext(s, x, y, c)
@@ -699,7 +665,7 @@ function boom(x, y, c, n)
     local a = i / n + rnd(0.1)
     local sp = 0.5 + rnd(1, 3)
     parts[#parts + 1] = { x = x, y = y, vx = cos(a) * sp, vy = sin(a) * sp,
-                          life = 12 + flr(rnd(1, 10)), c = c }
+                          life = 12 + math.floor(rnd(1, 10)), c = c }
   end
 end
 
@@ -734,14 +700,14 @@ function update_spawns()
   -- 常规刷怪
   if not spawn_t then spawn_t = 0 end
   spawn_t = spawn_t - 1
-  local alive_max = min(150, 40 + m * 12)
+  local alive_max = math.min(150, 40 + m * 12)
   if spawn_t <= 0 and #foes < alive_max then
-    local gap = max(14, (m < 1 and 75 or 60) - m * 8)
+    local gap = math.max(14, (m < 1 and 75 or 60) - m * 8)
     spawn_t = gap
-    local count = min(4, 1 + flr(m / 1.2))
+    local count = math.min(4, 1 + math.floor(m / 1.2))
     local pool = spawn_pool(m)
     for i = 1, count do
-      if #foes < alive_max then spawn_foe(pool[flr(rnd(#pool)) + 1]) end
+      if #foes < alive_max then spawn_foe(pool[math.floor(rnd(#pool)) + 1]) end
     end
   end
   -- 精英恶魔
@@ -759,7 +725,7 @@ function update_spawns()
     death_come = true
     spawn_foe("death", rnd(1), 230)
     banner("死亡降临！", 11, 240)
-    music(-1)
+    music_stop()
     sfx(8, 2)
     sfx(8, 3)
     shake = 20
@@ -771,8 +737,8 @@ function update_foes()
   for i = #foes, 1, -1 do
     local f = foes[i]
     local d = E[f.kind]
-    local a = atan2(px - f.x, py - f.y)
-    local sp = d.sp * min(1.6, 1 + diff_min() * 0.04)
+    local a = atan2(py - f.y, px - f.x)
+    local sp = d.sp * math.min(1.6, 1 + diff_min() * 0.04)
     f.x = f.x + cos(a) * sp + f.kx
     f.y = f.y + sin(a) * sp + f.ky
     f.kx = f.kx * 0.85
@@ -821,7 +787,7 @@ function damage_foe(f, idx, dmg, kx, ky)
     end
     -- 血色领域：击杀吸血
     if weapon_lv("aura") > 0 and player.hp < player.maxhp then
-      player.hp = min(player.maxhp, player.hp + 1)
+      player.hp = math.min(player.maxhp, player.hp + 1)
     end
   end
 end
@@ -833,7 +799,7 @@ function hurt_player(dmg)
   player.hp = player.hp - dmg
   player.inv = 50
   inv_flash = 8
-  shake = max(shake, 6)
+  shake = math.max(shake, 6)
   sfx(2)
   boom(player.x, player.y, 11, 8)
   if player.hp <= 0 then
@@ -842,21 +808,19 @@ function hurt_player(dmg)
     new_best = final_time > best_t
     if new_best then
       best_t = final_time
-      dset(0, best_t)
-      dset(1, kill)
-      fflush()
+      save({ best_time = best_t, best_kills = kill })
     end
     state = "over"
     over_t = 0
-    music(-1)
+    music_stop()
     sfx(9)
   end
 end
 
 function update_player()
-  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
-  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
-  local l = sqrt(dx * dx + dy * dy)
+  local dx = (dir("right") and 1 or 0) - (dir("left") and 1 or 0)
+  local dy = (dir("down") and 1 or 0) - (dir("up") and 1 or 0)
+  local l = math.sqrt(dx * dx + dy * dy)
   if l > 0 then
     local sp = move_sp()
     player.x = player.x + dx / l * sp
@@ -897,7 +861,7 @@ function update_weapons()
       local ti = nearest_foe(player.x, player.y, 160)
       if ti then
         local tf = foes[ti]
-        local a = atan2(tf.x - player.x, tf.y - player.y)
+        local a = atan2(tf.y - player.y, tf.x - player.x)
         for j = 1, p.n do
           local ja = a + (j - (p.n + 1) / 2) * 0.06
           shards[#shards + 1] = { x = player.x, y = player.y,
@@ -922,7 +886,7 @@ function update_weapons()
           a = (j - 1) / p.n -- 多枚均分圆周
         end
         local ti = nearest_foe(player.x, player.y, 120)
-        if ti and j == 1 then a = atan2(foes[ti].x - player.x, foes[ti].y - player.y) end
+        if ti and j == 1 then a = atan2(foes[ti].y - player.y, foes[ti].x - player.x) end
         crosses[#crosses + 1] = { x = player.x, y = player.y, vx = cos(a) * 3.4,
           vy = sin(a) * 3.4, ret = 34, rot = 0, dmg = p.dmg }
       end
@@ -941,7 +905,7 @@ function update_weapons()
       for i = #foes, 1, -1 do
         local f = foes[i]
         if f.ihit <= 0 and dist2(f.x, f.y, bx, by) < 100 then
-          local fa = atan2(f.x - player.x, f.y - player.y)
+          local fa = atan2(f.y - player.y, f.x - player.x)
           damage_foe(f, i, p.dmg * dm, cos(fa) * 1.2, sin(fa) * 1.2)
         end
       end
@@ -970,7 +934,7 @@ function update_weapons()
       end
       if #used > 0 then
         sfx(7, 1)
-        shake = max(shake, 4)
+        shake = math.max(shake, 4)
       end
     end
   end
@@ -1009,7 +973,7 @@ function nearest_screen_foe(used)
     for j = 1, #used do
       if used[j] == f then ok = false break end
     end
-    if ok and abs(f.x - player.x) < 130 and abs(f.y - player.y) < 130 then
+    if ok and math.abs(f.x - player.x) < 130 and math.abs(f.y - player.y) < 130 then
       local d2 = dist2(f.x, f.y, player.x, player.y)
       if d2 < bd then bd, best = d2, f end
     end
@@ -1029,7 +993,7 @@ function update_shots()
       local f = foes[j]
       local d = E[f.kind]
       if dist2(f.x, f.y, s.x, s.y) < (d.r + 3) * (d.r + 3) then
-        local a = atan2(s.vx, s.vy)
+        local a = atan2(s.vy, s.vx)
         damage_foe(f, j, s.dmg * dmg_mul(), cos(a) * 0.8, sin(a) * 0.8)
         hit = true
         break
@@ -1046,12 +1010,12 @@ function update_shots()
       c.x = c.x + c.vx
       c.y = c.y + c.vy
       if c.ret == 0 then
-        local a = atan2(player.x - c.x, player.y - c.y)
+        local a = atan2(player.y - c.y, player.x - c.x)
         c.vx = cos(a) * 4.4
         c.vy = sin(a) * 4.4
       end
     else
-      local a = atan2(player.x - c.x, player.y - c.y)
+      local a = atan2(player.y - c.y, player.x - c.x)
       c.vx = cos(a) * 4.4
       c.vy = sin(a) * 4.4
       c.x = c.x + c.vx
@@ -1064,7 +1028,7 @@ function update_shots()
       local f = foes[j]
       local d = E[f.kind]
       if f.ihit <= 0 and dist2(f.x, f.y, c.x, c.y) < (d.r + 6) * (d.r + 6) then
-        local a = atan2(c.vx, c.vy)
+        local a = atan2(c.vy, c.vx)
         damage_foe(f, j, c.dmg * dmg_mul(), cos(a) * 1.5, sin(a) * 1.5)
       end
     end
@@ -1090,7 +1054,7 @@ function update_gems()
     local g = gems[i]
     local d2 = dist2(g.x, g.y, player.x, player.y)
     if g.mag or d2 < pr * pr then
-      local a = atan2(player.x - g.x, player.y - g.y)
+      local a = atan2(player.y - g.y, player.x - g.x)
       local sp = g.mag and 4.5 or 3
       g.x = g.x + cos(a) * sp
       g.y = g.y + sin(a) * sp
@@ -1107,7 +1071,7 @@ function update_gems()
     if dist2(p.x, p.y, player.x, player.y) < 144 then
       table.remove(picks, i)
       if p.kind == "meat" then
-        player.hp = min(player.maxhp, player.hp + 30)
+        player.hp = math.min(player.maxhp, player.hp + 30)
         banner("回复 30 生命", 38, 70)
         sfx(6)
       else
@@ -1127,7 +1091,7 @@ function gain_xp(n)
     player.lv = (player.lv or 1) + 1
     player.next = xp_need(player.lv)
     pending_lv = pending_lv + 1
-    player.hp = min(player.maxhp, player.hp + 8)
+    player.hp = math.min(player.maxhp, player.hp + 8)
     sfx(4)
     boom(player.x, player.y, 27, 12)
   end
@@ -1151,7 +1115,7 @@ function roll_choices()
   end
   local out = {}
   while #out < 3 and #pool > 0 do
-    local j = flr(rnd(#pool)) + 1
+    local j = math.floor(rnd(#pool)) + 1
     out[#out + 1] = pool[j]
     table.remove(pool, j)
   end
@@ -1181,15 +1145,15 @@ function apply_choice(c)
     passives[c.id] = passives[c.id] + 1
     if c.id == "heart" then
       player.maxhp = 100 + 20 * passives.heart
-      player.hp = min(player.maxhp, player.hp + 20)
+      player.hp = math.min(player.maxhp, player.hp + 20)
     end
   elseif c.kind == "heal" then
-    player.hp = min(player.maxhp, player.hp + 40)
+    player.hp = math.min(player.maxhp, player.hp + 40)
     banner("回复 40 生命", 38, 70)
   elseif c.kind == "nuke" then
     for i = #foes, 1, -1 do
       local f = foes[i]
-      if not E[f.kind].big and abs(f.x - player.x) < 150 and abs(f.y - player.y) < 150 then
+      if not E[f.kind].big and math.abs(f.x - player.x) < 150 and math.abs(f.y - player.y) < 150 then
         damage_foe(f, i, 200, 0, 0)
       end
     end
@@ -1240,33 +1204,28 @@ end
 
 function _update()
   t = t + 1
-  if state == "splash" then
-    -- 开机封面：Ⓐ/Menu 跳过，90 帧后进 title
-    if t > 90 or btnp(11) or btnp(4) then
-      state = "title"
-    end
-  elseif state == "title" then
-    if btnp(11) or btnp(4) then
+  if state == "title" then
+    if btnp("menu") or btnp("a") then
       new_game()
       state = "play"
       music(0, 500, 48) -- ch4-5 交给音乐
     end
   elseif state == "play" then
-    if btnp(11) then
+    if btnp("menu") then
       state = "pause"
     else
       update_play()
     end
   elseif state == "levelup" then
-    if dirp(0) then
+    if dirp("left") then
       choice_sel = choice_sel - 1
       if choice_sel < 1 then choice_sel = #choices end
     end
-    if dirp(1) then
+    if dirp("right") then
       choice_sel = choice_sel + 1
       if choice_sel > #choices then choice_sel = 1 end
     end
-    if btnp(4) or btnp(11) then
+    if btnp("a") or btnp("menu") then
       apply_choice(choices[choice_sel])
       pending_lv = pending_lv - 1
       if pending_lv > 0 then
@@ -1277,13 +1236,13 @@ function _update()
       end
     end
   elseif state == "pause" then
-    if btnp(11) then
+    if btnp("menu") then
       state = "play"
       if not death_come then music(0, 0, 48) end
     end
   elseif state == "over" then
     over_t = over_t + 1
-    if over_t > 45 and (btnp(11) or btnp(4)) then
+    if over_t > 45 and (btnp("menu") or btnp("a")) then
       state = "title"
     end
   end
@@ -1294,12 +1253,12 @@ end
 -- 无限地图：可见区按 256 格取模分块绘制（map 坐标出界返回瓦片 0）。
 -- map 的 tx,ty 为世界像素坐标（内部统一减 camera，与 spr 等原语一致）
 function draw_world_map()
-  local tx = flr(cam.x / 16)
-  local ty = flr(cam.y / 16)
+  local tx = math.floor(cam.x / 16)
+  local ty = math.floor(cam.y / 16)
   local ox = tx * 16
   local oy = ty * 16
   local cx0, cy0 = tx % 256, ty % 256
-  local w1, h1 = min(17, 256 - cx0), min(17, 256 - cy0)
+  local w1, h1 = math.min(17, 256 - cx0), math.min(17, 256 - cy0)
   local tw, th = 17, 17
   map(cx0, cy0, ox, oy, w1, h1)
   if w1 < tw then map(0, cy0, ox + w1 * 16, oy, tw - w1, h1) end
@@ -1310,7 +1269,7 @@ end
 function draw_gems()
   for i = 1, #gems do
     local g = gems[i]
-    local x, y = flr(g.x), flr(g.y)
+    local x, y = math.floor(g.x), math.floor(g.y)
     local bob = (i % 3 == 0) and 1 or 0
     local c1, c2 = 41, 7 -- 蓝晶
     if g.xp >= 8 then c1, c2 = 58, 7
@@ -1324,7 +1283,7 @@ end
 function draw_picks()
   for i = 1, #picks do
     local p = picks[i]
-    local x, y = flr(p.x), flr(p.y + sin((t / 20 + i) * 0.16) * 2)
+    local x, y = math.floor(p.x), math.floor(p.y + sin((t / 20 + i) * 0.16) * 2)
     if p.kind == "meat" then
       ovalfill(x - 2, y, 5, 4, 8)
       ovalfill(x - 1, y, 3, 2, 22)
@@ -1345,8 +1304,8 @@ function draw_foes()
   for i = 1, #foes do
     local f = foes[i]
     local d = E[f.kind]
-    if abs(f.x - cam.x - 128) < 170 and abs(f.y - cam.y - 128) < 170 then
-      local frame = d.frames > 1 and flr(t / 10) % 2 or 0
+    if math.abs(f.x - cam.x - 128) < 170 and math.abs(f.y - cam.y - 128) < 170 then
+      local frame = d.frames > 1 and math.floor(t / 10) % 2 or 0
       local tile = d.bmp + frame * (d.frames > 1 and 16 or 0)
       if f.flash > 0 then pal(d.flash, 7) end -- 受击闪白：主色 → 白
       if d.big then
@@ -1357,7 +1316,7 @@ function draw_foes()
       if f.flash > 0 then pal() end
       -- 精英血条
       if d.big and f.kind == "demon" then
-        local w = flr(24 * f.hp / f.maxhp)
+        local w = math.floor(24 * f.hp / f.maxhp)
         rectfill(f.x - 13, f.y - 21, 26, 3, 2)
         if w > 0 then rectfill(f.x - 12, f.y - 20, w, 1, 60) end
       end
@@ -1366,21 +1325,20 @@ function draw_foes()
 end
 
 function draw_player()
-  if player.inv > 0 and flr(t / 4) % 2 == 1 then return end
-  local x, y = flr(player.x), flr(player.y)
-  local bob = player.walk > 0 and flr(sin(player.walk) * 1.2) or 0
+  if player.inv > 0 and math.floor(t / 4) % 2 == 1 then return end
+  local x, y = math.floor(player.x), math.floor(player.y)
+  local bob = player.walk > 0 and math.floor(sin(player.walk) * 1.2) or 0
   spr(1, x - 8, y - 8 + bob)
 end
 
--- 血色领域：贴地半透明层（暗红网点 + 草地底色透出），在全部实体之前绘制，
--- 领域内的敌人不受遮挡（SPEC §2.3 fillp 双色抖动无透明位，以"底色透出 + 先画"实现半透明）
+-- 血色领域：贴地双色网点层，在全部实体之前绘制，领域内的敌人不受遮挡。
 function draw_aura()
   local aw = find_weapon("aura")
   if not aw then return end
   local p = wdef("aura").lv[aw.lv]
-  fillp(0xAAAA)
-  circfill(player.x, player.y, p.r, 62 * 256 + 36)
-  fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
+  fillp(0xAAAA, 36)
+  circfill(player.x, player.y, p.r, 62)
+  fillp()
   circ(player.x, player.y, p.r, 60)
   if (aw.pulse or 0) > 0 then circ(player.x, player.y, p.r + 2, 58) end
 end
@@ -1390,9 +1348,9 @@ function draw_weapons_fx()
   -- 魔弹
   for i = 1, #shards do
     local s = shards[i]
-    local x, y = flr(s.x), flr(s.y)
+    local x, y = math.floor(s.x), math.floor(s.y)
     circfill(x, y, 2, 9)
-    pset(x - flr(s.vx), y - flr(s.vy), 40)
+    pset(x - math.floor(s.vx), y - math.floor(s.vy), 40)
     pset(x, y, 7)
   end
   -- 回旋十字
@@ -1425,7 +1383,7 @@ function draw_weapons_fx()
   -- 天罚惊雷
   for i = 1, #bolts do
     local b = bolts[i]
-    local x, y = flr(b.x), flr(b.y)
+    local x, y = math.floor(b.x), math.floor(b.y)
     if b.life > 8 then
       -- 落雷阶段：自上而下劈落
       local prog = (16 - b.life) / 6
@@ -1441,7 +1399,7 @@ function draw_weapons_fx()
   end
   -- 粒子
   for i = 1, #parts do
-    pset(flr(parts[i].x), flr(parts[i].y), parts[i].c)
+    pset(math.floor(parts[i].x), math.floor(parts[i].y), parts[i].c)
   end
 end
 
@@ -1467,9 +1425,9 @@ function draw_icon(id, x, y, sel)
     line(x + 8, y + 6, x + 4, y + 11, 30)
   elseif id == "aura" then
     circ(x + 7, y + 6, 5, 60)
-    fillp(0xAAAA)
-    circfill(x + 7, y + 6, 2, 62 * 256 + 0)
-    fillp()  -- 恢复实心
+    fillp(0xAAAA, 0)
+    circfill(x + 7, y + 6, 2, 62)
+    fillp()
   elseif id == "boots" then
     rectfill(x + 5, y + 1, 3, 7, 30)
     rectfill(x + 5, y + 8, 7, 2, 30)
@@ -1500,19 +1458,19 @@ end
 function draw_hud()
   -- 顶部经验条
   rectfill(0, 0, 256, 4, 2)
-  local nw = flr(256 * (player.xp or 0) / (player.next or 1))
+  local nw = math.floor(256 * (player.xp or 0) / (player.next or 1))
   if nw > 0 then rectfill(0, 0, nw, 4, 9) end
   -- 生命
-  local hw = flr(60 * player.hp / player.maxhp)
+  local hw = math.floor(60 * player.hp / player.maxhp)
   rectfill(4, 9, 62, 6, 2)
   rect(4, 9, 62, 6, 0)
   if hw > 0 then rectfill(5, 10, hw, 4, player.hp / player.maxhp < 0.3 and 60 or 34) end
   print("♥", 70, 5, 60)
-  print(string.format("%d", flr(player.hp)), 88, 8, 7)
+  print(string.format("%d", math.floor(player.hp)), 88, 8, 7)
   -- 时间（死神临近变红闪）
   local sec = gt / 60
   local tc = 7
-  if sec >= 540 then tc = flr(t / 15) % 2 == 0 and 11 or 12 end
+  if sec >= 540 then tc = math.floor(t / 15) % 2 == 0 and 11 or 12 end
   dtext(clock_str(sec), 108, 9, tc)
   -- 击杀与等级
   print(string.format("K %d", kill), 216, 9, 6)
@@ -1538,8 +1496,8 @@ function draw_hud()
     end
   end
   -- 横幅
-  if banner_t > 0 and flr(banner_t / 8) % 4 ~= 3 then
-    dtext(banner_txt, flr((256 - tw(banner_txt)) / 2), 200, banner_c)
+  if banner_t > 0 and math.floor(banner_t / 8) % 4 ~= 3 then
+    dtext(banner_txt, math.floor((256 - textw(banner_txt)) / 2), 200, banner_c)
   end
 end
 
@@ -1548,9 +1506,9 @@ end
 function draw_levelup()
   fillp(0x5555)
   rectfill(0, 0, 256, 256, 0)
-  fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
-  dtext("升级！", flr((256 - tw("升级！")) / 2), 34, 27)
-  dtext("选择一项强化", flr((256 - tw("选择一项强化")) / 2), 54, 7)
+  fillp()
+  dtext("升级！", math.floor((256 - textw("升级！")) / 2), 34, 27)
+  dtext("选择一项强化", math.floor((256 - textw("选择一项强化")) / 2), 54, 7)
   for i = 1, #choices do
     local c = choices[i]
     local x = 8 + (i - 1) * 82
@@ -1585,20 +1543,22 @@ function draw_levelup()
     rectfill(x + 22, 84, 32, 24, 0)
     local icon_id = (c.kind == "w" or c.kind == "p") and c.id or c.kind
     draw_icon(icon_id, x + 32, 90, sel)
-    dtext(name, x + flr((76 - tw(name)) / 2), 112, sel and 7 or 5)
-    print(lv_txt, x + flr((76 - tw(lv_txt)) / 2), 128, sel and 30 or 10)
-    print(d1, x + flr((76 - tw(d1)) / 2), 146, 6)
-    print(d2, x + flr((76 - tw(d2)) / 2), 162, 6)
+    dtext(name, x + math.floor((76 - textw(name)) / 2), 112, sel and 7 or 5)
+    print(lv_txt, x + math.floor((76 - textw(lv_txt)) / 2), 128, sel and 30 or 10)
+    print(d1, x + math.floor((76 - textw(d1)) / 2), 146, 6)
+    print(d2, x + math.floor((76 - textw(d2)) / 2), 162, 6)
   end
-  local sel_h = btnicon("left") .. btnicon("right") .. " 选择　" .. btnicon("a") .. " 确认"
-  print(sel_h, flr((256 - tw(sel_h)) / 2), 196, 10)
+  if math.floor(t / 20) % 2 == 0 then
+    local hint = btnicon("left") .. btnicon("right") .. " 选择　" .. btnicon("a") .. " 确认"
+    print(hint, math.floor((256 - textw(hint)) / 2), 196, 10)
+  end
 end
 
 function draw_pause()
   fillp(0x5555)
   rectfill(0, 0, 256, 256, 0)
-  fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
-  dtext("已暂停", flr((256 - tw("已暂停")) / 2), 24, 7)
+  fillp()
+  dtext("已暂停", math.floor((256 - textw("已暂停")) / 2), 24, 7)
   print("武器", 40, 56, 30)
   for i = 1, #weapons do
     local w = weapons[i]
@@ -1617,24 +1577,24 @@ function draw_pause()
     end
   end
   local y = 190
-  print(string.format("伤害 x%d%%　冷却 x%d%%", flr(dmg_mul() * 100), flr(cd_mul() * 100)),
-    flr((256 - tw("伤害 x100%　冷却 x100%")) / 2), y, 6)
-  print(string.format("移速 x%d%%　拾取 %dpx", flr(move_sp() / 1.3 * 100), flr(pick_r())),
-    flr((256 - tw("移速 x100%　拾取 26px")) / 2), y + 12, 6)
-  if flr(t / 20) % 2 == 0 then
-    local h = "按 " .. btnicon("menu") .. " 继续"
-    print(h, flr((256 - tw(h)) / 2), 226, 10)
+  print(string.format("伤害 x%d%%　冷却 x%d%%", math.floor(dmg_mul() * 100), math.floor(cd_mul() * 100)),
+    math.floor((256 - textw("伤害 x100%　冷却 x100%")) / 2), y, 6)
+  print(string.format("移速 x%d%%　拾取 %dpx", math.floor(move_sp() / 1.3 * 100), math.floor(pick_r())),
+    math.floor((256 - textw("移速 x100%　拾取 26px")) / 2), y + 12, 6)
+  if math.floor(t / 20) % 2 == 0 then
+    local hint = btnicon("menu") .. " 继续"
+    print(hint, math.floor((256 - textw(hint)) / 2), 226, 10)
   end
 end
 
 function draw_over()
   fillp(0x5555)
   rectfill(0, 0, 256, 256, 0)
-  fillp()  -- 恢复实心（本固件 fillp() 空参不重置图案）
+  fillp()
   local dawn = final_time >= DEATH_TIME
   local title = dawn and "你在黎明前倒下" or "夜幕吞没了你"
   local tc = dawn and 27 or 11
-  dtext(title, flr((256 - tw(title)) / 2), 60, tc)
+  dtext(title, math.floor((256 - textw(title)) / 2), 60, tc)
   local rows = {
     { "存活", clock_str(final_time) },
     { "等级", string.format("%d", player.lv or 1) },
@@ -1645,15 +1605,15 @@ function draw_over()
     print(rows[i][2], 136, 104 + i * 20, 7)
   end
   if new_best then
-    if flr(t / 15) % 2 == 0 then
-      dtext("新纪录！", flr((256 - tw("新纪录！")) / 2), 180, 27)
+    if math.floor(t / 15) % 2 == 0 then
+      dtext("新纪录！", math.floor((256 - textw("新纪录！")) / 2), 180, 27)
     end
   else
-    print("最佳 " .. clock_str(best_t), flr((256 - tw("最佳 0:00")) / 2), 180, 10)
+    print("最佳 " .. clock_str(best_t), math.floor((256 - textw("最佳 0:00")) / 2), 180, 10)
   end
-  if over_t > 45 and flr(t / 20) % 2 == 0 then
-    local h = "按 " .. btnicon("menu") .. " 返回"
-    print(h, flr((256 - tw(h)) / 2), 216, 10)
+  if over_t > 45 and math.floor(t / 20) % 2 == 0 then
+    local hint = btnicon("menu") .. " 返回"
+    print(hint, math.floor((256 - textw(hint)) / 2), 216, 10)
   end
 end
 
@@ -1665,7 +1625,7 @@ function init_stars()
   stars = {}
   local sc = { 5, 7, 53, 58 }
   for i = 1, 46 do
-    stars[i] = { x = flr(rnd(1, 254)), y = flr(rnd(1, 150)), sp = 0.3 + rnd(1, 3) / 2,
+    stars[i] = { x = math.floor(rnd(1, 254)), y = math.floor(rnd(1, 150)), sp = 0.3 + rnd(1, 3) / 2,
                  c = sc[(i % 4) + 1] }
   end
 end
@@ -1674,8 +1634,8 @@ function draw_title()
   if not stars then init_stars() end
   -- 夜空渐变（fillp 抖动分层）
   cls(38)
-  fillp(0xEEEE) rectfill(0, 40, 256, 216, 38 * 256 + 53) fillp()
-  fillp(0xDDDD) rectfill(0, 70, 256, 186, 53 * 256 + 15) fillp()
+  fillp(0xEEEE, 53) rectfill(0, 40, 256, 216, 38) fillp()
+  fillp(0xDDDD, 15) rectfill(0, 70, 256, 186, 53) fillp()
   -- 星
   for i = 1, #stars do
     local s = stars[i]
@@ -1690,8 +1650,8 @@ function draw_title()
   end
   -- 远处墓园剪影（地平线用双色抖动软化）
   rectfill(0, 168, 256, 88, 36)
-  fillp(0xAAAA)
-  rectfill(0, 160, 256, 8, 36 * 256 + 15)
+  fillp(0xAAAA, 15)
+  rectfill(0, 160, 256, 8, 36)
   fillp()
   -- 墓碑与枯树剪影
   local graves = { { 30, 178 }, { 58, 174 }, { 200, 180 }, { 228, 172 } }
@@ -1701,12 +1661,6 @@ function draw_title()
     rectfill(gx + 3, gy + 4, 8, 2, 1)
     rectfill(gx + 3, gy + 10, 8, 2, 1)
   end
-  -- 十字架剪影
-  for i = 1, 2 do
-    local cx = i == 1 and 84 or 158
-    rectfill(cx, 166, 4, 36, 1)
-    rectfill(cx - 6, 174, 16, 4, 1)
-  end
   line(110, 200, 110, 160, 1)
   line(110, 172, 98, 158, 1)
   line(110, 166, 124, 152, 1)
@@ -1715,94 +1669,26 @@ function draw_title()
   for i = 0, 4 do
     local bx = (t * (1.1 + i * 0.18) + i * 90) % 400 - 40
     local by = 90 + i * 9 + sin(t / 30 + i) * 10
-    spr(2 + flr(t / 8 + i) % 2 * 16, bx, by)
+    spr(2 + math.floor(t / 8 + i) % 2 * 16, bx, by)
   end
-  -- 大标题（scale 2 + 投影）
-  local s = "暗夜幸存者"
-  local tx = flr((256 - tw(s, 2)) / 2)
-  print(s, tx + 2, 74, 0, 2)
-  print(s, tx, 72, 7, 2)
-  print("DARK SURVIVORS", flr((256 - tw("DARK SURVIVORS")) / 2), 106, 6)
-  -- 一行图标提示（稳定不闪）
-  local h = "按 " .. btnicon("menu") .. " 开始　" .. btnicon("dpad") .. " 移动"
-  print(h, flr((256 - tw(h)) / 2) + 1, 135, 0)
-  print(h, flr((256 - tw(h)) / 2), 134, 7)
-  print("武器自动出击　收集结晶升级　活过 10 分钟",
-    flr((256 - tw("武器自动出击　收集结晶升级　活过 10 分钟")) / 2), 216, 9)
+  -- 标题
+  dtext("暗夜幸存者", math.floor((256 - textw("暗夜幸存者")) / 2), 76, 11)
+  print("DARK SURVIVORS", math.floor((256 - textw("DARK SURVIVORS")) / 2), 104, 6)
+  if math.floor(t / 25) % 2 == 0 then
+    local start_hint = btnicon("menu") .. " 开始"
+    dtext(start_hint, math.floor((256 - textw(start_hint)) / 2), 140, 7)
+  end
+  local move_hint = btnicon("ls") .. " 移动　武器自动出击"
+  print(move_hint, math.floor((256 - textw(move_hint)) / 2), 196, 9)
+  print("收集结晶升级　活过 10 分钟", math.floor((256 - textw("收集结晶升级　活过 10 分钟")) / 2), 212, 9)
   if best_t > 0 then
-    print("最佳存活 " .. clock_str(best_t), flr((256 - tw("最佳存活 0:00")) / 2), 236, 30)
+    print("最佳存活 " .. clock_str(best_t), math.floor((256 - textw("最佳存活 0:00")) / 2), 236, 30)
   end
-end
-
--- Splash：纯主视觉封面（0-90 帧）——墓园夜色 + 主角被群尸围逼剪影，零菜单零提示
-function draw_splash()
-  -- 夜空渐变（与 title 同款分层抖动）
-  cls(38)
-  fillp(0xEEEE) rectfill(0, 40, 256, 216, 38 * 256 + 53) fillp()
-  fillp(0xDDDD) rectfill(0, 70, 256, 186, 53 * 256 + 15) fillp()
-  -- 星
-  for i = 1, #stars do
-    local s = stars[i]
-    pset(s.x, s.y, (t * s.sp + i * 13) % 30 < 22 and s.c or 38)
-  end
-  -- 月亮（放大，主角逆光位）
-  circfill(208, 74, 30, 30)
-  circfill(199, 67, 22, 21)
-  circ(208, 74, 30, 21)
-  for i = 0, 3 do
-    circfill(215 + i * 3, 83 + i * 2, 1, 18)
-  end
-  -- 地平线 + 墓园地面
-  rectfill(0, 196, 256, 60, 36)
-  fillp(0xAAAA)
-  rectfill(0, 188, 256, 8, 36 * 256 + 15)
-  fillp()
-  -- 十字架剪影（放大点缀）
-  rectfill(44, 148, 6, 50, 1)
-  rectfill(30, 160, 34, 6, 1)
-  rectfill(216, 164, 5, 34, 1)
-  rectfill(206, 174, 25, 5, 1)
-  -- 枯树剪影
-  line(238, 208, 238, 152, 1)
-  line(238, 172, 222, 154, 1)
-  line(238, 162, 252, 144, 1)
-  line(238, 188, 226, 176, 1)
-  -- 墓碑剪影
-  rectfill(14, 178, 14, 22, 1)
-  rectfill(17, 182, 8, 2, 1)
-  -- 飞过的蝙蝠群（放大 2 倍，限制在 logo 之下、主角上方的空域）
-  for i = 0, 3 do
-    local bx = (t * (1.1 + i * 0.2) + i * 80) % 400 - 40
-    local by = 90 + i * 9 + sin(t / 30 + i) * 7
-    local sx = 32
-    local sy = i % 2 == 0 and 0 or 16
-    sspr(sx, sy, 16, 16, flr(bx), flr(by), 32, 32)
-  end
-  -- 群尸围逼：四周敌人压成剪影黑（绘制映射全表 → 1；保留主角彩色逆光）
-  for c = 0, 63 do pal(c, 1) end
-  sspr(48, 0, 16, 16, 24, 156, 56, 56)    -- 丧尸（左）
-  sspr(64, 0, 16, 16, 176, 158, 48, 48)   -- 骷髅（右）
-  sspr(80, 0, 16, 16, 96, 202, 36, 36)    -- 幽灵（前左）
-  sspr(96, 0, 16, 16, 134, 210, 36, 36)   -- 恶魔（前右）
-  sspr(48, 0, 16, 16, 238, 196, 36, 36)   -- 丧尸（右缘）
-  pal()
-  -- 主角特写（瓦片 1 放大 4 倍，立于月光中心）
-  sspr(16, 0, 16, 16, 102, 140, 64, 64)
-  -- 大 logo（scale 3，黑影 + 白字）
-  local s = "暗夜幸存者"
-  local lx = flr((256 - tw(s, 3)) / 2)
-  print(s, lx + 3, 23, 0, 3)
-  print(s, lx, 20, 7, 3)
-  print("DARK SURVIVORS", flr((256 - tw("DARK SURVIVORS")) / 2), 66, 6)
 end
 
 -- ---------------------------------------------------------------- 主绘制
 
 function _draw()
-  if state == "splash" then
-    draw_splash()
-    return
-  end
   if state == "title" then
     draw_title()
     return
@@ -1818,7 +1704,7 @@ function _draw()
     sx, sy = rnd(-2, 2), rnd(-2, 2)
   end
   cls(0)
-  camera(flr(cam.x + sx), flr(cam.y + sy))
+  camera(math.floor(cam.x + sx), math.floor(cam.y + sy))
   draw_world_map()
   draw_aura()
   draw_gems()
@@ -1833,3 +1719,4 @@ function _draw()
   if state == "pause" then draw_pause() end
   if state == "over" then draw_over() end
 end
+end)();

@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "中国象棋",
+    "author": "FrostMiKu",
+    "saveId": "xiangqi",
+    "version": 1,
+    "flags": 0,
+    "output": "xiangqi.fc16",
+    "release": "xiangqi.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "xiangqi.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

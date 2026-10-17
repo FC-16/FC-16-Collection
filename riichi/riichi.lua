@@ -1,4 +1,10 @@
--- FC-16 日本麻将（demo/riichi/riichi.lua）
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {games = 0, wins = 0, riichi = 0, best = 0}
+end
+
+-- FC-16 日本麻将（riichi/riichi.lua）
 -- 立直麻将（日本麻将）东风战：4 人制，25000 点起点，136 张（含红五万/筒/条各一）。
 -- 完整流程：标题 → 掷骰定起家 → 配牌 → 摸切循环 → 鸣牌（吃/碰/大明杠）→
 --   暗杠/加杠 → 立直（1000 点棒、自动摸切）→ 宝牌/里宝/杠宝 → 荒牌流局（听牌宣告）→
@@ -9,7 +15,7 @@
 -- SFX/BGM 按 SPEC §5.2 布局程序化写入；麻将牌 16×16 精灵逐像素烘焙。
 -- 操作：←→选牌（按住重复）Ⓐ打出　Ⓨ立直宣言　Ⓧ杠菜单　Ⓑ取消/过
 --       鸣牌菜单 ←→选择 Ⓐ确认 Ⓑ过；和牌提示 Ⓐ和 Ⓑ过；Menu 暂停；View BGM。
--- 存档：dset 槽 0=局数 1=和了数 2=立直数 3=最佳点数（1P 视角）。
+-- 存档使用结构化数据（SPEC §13）。
 -- 自测：自定义数据区首字节 peek(0x0C63A0)==42 时进入核心逻辑自测模式。
 
 -- ================================================================ 常量与配色
@@ -65,7 +71,7 @@ local NUM_CH = {"一", "二", "三", "四", "五", "六", "七", "八", "九"}
 local function kind_of(code) return bit32.rshift(code, 2) end
 local RED_KIND = { [4] = true, [13] = true, [22] = true }
 local function is_red(code) return bit32.band(code, 3) == 0 and RED_KIND[bit32.rshift(code, 2)] or false end
-local function kind_suit(k) return k < 27 and flr(k / 9) or 3 end
+local function kind_suit(k) return k < 27 and math.floor(k / 9) or 3 end
 local function kind_num(k) return k % 9 + 1 end   -- 1..9
 local function is_yao(k) return k >= 27 or k % 9 == 0 or k % 9 == 8 end
 local function is_honor(k) return k >= 27 end
@@ -73,7 +79,7 @@ local function is_simp(k) return k < 27 and k % 9 >= 1 and k % 9 <= 7 end
 
 local function dora_next(k)  -- 宝牌指示牌对应宝牌
   if k < 27 then
-    return flr(k / 9) * 9 + (k + 1) % 9
+    return math.floor(k / 9) * 9 + (k + 1) % 9
   end
   if k == 30 then return 31 end
   if k == 33 then return 27 end
@@ -232,7 +238,7 @@ local function shanten_regular(cnt, n_called)
   local sets, partials, pair = 0, 0, 0
   local function rec(k, rem)
     local cur = 8 - 2 * (n_called + sets) - partials - pair
-    if cur - ceil(rem * 2 / 3) >= best then return end
+    if cur - math.ceil(rem * 2 / 3) >= best then return end
     while k <= 33 and cnt[k] == 0 do k = k + 1 end
     if k > 33 then
       local s = 8 - 2 * (n_called + sets) - partials - pair
@@ -296,7 +302,7 @@ local function shanten_chiitoi(cnt)
       if cnt[i] >= 2 then pairs = pairs + 1 end
     end
   end
-  return 6 - pairs + max(0, 7 - kinds)
+  return 6 - pairs + math.max(0, 7 - kinds)
 end
 
 local function shanten_kokushi(cnt)
@@ -336,7 +342,7 @@ local function waits_of(cnt13, n_called)
       else
         for d = -2, 2 do
           local j = i + d
-          if j >= 0 and j < 27 and flr(j / 9) == flr(i / 9) then cand[j] = true end
+          if j >= 0 and j < 27 and math.floor(j / 9) == math.floor(i / 9) then cand[j] = true end
         end
       end
     end
@@ -358,12 +364,12 @@ end
 
 -- ================================================================ 点数工具
 
-local function c100(x) return ceil(x / 100) * 100 end
-local function c10(x) return ceil(x / 10) * 10 end
+local function c100(x) return math.ceil(x / 100) * 100 end
+local function c10(x) return math.ceil(x / 10) * 10 end
 
 -- 基本点（限额阶梯）
 local function basic_pts(fu, han)
-  if han >= 13 then return 8000 * flr(han / 13) end
+  if han >= 13 then return 8000 * math.floor(han / 13) end
   if han >= 11 then return 6000 end
   if han >= 8 then return 4000 end
   if han >= 6 then return 3000 end
@@ -407,8 +413,8 @@ local function eval_yaku_sets(sets, pairk, menzen, red)
       if k < 27 then all_honor = false else no_honor = false end
     end
     if k < 27 then
-      if suit_seen < 0 then suit_seen = flr(k / 9)
-      elseif suit_seen ~= flr(k / 9) then one_suit = false end
+      if suit_seen < 0 then suit_seen = math.floor(k / 9)
+      elseif suit_seen ~= math.floor(k / 9) then one_suit = false end
     end
     -- 绿一色检查（面子级别）
     for d = 0, s.t == "seq" and 2 or 0 do
@@ -422,8 +428,8 @@ local function eval_yaku_sets(sets, pairk, menzen, red)
   if not is_yao(pk) then all_yao = false end
   if pk < 27 then
     all_honor = false
-    if suit_seen >= 0 and suit_seen ~= flr(pk / 9) then one_suit = false end
-    if suit_seen < 0 then suit_seen = flr(pk / 9) end
+    if suit_seen >= 0 and suit_seen ~= math.floor(pk / 9) then one_suit = false end
+    if suit_seen < 0 then suit_seen = math.floor(pk / 9) end
   else
     no_honor = false
   end
@@ -446,7 +452,7 @@ local function eval_yaku_sets(sets, pairk, menzen, red)
       if c >= 3 then
         local suits = {}
         for i = 1, #tri_k do
-          if tri_k[i] % 9 == n then suits[flr(tri_k[i] / 9)] = true end
+          if tri_k[i] % 9 == n then suits[math.floor(tri_k[i] / 9)] = true end
         end
         if suits[0] and suits[1] and suits[2] then add("三色同刻", 2) break end
       end
@@ -663,7 +669,7 @@ local function score_hand(hand, melds, wcode, mode, SC)
           if i >= 27 then
             suit_only = false
           else
-            local s = flr(i / 9)
+            local s = math.floor(i / 9)
             if suit == -1 then
               suit = s
             elseif suit ~= s and suit ~= -2 then
@@ -838,7 +844,7 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 local WAVEFORM_DATA = {
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
@@ -860,19 +866,19 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 local function sfx_steps(id, speed, steps)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4) -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4) -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #steps)
   for i = 0, 31 do
     local a = base + 16 + i * 4
     local st = steps[i + 1]
     if st and (st[1] or 0) > 0 then
-      u8(a, st[1] - 1)               -- 旧音高 1-96 → 新 0-95
-      u8(a + 1, WMAP[st[2] or 0])
+      u8(a, st[1] - 1)               -- 乐谱半音 1-96 → 新 0-95
+      u8(a + 1, TIMBRE_SOURCE[st[2] or 0])
       u8(a + 2, st[3] or 0)
       u8(a + 3, st[4] or 0)
     else
@@ -922,7 +928,7 @@ local function init_audio()
 end
 
 local function set_bgm(on)
-  if on then music(0, 400, 0xC0) else music(-1, 200) end
+  if on then music(0, 400, 0xC0) else music_stop(200) end
 end
 
 -- ================================================================ 游戏状态
@@ -1003,7 +1009,7 @@ local function build_wall()
     for c = 0, 3 do w[#w + 1] = k * 4 + c end
   end
   for i = #w, 2, -1 do
-    local j = flr(rnd(i)) + 1
+    local j = math.floor(rnd(i)) + 1
     w[i], w[j] = w[j], w[i]
   end
   G.wall = w
@@ -1352,9 +1358,9 @@ local function chi_variants(hand, k)
   for i = 1, 3 do
     local a, b = defs[i][1], defs[i][2]
     local ok = true
-    local suits = flr(k / 9)
+    local suits = math.floor(k / 9)
     for _, x in ipairs({ a, b }) do
-      if x < 0 or x > 26 or flr(x / 9) ~= suits or (cnt[x] or 0) < 1 then ok = false end
+      if x < 0 or x > 26 or math.floor(x / 9) ~= suits or (cnt[x] or 0) < 1 then ok = false end
     end
     if ok then out[#out + 1] = { a = a, b = b } end
   end
@@ -1443,7 +1449,7 @@ local function resolve_calls(discarder, code)
         if choice and choice.type == "chi" then
           local a = take_kind(P.hand, choice.a, 1, true)
           local b = take_kind(P.hand, choice.b, 1, true)
-          local base = min(min(choice.a, choice.b), k)
+          local base = math.min(math.min(choice.a, choice.b), k)
           apply_pon_chi(s, "chi", k, base, code, { a[1], b[1] }, discarder)
           return { seat = s, type = "chi" }
         end
@@ -1678,7 +1684,7 @@ local function start_hand()
   build_wall()
   flip_dora()
   -- 掷骰演出
-  local d1, d2 = 1 + flr(rnd(6)), 1 + flr(rnd(6))
+  local d1, d2 = 1 + math.floor(rnd(6)), 1 + math.floor(rnd(6))
   G.dice = { d1, d2, t = 36 }
   local hb_txt = G.honba > 0 and ("・" .. NUM_CH[G.honba] .. "本场") or ""
   banner("东" .. NUM_CH[G.hand_no] .. "局" .. hb_txt
@@ -1717,10 +1723,10 @@ end
 local SAVE = { games = 0, wins = 0, riichi = 0, best = 0 }
 
 local function load_save()
-  SAVE.games = dget(0)
-  SAVE.wins = dget(1)
-  SAVE.riichi = dget(2)
-  SAVE.best = dget(3)
+  SAVE.games = progress.games
+  SAVE.wins = progress.wins
+  SAVE.riichi = progress.riichi
+  SAVE.best = progress.best
 end
 
 local function save_stats()
@@ -1728,15 +1734,15 @@ local function save_stats()
   SAVE.wins = SAVE.wins + G.stats.wins
   SAVE.riichi = SAVE.riichi + G.stats.riichi
   if G.stats.best > SAVE.best then SAVE.best = G.stats.best end
-  dset(0, SAVE.games)
-  dset(1, SAVE.wins)
-  dset(2, SAVE.riichi)
-  dset(3, SAVE.best)
-  fflush()
+  progress.games = SAVE.games; assert(save(progress))
+  progress.wins = SAVE.wins; assert(save(progress))
+  progress.riichi = SAVE.riichi; assert(save(progress))
+  progress.best = SAVE.best; assert(save(progress))
+
 end
 
 local function game_flow()
-  local d1, d2 = 1 + flr(rnd(6)), 1 + flr(rnd(6))
+  local d1, d2 = 1 + math.floor(rnd(6)), 1 + math.floor(rnd(6))
   G.dealer0 = (d1 + d2) % 4
   G.dealer = G.dealer0
   G.hand_no = 1
@@ -1861,7 +1867,7 @@ local function danger_of(k, opps, vcnt)
       end
       if not suji and n <= 5 then
         local j = k + 3
-        if j < 27 and flr(j / 9) == flr(k / 9) then
+        if j < 27 and math.floor(j / 9) == math.floor(k / 9) then
           for _, s in ipairs(opps) do
             for i = 1, #G.players[s].river do
               if G.players[s].river[i].kind == j then suji = true end
@@ -1933,7 +1939,7 @@ local function ai_candidates(seat)
         local adj = false
         for d = -2, 2 do
           local j = c.k + d
-          if d ~= 0 and j >= 0 and j < 27 and flr(j / 9) == flr(c.k / 9) and cnt[j] > 0 then adj = true end
+          if d ~= 0 and j >= 0 and j < 27 and math.floor(j / 9) == math.floor(c.k / 9) and cnt[j] > 0 then adj = true end
         end
         if not adj then c.score = c.score - 8 end
       end
@@ -2140,7 +2146,7 @@ local function tile_sprite(code)
   return k
 end
 
-local function spr_origin(t) return (t % 16) * 16, flr(t / 16) * 16 end
+local function spr_origin(t) return (t % 16) * 16, math.floor(t / 16) * 16 end
 
 local function sp(t, x, y, c)  -- 写瓦片像素
   local sx, sy = spr_origin(t)
@@ -2171,11 +2177,11 @@ local function stamp_char(t, ch, col, dx, dy, w, h)
   print(ch, 0, 0, col)
   local sx, sy = spr_origin(t)
   for y = 0, h - 1 do
-    local y0 = flr(y * 16 / h)
-    local y1 = min(15, flr(ceil((y + 1) * 16 / h)) - 1)
+    local y0 = math.floor(y * 16 / h)
+    local y1 = math.min(15, math.floor(math.ceil((y + 1) * 16 / h)) - 1)
     for x = 0, w - 1 do
-      local x0 = flr(x * 16 / w)
-      local x1 = min(15, flr(ceil((x + 1) * 16 / w)) - 1)
+      local x0 = math.floor(x * 16 / w)
+      local x1 = math.min(15, math.floor(math.ceil((x + 1) * 16 / w)) - 1)
       local ink = false
       for py = y0, y1 do
         for px = x0, x1 do
@@ -2203,7 +2209,7 @@ end
 local function bake_circle(t, cx, cy, r, ring, fillc, dotc)
   for y = -r - 1, r + 1 do
     for x = -r - 1, r + 1 do
-      local d = sqrt(x * x + y * y)
+      local d = math.sqrt(x * x + y * y)
       local px, py = cx + x, cy + y
       if px >= 0 and px <= 15 and py >= 0 and py <= 15 then
         if d <= r - 1.1 then
@@ -2366,8 +2372,8 @@ local function bake_tiles()
   -- 中央菱形纹
   for y = -3, 3 do
     for x = -3, 3 do
-      if abs(x) + abs(y) <= 3 then
-        sp(t, 8 + x, 8 + y, (abs(x) + abs(y)) % 2 == 0 and C_GOLD or C_BACK2)
+      if math.abs(x) + math.abs(y) <= 3 then
+        sp(t, 8 + x, 8 + y, (math.abs(x) + math.abs(y)) % 2 == 0 and C_GOLD or C_BACK2)
       end
     end
   end
@@ -2394,7 +2400,7 @@ local function draw_back_small(x, y, w, h)
   rect(x, y, w, h, C_BACK2)
   if w >= 8 and h >= 10 then
     rectfill(x + 2, y + 2, w - 4, h - 4, C_BACK2)
-    rectfill(x + flr(w / 2) - 1, y + flr(h / 2) - 1, 2, 2, C_GOLD)
+    rectfill(x + math.floor(w / 2) - 1, y + math.floor(h / 2) - 1, 2, 2, C_GOLD)
   end
 end
 
@@ -2412,7 +2418,8 @@ local function draw_room()
   line(0, 14, 255, 14, C_RIM2)
   rectfill(2, 16, 252, 206, C_FELT)
   fillp(0x1084)
-  rectfill(2, 16, 252, 206, C_FELT2 * 256 + C_FELT)
+  fillp(0x1084, C_FELT2)
+  rectfill(2, 16, 252, 206, C_FELT)
   fillp()
   rect(2, 16, 252, 206, C_RIM)
   rectfill(0, 208, 256, 48, C_RIM)
@@ -2422,11 +2429,11 @@ end
 local function draw_topbar()
   local s = "东" .. NUM_CH[G.hand_no] .. "局"
   print(s, 2, 0, C_GOLD)
-  local x = 2 + tw(s)
+  local x = 2 + textw(s)
   if G.honba > 0 then
     local h = NUM_CH[G.honba] .. "本场"
     print(h, x, 0, C_TEXT)
-    x = x + tw(h)
+    x = x + textw(h)
   end
   local w = "余" .. wall_left()
   print(w, 118, 0, C_WHITE)
@@ -2449,14 +2456,14 @@ local function draw_river(rel, P)
   local L = RIVER_LY[rel]
   local x0, y0, cols, pitch_x, pitch_y0, rows0, max_h = L[1], L[2], L[3], L[4], L[5], L[6], L[7]
   local n = #P.river
-  local rows_need = ceil(n / cols)
+  local rows_need = math.ceil(n / cols)
   local pitch_y = pitch_y0
   if rows_need > rows0 then
-    pitch_y = max(8, flr((max_h - 16) / (rows_need - 1)))
+    pitch_y = math.max(8, math.floor((max_h - 16) / (rows_need - 1)))
   end
   for i = 1, n do
     local e = P.river[i]
-    local r = flr((i - 1) / cols)
+    local r = math.floor((i - 1) / cols)
     local c = (i - 1) % cols
     local x = x0 + c * pitch_x
     local y = y0 + r * pitch_y
@@ -2472,7 +2479,7 @@ local function draw_river(rel, P)
       end
       if G.last_discard and G.last_discard.t < 18
         and G.last_discard.seat == P.seat and i == n and not e.taken then
-        rect(x - 1, y - 1, 18, 18, (flr(T / 3) % 2 == 0) and 7 or 30)
+        rect(x - 1, y - 1, 18, 18, (math.floor(T / 3) % 2 == 0) and 7 or 30)
       end
     end
   end
@@ -2530,7 +2537,7 @@ local function draw_corner(rel, P)
   print(P.score, x + 6, 106, C_WHITE)
   -- 手牌数背牌
   local n = #P.hand + (G.drawn_seat == P.seat and G.drawn and 1 or 0)
-  for i = 1, min(n, 9) do
+  for i = 1, math.min(n, 9) do
     draw_back_small(x + 4 + (i - 1) * 5, 124, 4, 12)
   end
   print("×" .. n, x + 50 - 14, 124, C_TEXT)
@@ -2541,7 +2548,7 @@ local function draw_corner(rel, P)
   local d = G.delta_pop and G.delta_pop[P.seat]
   if d then
     local s = (d.amt > 0 and "+" or "") .. d.amt
-    print(s, x + 4, 140 - 16 - (d.amt > 0 and flr(d.t / 6) or 0), d.amt > 0 and C_GOLD or C_RED)
+    print(s, x + 4, 140 - 16 - (d.amt > 0 and math.floor(d.t / 6) or 0), d.amt > 0 and C_GOLD or C_RED)
   end
 end
 
@@ -2579,11 +2586,11 @@ local function draw_center()
   circfill(cx - 4, 96, 7, C_PANEL)
   circ(cx - 4, 96, 7, col)
   print(WIND_CH[seat_wind_of(G.turn) + 1], cx - 12, 88, C_WHITE)
-  local bob = flr(sin(T / 14) * 2)
+  local bob = math.floor(sin(T / 14) * 2)
   trifill(cx + 6, 90 + bob, cx + 6, 100 + bob, cx + 13, 95 + bob, col)
   -- 消息
   local y = 110
-  for i = #G.log, max(1, #G.log - 1), -1 do
+  for i = #G.log, math.max(1, #G.log - 1), -1 do
     if G.log[i] then
       print(G.log[i][1], 104, y, G.log[i][2])
       y = y + 15
@@ -2618,13 +2625,13 @@ local function draw_bottom_seat(P)
   end
   local hint = btnicon("a") .. "打 " .. btnicon("x") .. "杠"
   if can_riichi_now and can_riichi_now(P.seat) then hint = hint .. " " .. btnicon("y") .. "立直" end
-  print(hint, 256 - tw(hint) - 4, 212, C_DIM)
+  print(hint, 256 - textw(hint) - 4, 212, C_DIM)
   -- 手牌
   local show = (not G.privacy) or (PROMPT and PROMPT.seat == P.seat and PROMPT.reveal)
   local n = #P.hand
   local has_drawn = G.drawn ~= nil and G.drawn_seat == P.seat
   local total = n * 16 + (has_drawn and 22 or 0)
-  local x0 = flr((256 - total) / 2)
+  local x0 = math.floor((256 - total) / 2)
   local cur = PROMPT and PROMPT.type == "discard" and PROMPT.seat == P.seat and PROMPT.cursor or -1
   for i = 1, n do
     local x = x0 + (i - 1) * 16
@@ -2666,7 +2673,7 @@ end
 local function draw_banner()
   local b = G.banner
   if b == nil or b.t <= 0 then return end
-  local w = tw(b.text) + 12
+  local w = textw(b.text) + 12
   local x = (256 - w) / 2
   rectfill(x, 96, w, 20, 0)
   rectfill(x + 1, 97, w - 2, 18, C_PANEL)
@@ -2679,17 +2686,17 @@ local function draw_pass_overlay()
   local s = "请交给 " .. pname(PROMPT.seat) .. " 操作"
   rectfill(28, 104, 200, 46, C_PANEL)
   rect(28, 104, 200, 46, C_GOLD)
-  print(s, (256 - tw(s)) / 2, 112, C_WHITE)
+  print(s, (256 - textw(s)) / 2, 112, C_WHITE)
   local s2 = "轮到 " .. pname(PROMPT.seat)
-  print(s2, (256 - tw(s2)) / 2, 130, SEAT_COL[PROMPT.seat + 1])
+  print(s2, (256 - textw(s2)) / 2, 130, SEAT_COL[PROMPT.seat + 1])
   local h = btnicon("a") .. " 继续"
-  print(h, (256 - tw(h)) / 2, 148, C_GOLD)
+  print(h, (256 - textw(h)) / 2, 148, C_GOLD)
 end
 
 -- ================================================================ 面板：和牌 / 流局 / 终局
 
 local function limit_label(basic, yakuman)
-  if yakuman and yakuman > 1 then return "役满" .. NUM_CH[min(yakuman, 9)] end
+  if yakuman and yakuman > 1 then return "役满" .. NUM_CH[math.min(yakuman, 9)] end
   if basic >= 8000 then return "役满" end
   if basic >= 6000 then return "三倍满" end
   if basic >= 4000 then return "倍满" end
@@ -2706,7 +2713,7 @@ local function draw_panel_win()
   local e = p.entries[1]
   local title = pname(e.seat) .. (p.mode == "tsumo" and " 自摸" or " 荣和")
   print(title, 22, 24, C_GOLD)
-  print((e.is_dealer and "亲家" or "子家"), 22 + tw(title) + 6, 24, C_TEXT)
+  print((e.is_dealer and "亲家" or "子家"), 22 + textw(title) + 6, 24, C_TEXT)
   local y = 42
   for wi = 1, #p.entries do
     local en = p.entries[wi]
@@ -2745,21 +2752,21 @@ local function draw_panel_win()
     if lb then fu_str = fu_str .. "・" .. lb end
     print(fu_str, 22, y, C_TEXT)
     local pts = en.total .. "点"
-    print(pts, 242 - tw(pts), y, C_GOLD)
+    print(pts, 242 - textw(pts), y, C_GOLD)
     y = y + 20
   end
   -- 点数变动
   for s = 0, 3 do
     local dd = G.deltas and G.deltas[s] or 0
     local str = pname(s) .. " " .. G.players[s].score .. (dd ~= 0 and ((dd > 0 and " +" or " ") .. dd) or "")
-    print(str, 22 + (s % 2) * 108, y + flr(s / 2) * 14,
+    print(str, 22 + (s % 2) * 108, y + math.floor(s / 2) * 14,
       dd > 0 and C_GOLD or (dd < 0 and C_RED or C_DIM))
   end
   if p.mode == "ron" then
     print("放冲 " .. pname(p.payer), 138, 24, C_RED)
   end
   local h = btnicon("a") .. " 继续"
-  print(h, (256 - tw(h)) / 2, 218, C_GOLD)
+  print(h, (256 - textw(h)) / 2, 218, C_GOLD)
 end
 
 local function draw_panel_ryuukyoku()
@@ -2798,7 +2805,7 @@ local function draw_panel_ryuukyoku()
     y = y + 20
   end
   local h = btnicon("a") .. " 继续"
-  print(h, (256 - tw(h)) / 2, 218, C_GOLD)
+  print(h, (256 - textw(h)) / 2, 218, C_GOLD)
 end
 
 local function draw_results()
@@ -2822,12 +2829,12 @@ local function draw_results()
   end
   local st = "本局战绩 和了" .. G.stats.wins .. " 立直" .. G.stats.riichi
     .. " 最佳" .. G.stats.best
-  print(st, (256 - tw(st)) / 2, y + 6, C_TEXT)
+  print(st, (256 - textw(st)) / 2, y + 6, C_TEXT)
   local st2 = "累计 局数" .. SAVE.games .. " 和了" .. SAVE.wins
     .. " 立直" .. SAVE.riichi .. " 最佳" .. SAVE.best
-  print(st2, (256 - tw(st2)) / 2, y + 22, C_DIM)
+  print(st2, (256 - textw(st2)) / 2, y + 22, C_DIM)
   local h = btnicon("a") .. " 返回标题"
-  print(h, (256 - tw(h)) / 2, 214, C_GOLD)
+  print(h, (256 - textw(h)) / 2, 214, C_GOLD)
 end
 
 -- ================================================================ 提示 UI
@@ -2838,11 +2845,11 @@ local function draw_prompt_ui()
   if p.type == "call" then
     local opts = p.opts
     local wsum = 0
-    for i = 1, #opts do wsum = wsum + tw(opts[i].label) + 12 end
-    local x = flr((256 - wsum - (#opts - 1) * 2) / 2)
+    for i = 1, #opts do wsum = wsum + textw(opts[i].label) + 12 end
+    local x = math.floor((256 - wsum - (#opts - 1) * 2) / 2)
     local y = 186
     for i = 1, #opts do
-      local w = tw(opts[i].label) + 12
+      local w = textw(opts[i].label) + 12
       local sel = (i == p.sel)
       rectfill(x, y, w, 20, sel and 15 or C_PANEL)
       rect(x, y, w, 20, sel and C_GOLD or C_PBD)
@@ -2850,25 +2857,25 @@ local function draw_prompt_ui()
       x = x + w + 2
     end
     local h = btnicon("dpad") .. "选择 " .. btnicon("a") .. "确认 " .. btnicon("b") .. "过"
-    print(h, (256 - tw(h)) / 2, 208 - 16, C_DIM)
+    print(h, (256 - textw(h)) / 2, 208 - 16, C_DIM)
   elseif p.type == "ron" then
     local s = pname(p.seat) .. " 可以荣和！"
-    rectfill(28, 186, tw(s) + 130, 20, 0)
-    rect(30, 187, tw(s) + 126, 18, C_RED)
+    rectfill(28, 186, textw(s) + 130, 20, 0)
+    rect(30, 187, textw(s) + 126, 18, C_RED)
     print(s, 34, 189, C_WHITE)
-    print(btnicon("a") .. " 和", 34 + tw(s) + 10, 189, C_GOLD)
-    print(btnicon("b") .. " 过", 34 + tw(s) + 60, 189, C_TEXT)
+    print(btnicon("a") .. " 和", 34 + textw(s) + 10, 189, C_GOLD)
+    print(btnicon("b") .. " 过", 34 + textw(s) + 60, 189, C_TEXT)
   elseif p.type == "tsumo" then
     local s = pname(p.seat) .. " 自摸和牌！"
-    rectfill(28, 186, tw(s) + 130, 20, 0)
-    rect(30, 187, tw(s) + 126, 18, C_GOLD)
+    rectfill(28, 186, textw(s) + 130, 20, 0)
+    rect(30, 187, textw(s) + 126, 18, C_GOLD)
     print(s, 34, 189, C_WHITE)
-    print(btnicon("a") .. " 和", 34 + tw(s) + 10, 189, C_GOLD)
-    print(btnicon("b") .. " 过", 34 + tw(s) + 60, 189, C_TEXT)
+    print(btnicon("a") .. " 和", 34 + textw(s) + 10, 189, C_GOLD)
+    print(btnicon("b") .. " 过", 34 + textw(s) + 60, 189, C_TEXT)
   elseif p.type == "discard" then
     if p.ri then
       local s = "立直宣言：选择打出的牌（" .. btnicon("b") .. "取消）"
-      print(s, (256 - tw(s)) / 2, 208, C_GOLD)
+      print(s, (256 - textw(s)) / 2, 208, C_GOLD)
     end
     if p.kmenu then
       local opts = p.kmenu
@@ -2899,11 +2906,13 @@ local function draw_title_shell()
   cls(C_BG)
   rectfill(0, 0, 256, 256, C_PANEL)
   fillp(0x8142)
-  rectfill(0, 0, 256, 256, 13 * 256 + 12)
+  fillp(0x8142, 13)
+  rectfill(0, 0, 256, 256, 12)
   fillp()
   rectfill(12, 8, 232, 240, C_FELT)
   fillp(0x1084)
-  rectfill(14, 10, 228, 236, C_FELT2 * 256 + C_FELT)
+  fillp(0x1084, C_FELT2)
+  rectfill(14, 10, 228, 236, C_FELT)
   fillp()
   rect(12, 8, 232, 240, C_RIM)
 end
@@ -2923,19 +2932,19 @@ local function draw_splash()
     sspr(sx, sy, 16, 16, dx + (i - 1) * 44, 40, 32, 32)
   end
   local s = "日本麻将"
-  print(s, (256 - tw(s, 3)) / 2 + 2, 86, 0, 3)
-  print(s, (256 - tw(s, 3)) / 2, 84, C_GOLD, 3)
+  print(s, (256 - textw(s, 3)) / 2 + 2, 86, 0, 3)
+  print(s, (256 - textw(s, 3)) / 2, 84, C_GOLD, 3)
   line(64, 128, 192, 128, C_GOLD)
   local s2 = "立直麻将・东风战"
-  print(s2, (256 - tw(s2)) / 2, 134, C_TEXT)
+  print(s2, (256 - textw(s2)) / 2, 134, C_TEXT)
 end
 
 local function draw_title()
   draw_title_shell()
   -- 菜单页：小号标题 + 选项
   local s = "日本麻将"
-  print(s, (256 - tw(s, 2)) / 2 + 1, 26, 0, 2)
-  print(s, (256 - tw(s, 2)) / 2, 24, C_GOLD, 2)
+  print(s, (256 - textw(s, 2)) / 2 + 1, 26, 0, 2)
+  print(s, (256 - textw(s, 2)) / 2, 24, C_GOLD, 2)
   line(88, 52, 168, 52, C_GOLD)
   -- 选项
   local rows = {
@@ -2952,15 +2961,15 @@ local function draw_title()
     end
     print(rows[i][1], 66, y, sel and 30 or C_TEXT)
     local v = "〈" .. rows[i][2] .. "〉"
-    print(v, 186 - tw(v) + 8, y, sel and C_WHITE or C_TEXT)
+    print(v, 186 - textw(v) + 8, y, sel and C_WHITE or C_TEXT)
     y = y + 21
   end
   local st = "战绩 局数" .. SAVE.games .. "・和了" .. SAVE.wins
     .. "・立直" .. SAVE.riichi .. "・最佳" .. SAVE.best
-  print(st, (256 - tw(st)) / 2, 218, C_DIM)
+  print(st, (256 - textw(st)) / 2, 218, C_DIM)
   local h = btnicon("dpad") .. " 选择调整　" .. btnicon("a") .. " 开始对局"
-  print(h, (256 - tw(h)) / 2 + 1, 233, 0)
-  print(h, (256 - tw(h)) / 2, 232, C_GOLD)
+  print(h, (256 - textw(h)) / 2 + 1, 233, 0)
+  print(h, (256 - textw(h)) / 2, 232, C_GOLD)
 end
 
 local PAUSE = nil
@@ -2990,7 +2999,7 @@ local function draw_pause()
       y = y + 20
     end
     local h = btnicon("dpad") .. "翻页 " .. btnicon("b") .. " 返回"
-    print(h, (256 - tw(h)) / 2, 214, C_GOLD)
+    print(h, (256 - textw(h)) / 2, 214, C_GOLD)
     return
   end
   rectfill(64, 92, 128, 76, 0)
@@ -3013,7 +3022,7 @@ local MODE = "splash"
 
 local function cursor_move(p, n)
   local move = 0
-  if dir(0) then move = -1 elseif dir(1) then move = 1 end
+  if dir("left") then move = -1 elseif dir("right") then move = 1 end
   if move ~= 0 then
     if move ~= rep_d then
       rep_d = move rep_t = 0
@@ -3038,10 +3047,10 @@ local function discard_input()
   local has_drawn = G.drawn ~= nil and G.drawn_seat == seat
   local n = #P.hand + (has_drawn and 1 or 0)
   if p.kmenu then
-    if dirp(0) or dirp(3) then p.ksel = mid(1, p.ksel - 1, #p.kmenu) sfx(8) end
-    if dirp(1) or dirp(2) then p.ksel = mid(1, p.ksel + 1, #p.kmenu) sfx(8) end
-    if btnp(5) then p.kmenu = nil sfx(8) return end
-    if btnp(4) then
+    if dirp("left") or dirp("down") then p.ksel = mid(1, p.ksel - 1, #p.kmenu) sfx(8) end
+    if dirp("right") or dirp("up") then p.ksel = mid(1, p.ksel + 1, #p.kmenu) sfx(8) end
+    if btnp("b") then p.kmenu = nil sfx(8) return end
+    if btnp("a") then
       local o = p.kmenu[p.ksel]
       PROMPT_RESULT = { type = o.ktype, k = o.k }
       sfx(9)
@@ -3049,7 +3058,7 @@ local function discard_input()
     return
   end
   cursor_move(p, n)
-  if btnp(6) then  -- Ⓧ 杠菜单
+  if btnp("x") then  -- Ⓧ 杠菜单
     if p.kans and #p.kans > 0 then
       p.kmenu = p.kans
       p.ksel = 1
@@ -3058,7 +3067,7 @@ local function discard_input()
       sfx(10)
     end
   end
-  if btnp(7) then  -- Ⓨ 立直
+  if btnp("y") then  -- Ⓨ 立直
     if p.ri then
       p.ri = false
       sfx(8)
@@ -3070,10 +3079,10 @@ local function discard_input()
       banner("现在不能立直", C_RED, 40)
     end
   end
-  if btnp(5) then  -- Ⓑ 取消
+  if btnp("b") then  -- Ⓑ 取消
     if p.ri then p.ri = false sfx(8) end
   end
-  if btnp(4) then  -- Ⓐ 打出
+  if btnp("a") then  -- Ⓐ 打出
     local idx = p.cursor
     if p.ri and not p.ri_ok[idx] then
       sfx(10)
@@ -3089,10 +3098,10 @@ end
 local function call_input()
   local p = PROMPT
   local n = #p.opts
-  if dirp(0) then p.sel = (p.sel - 2 + n) % n + 1 sfx(8) end
-  if dirp(1) then p.sel = p.sel % n + 1 sfx(8) end
-  if btnp(5) then PROMPT_RESULT = nil sfx(8) return end
-  if btnp(4) then
+  if dirp("left") then p.sel = (p.sel - 2 + n) % n + 1 sfx(8) end
+  if dirp("right") then p.sel = p.sel % n + 1 sfx(8) end
+  if btnp("b") then PROMPT_RESULT = nil sfx(8) return end
+  if btnp("a") then
     local o = p.opts[p.sel]
     if o.type == "pass" then
       PROMPT_RESULT = nil
@@ -3104,10 +3113,10 @@ local function call_input()
 end
 
 local function title_input()
-  if dirp(3) then TITLE.row = TITLE.row % 3 + 1 sfx(8) end
-  if dirp(2) then TITLE.row = (TITLE.row - 2) % 3 + 1 sfx(8) end
+  if dirp("down") then TITLE.row = TITLE.row % 3 + 1 sfx(8) end
+  if dirp("up") then TITLE.row = (TITLE.row - 2) % 3 + 1 sfx(8) end
   local dir = 0
-  if dirp(0) then dir = -1 elseif dirp(1) then dir = 1 end
+  if dirp("left") then dir = -1 elseif dirp("right") then dir = 1 end
   if dir ~= 0 then
     if TITLE.row == 1 then
       if dir < 0 then
@@ -3122,7 +3131,7 @@ local function title_input()
     end
     sfx(8)
   end
-  if btnp(4) or btnp(11) then
+  if btnp("a") or btnp("menu") then
     PROMPT_RESULT = true
     sfx(9)
   end
@@ -3137,10 +3146,10 @@ local function handle_prompt_input()
   elseif p.type == "call" then
     call_input()
   elseif p.type == "ron" or p.type == "tsumo" then
-    if btnp(4) then PROMPT_RESULT = true sfx(9)
-    elseif btnp(5) then PROMPT_RESULT = false sfx(8) end
+    if btnp("a") then PROMPT_RESULT = true sfx(9)
+    elseif btnp("b") then PROMPT_RESULT = false sfx(8) end
   elseif p.type == "settle" or p.type == "results" or p.type == "pass" then
-    if btnp(4) or btnp(11) then PROMPT_RESULT = true sfx(9) end
+    if btnp("a") or btnp("menu") then PROMPT_RESULT = true sfx(9) end
   end
 end
 
@@ -3148,14 +3157,14 @@ local main_co  -- 前向声明
 
 local function pause_input()
   if PAUSE.table_page then
-    if dirp(0) then PAUSE.table_page = mid(1, PAUSE.table_page - 1, #YAKU_PAGES) sfx(8) end
-    if dirp(1) then PAUSE.table_page = PAUSE.table_page % #YAKU_PAGES + 1 sfx(8) end
-    if btnp(5) or btnp(4) then PAUSE = { sel = 2 } sfx(8) end
+    if dirp("left") then PAUSE.table_page = mid(1, PAUSE.table_page - 1, #YAKU_PAGES) sfx(8) end
+    if dirp("right") then PAUSE.table_page = PAUSE.table_page % #YAKU_PAGES + 1 sfx(8) end
+    if btnp("b") or btnp("a") then PAUSE = { sel = 2 } sfx(8) end
     return
   end
-  if dirp(2) or dirp(3) then PAUSE.sel = PAUSE.sel % 3 + 1 sfx(8) end
-  if btnp(11) or btnp(5) then PAUSE = nil sfx(8) return end
-  if btnp(4) then
+  if dirp("up") or dirp("down") then PAUSE.sel = PAUSE.sel % 3 + 1 sfx(8) end
+  if btnp("menu") or btnp("b") then PAUSE = nil sfx(8) return end
+  if btnp("a") then
     if PAUSE.sel == 1 then
       PAUSE = nil
       sfx(9)
@@ -3168,7 +3177,7 @@ local function pause_input()
       PROMPT = nil
       PROMPT_RESULT = nil
       MODE = "title"
-      music(-1, 300)
+      music_stop(300)
       sfx(9)
     end
   end
@@ -3184,7 +3193,7 @@ local SPLASH_T = 0
 local function drive()
   if MODE == "splash" then
     SPLASH_T = SPLASH_T + 1
-    if SPLASH_T > 90 or btnp(4) or btnp(11) then MODE = "title" end
+    if SPLASH_T > 90 or btnp("a") or btnp("menu") then MODE = "title" end
     return
   end
   if WAIT_N > 0 then
@@ -3221,7 +3230,7 @@ main_co = function()
     if TITLE.bgm then set_bgm(true) end
     game_flow()
     MODE = "title"
-    music(-1, 300)
+    music_stop(300)
     wait(20)
   end
 end
@@ -3250,14 +3259,14 @@ function _update()
     end
   end
   if MODE == "test" then
-    if btnp(4) then MODE = "title" sfx(9) end
+    if btnp("a") then MODE = "title" sfx(9) end
     return
   end
   if PAUSE then
     pause_input()
     return
   end
-  if MODE == "game" and btnp(10) then
+  if MODE == "game" and btnp("view") then
     BGM_ON = not BGM_ON
     set_bgm(BGM_ON)
     sfx(8)
@@ -3266,7 +3275,7 @@ function _update()
     handle_prompt_input()
     if PROMPT_RESULT == nil then return end
   end
-  if MODE == "game" and PROMPT == nil and btnp(11) then
+  if MODE == "game" and PROMPT == nil and btnp("menu") then
     PAUSE = { sel = 1 }
     sfx(14)
     return
@@ -3356,7 +3365,7 @@ end
 
 local function meld_chi(str)
   local t = mk(str)
-  return { type = "chi", k = bit32.rshift(min(t[1], t[2], t[3]), 2), src = t[1],
+  return { type = "chi", k = bit32.rshift(math.min(t[1], t[2], t[3]), 2), src = t[1],
     others = { t[2], t[3] }, from = 0 }
 end
 
@@ -3605,11 +3614,11 @@ end
 draw_selftest = function()
   cls(0)
   local t = "核心逻辑自测"
-  print(t, (256 - tw(t)) / 2, 8, C_GOLD)
+  print(t, (256 - textw(t)) / 2, 8, C_GOLD)
   local s = "通过 " .. TESTS.pass .. " / 失败 " .. TESTS.fail
-  print(s, (256 - tw(s)) / 2, 32, TESTS.fail == 0 and C_GREEN or C_RED)
+  print(s, (256 - textw(s)) / 2, 32, TESTS.fail == 0 and C_GREEN or C_RED)
   local y = 56
-  for i = 1, min(#TESTS.fails, 11) do
+  for i = 1, math.min(#TESTS.fails, 11) do
     print(TESTS.fails[i], 8, y, C_RED)
     y = y + 17
   end
@@ -3617,7 +3626,7 @@ draw_selftest = function()
     print("…共 " .. #TESTS.fails .. " 项失败（详见终端）", 8, y, C_DIM)
   end
   local h = btnicon("a") .. " 继续"
-  print(h, (256 - tw(h)) / 2, 236, C_GOLD)
+  print(h, (256 - textw(h)) / 2, 236, C_GOLD)
 end
 
 -- ================================================================ 生命周期
@@ -3634,5 +3643,4 @@ function _init()
     MODE = "splash"
   end
 end
-
 

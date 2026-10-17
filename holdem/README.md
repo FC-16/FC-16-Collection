@@ -32,8 +32,7 @@ AI 补位；庄家钮轮转、小盲/大盲、四轮下注（翻牌前 → 翻�
 - 全员弃牌则最后下注者直接收池（不亮牌）；所有人全下时立即摊牌，剩余公共
   牌逐街发完（全下 run-out）再分层结算。
 - 平分池底数整除，零头给按钮后最早座位；筹码守恒（6000/4000 总量恒定）。
-- 存档：`dset` 槽 0 = 累计手数、1 = 人类累计胜局、2 = 人类最佳单池、
-  3 = 音乐开关（`fflush` 落盘）。
+- 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。
 
 ## AI 三档策略（确定性启发式）
 
@@ -55,8 +54,8 @@ AI 补位；庄家钮轮转、小盲/大盲、四轮下注（翻牌前 → 翻�
 | Ⓐ | 确认动作；标题开局；结算后下一手；终局返回标题 |
 | Ⓑ | 快捷选中弃牌（再按 Ⓐ 确认） |
 | Ⓧ | 按住加速（AI 思考与演出 4 倍速） |
-| Select | 音乐开关（BGM：贝斯 + 管风琴切分，C-Am-Dm-G 循环） |
-| Start | 同 Ⓐ 继续 |
+| View | 音乐开关（BGM：贝斯 + 管风琴切分，C-Am-Dm-G 循环） |
+| Menu | 同 Ⓐ 继续 |
 
 标题画面 ⬆⬇ 选行、⬅➡ 调整：桌上人数（4/6）、人类玩家（1–4）、AI 难度。
 
@@ -70,11 +69,8 @@ AI 补位；庄家钮轮转、小盲/大盲、四轮下注（翻牌前 → 翻�
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "德州扑克" --author "FrostMiKu" \
-  --version 1 --save-id holdem --code holdem/holdem.lua \
-  --sprites tools/cards.bin --cover 30 \
-  --out holdem/holdem.fc16 --png carts/holdem.fc16.png
-cargo run -p fc16-host -- holdem/holdem.fc16
+python3 tools/build_all.py holdem
+../FC-16/target/debug/fc16 holdem/holdem.fc16
 ```
 
 `--sprites tools/cards.bin` 载入 balatro 扑克精灵表（瓦片 0-255：52 张 32×32
@@ -83,3 +79,6 @@ cargo run -p fc16-host -- holdem/holdem.fc16
 开发期验证参考：`--frames 400 --screenshot` 走查标题/牌桌；用 `--script`
 注入周期性「← + Ⓐ」（弃牌/继续）并按住 Ⓧ 即可让 AI 长跑完整对局、淘汰与
 终局结算（数千帧零错误，筹码总量恒定）。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

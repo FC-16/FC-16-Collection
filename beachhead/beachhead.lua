@@ -1,3 +1,9 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {high_score = 0}
+end
+
 --=============================================================================
 -- 抢滩登陆战 2002 · FC-16 卡带
 --
@@ -21,9 +27,6 @@ local TS = 1.0               -- 世界单位 → 纹理像素 比例（1 格 = 1
 local TEXC = 2048            -- 纹理画布中心（像素），对应世界原点
 local MAPMEM, SFXMEM = 0x080000, 0x0C0000  -- MAP 0 / SFX（SPEC §4.2）
 
--- 主机数值函数局部化（热路径省全局查找）
-local sin, cos, sqrt, flr, abs, min, max = sin, cos, sqrt, flr, abs, min, max
-local rnd, atan2 = rnd, atan2
 
 -- 调色板色号（ENDESGA-64 固定顺序，语义名仅便于阅读）
 local PAL = {
@@ -59,13 +62,13 @@ local MAT = {
 local LX, LY, LZ = 0.4467, 0.7444, 0.4963
 
 -- 工具 -----------------------------------------------------------------------
-local function wrap(a) return a - flr(a + 0.5) end       -- 圈制归一 (-0.5,0.5]
+local function wrap(a) return a - math.floor(a + 0.5) end       -- 圈制归一 (-0.5,0.5]
 -- 朝向 F(t) = (sin t, -cos t)；heading 求使 F(t) ∥ (vx, vz) 的 t：
 -- 需 sin t = vx、cos t = -vz，而 atan2(dx, dy) 的 cos ∝ dx、sin ∝ dy
-local function heading(vx, vz) return atan2(-vz, vx) end
+local function heading(vx, vz) return atan2(vx, -vz) end
 
 -- 音频 -----------------------------------------------------------------------
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 local WAVEFORM_DATA = {
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
@@ -87,24 +90,24 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- SFX 布局：每条 144B = 头 16B + 32 步 × 4B（pitch / source / vol / fx）
--- steps[i] = {旧音高, 旧音色, 音量[, 效果]}；旧音高 0 为休止 → 新音量 0
+-- steps[i] = {乐谱半音, 配器音色, 音量[, 效果]}；乐谱半音 0 为休止 → 新音量 0
 local function wr_sfx(id, speed, steps, ls, le, loop)
   local b = SFXMEM + id * 144
-  poke2(b, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(b, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   poke(b + 2, #steps)
   poke(b + 3, ls or 0)
-  poke(b + 4, (le or #steps) - 1)  -- 旧排他终点 → 新包含终点
+  poke(b + 4, (le or #steps) - 1)  -- 乐谱排他终点编码为包含终点
   poke(b + 5, loop and 1 or 0)
   for i = 1, #steps do
     local s = steps[i]
     local o = b + 12 + i * 4
     if s[1] > 0 then
       poke(o, s[1] - 1)
-      poke(o + 1, WMAP[s[2]])
+      poke(o + 1, TIMBRE_SOURCE[s[2]])
       poke(o + 2, s[3])
       poke(o + 3, s[4] or 0)
     else
@@ -298,7 +301,7 @@ end
 -- 瓦片：0 深海 1 浪带A 2 浪带B 3 浅海 4 白浪 5 湿沙 6 干沙 7 沙斑 8 砾石 9 弹坑 10 岸沫
 local function init_ground()
   local function tile_pixels(t, fn)
-    local ox, oy = (t % 16) * 16, flr(t / 16) * 16
+    local ox, oy = (t % 16) * 16, math.floor(t / 16) * 16
     for ty = 0, 15 do
       for tx = 0, 15 do
         sset(ox + tx, oy + ty, fn(tx, ty))
@@ -369,7 +372,7 @@ local function init_ground()
     mset(gx, 117, 3)
   end
   for i = 1, 8 do                        -- 阵地前沿弹坑
-    mset(cc + flr(rnd(-5, 5)), 124 + flr(rnd(0, 3)), 9)
+    mset(cc + math.floor(rnd(-5, 5)), 124 + math.floor(rnd(0, 3)), 9)
   end
   for gz = 90, 116 do                    -- 远海浪带（整行，任意朝向可见）
     local wz = (gz - cc) * 16
@@ -678,7 +681,7 @@ local function draw_entity(e)
         local w = 0.34 * FOCAL / d
         trifill(sx - w, sy + h, sx - w, sy - h, sx + w, sy - h, 36)
         trifill(sx - w, sy + h, sx + w, sy - h, sx + w, sy + h, 36)
-        circfill(sx, sy - h - 0.13 * FOCAL / d, max(1, 0.15 * FOCAL / d), 30)
+        circfill(sx, sy - h - 0.13 * FOCAL / d, math.max(1, 0.15 * FOCAL / d), 30)
       end
       return
     end
@@ -711,9 +714,9 @@ local function draw_entity(e)
     if p.hy > ms then ms = p.hy end
     if p.hz > ms then ms = p.hz end
     local cull_px = DRAW_COST > 190000 and 2.5 or 1.2
-    if czc > 0.8 and abs(cxc) < czc * 0.8 + 26 and ms * FOCAL / czc > cull_px then
+    if czc > 0.8 and math.abs(cxc) < czc * 0.8 + 26 and ms * FOCAL / czc > cull_px then
       cnt = cnt + 1
-      PORD[cnt] = flr(czc * 16) * 16 + pi
+      PORD[cnt] = math.floor(czc * 16) * 16 + pi
       local o = pi * 3
       PTW[o + 1], PTW[o + 2], PTW[o + 3] = wx, wz, ey + p.y
     end
@@ -816,8 +819,8 @@ local function draw_sky(t)
   }
   for i = 1, #bands do
     local b = bands[i]
-    local y1 = min(256, flr(hor - b[1]))
-    local y0 = max(0, flr(hor - b[2]))
+    local y1 = math.min(256, math.floor(hor - b[1]))
+    local y0 = math.max(0, math.floor(hor - b[2]))
     if y1 > y0 then
       rectfill(0, y0, 256, y1 - y0, b[3])
     end
@@ -825,8 +828,8 @@ local function draw_sky(t)
   -- 远方岛屿剪影
   for _, isl in ipairs({ { 0.13, 46, 7 }, { -0.31, 30, 5 } }) do
     local d = wrap(isl[1] - CAM.yaw)
-    if abs(d) < 0.22 then
-      local sx = CX + sin(d) / max(cos(d), 0.35) * FOCAL + SHX
+    if math.abs(d) < 0.22 then
+      local sx = CX + sin(d) / math.max(cos(d), 0.35) * FOCAL + SHX
       local hw, hh = isl[2], isl[3]
       trifill(sx - hw, hor, sx, hor - hh, sx + hw, hor, PAL.sky3)
       trifill(sx - hw * 0.5, hor, sx, hor - hh * 1.4, sx + hw * 0.5, hor, PAL.sky2)
@@ -835,8 +838,8 @@ local function draw_sky(t)
   -- 太阳
   do
     local d = wrap(0.62 - CAM.yaw)
-    if abs(d) < 0.3 then
-      local sx = CX + sin(d) / max(cos(d), 0.4) * FOCAL + SHX
+    if math.abs(d) < 0.3 then
+      local sx = CX + sin(d) / math.max(cos(d), 0.4) * FOCAL + SHX
       local sy = hor - sin(0.06) / cos(0.06) * FOCAL
       circfill(sx, sy, 17, PAL.amber)
       circfill(sx, sy, 12, PAL.gold)
@@ -847,8 +850,8 @@ local function draw_sky(t)
   for i = 1, #CLOUDS do
     local cl = CLOUDS[i]
     local d = wrap(cl.az - CAM.yaw)
-    if abs(d) < 0.24 then
-      local sx = CX + sin(d) / max(cos(d), 0.35) * FOCAL + SHX
+    if math.abs(d) < 0.24 then
+      local sx = CX + sin(d) / math.max(cos(d), 0.35) * FOCAL + SHX
       local sy = hor - sin(cl.e) / cos(cl.e) * FOCAL
       local w = cl.w
       ovalfill(sx, sy, w, w * 0.3, PAL.skyhaze)
@@ -866,7 +869,7 @@ local function draw_ground(t)
   if hor >= 255 then return end
   local scroll = sin(t * 0.02) * 2.5   -- 海浪缓慢推移（纹理像素）
   local haze_s, haze_e
-  local y = max(0, flr(hor) + 1)
+  local y = math.max(0, math.floor(hor) + 1)
   while y <= 255 do
     local z = CAMH * FOCAL / (y - hor)
     if z > HAZE_Z then
@@ -952,15 +955,15 @@ local function draw_particles()
       local lf = p.life / p.max
       local col
       if k == "fire" then
-        col = FIRE_RAMP[max(1, min(8, flr((1 - lf) * 7.99) + 1))]
+        col = FIRE_RAMP[math.max(1, math.min(8, math.floor((1 - lf) * 7.99) + 1))]
       elseif k == "flash" then
         col = PAL.pale
       elseif k == "smoke" then
-        col = SMOKE_RAMP[max(1, min(4, flr((1 - lf) * 3.99) + 1))]
+        col = SMOKE_RAMP[math.max(1, math.min(4, math.floor((1 - lf) * 3.99) + 1))]
       elseif k == "dust" then
-        col = DUST_RAMP[max(1, min(4, flr((1 - lf) * 3.99) + 1))]
+        col = DUST_RAMP[math.max(1, math.min(4, math.floor((1 - lf) * 3.99) + 1))]
       elseif k == "splash" then
-        col = SPLASH_RAMP[max(1, min(4, flr((1 - lf) * 3.99) + 1))]
+        col = SPLASH_RAMP[math.max(1, math.min(4, math.floor((1 - lf) * 3.99) + 1))]
       elseif k == "blood" then
         col = PAL.blood
       else
@@ -1004,11 +1007,11 @@ local function explode(x, y, z, big, dmg)
   end
   p_spawn(x, y + 1, z, 0, 0.5, 0, 5, big and 4 or 2.4, "flash")
   sfx(big and S_EXPL or S_TANKF, big and 4 or 5)
-  local d = sqrt(x * x + z * z)
+  local d = math.sqrt(x * x + z * z)
   if d < (big and 12 or 7) and dmg and dmg > 0 then
-    damage_player(dmg * (1 - d / (big and 12 or 7)), x, max(y, 0.5), z)
+    damage_player(dmg * (1 - d / (big and 12 or 7)), x, math.max(y, 0.5), z)
   end
-  local sh = min(5, 26 / (d + 4))
+  local sh = math.min(5, 26 / (d + 4))
   SHX = SHX + rnd(-sh, sh)
   SHY = SHY + rnd(-sh, sh)
 end
@@ -1023,7 +1026,7 @@ local function tank_fire(e)
   local mx = e.x + sin(e.dir) * 3.4
   local mz2 = e.z - cos(e.dir) * 3.4
   local dx, dy, dz = -mx, CAMH - 2.9, -mz2
-  local d = sqrt(dx * dx + dz * dz)
+  local d = math.sqrt(dx * dx + dz * dz)
   local t = d / 46
   spawn_proj("shell", mx, 2.9, mz2, dx / t, dy / t + 0.5 * 26 * t, dz / t, 22)
   sfx(S_TANKF, 5)
@@ -1031,7 +1034,7 @@ local function tank_fire(e)
 end
 
 local function ship_fire(e)
-  local t = sqrt(e.x * e.x + (e.z + 6) * (e.z + 6)) / 55
+  local t = math.sqrt(e.x * e.x + (e.z + 6) * (e.z + 6)) / 55
   spawn_proj("shell", e.x, 4.2, e.z + 6,
              -e.x / t, (CAMH - 4.2) / t + 0.5 * 26 * t, -(e.z + 6) / t, 26)
   sfx(S_TANKF, 6)
@@ -1039,7 +1042,7 @@ end
 
 local function helo_fire(e)
   local dx, dy, dz = -e.x, CAMH - e.y, -e.z
-  local d = sqrt(dx * dx + dy * dy + dz * dz)
+  local d = math.sqrt(dx * dx + dy * dy + dz * dz)
   local s = 34
   spawn_proj("rocket", e.x, e.y - 1, e.z, dx / d * s, dy / d * s, dz / d * s, 14)
   sfx(S_ROCKET, 4)
@@ -1099,13 +1102,13 @@ local function update_projectiles()
     end
     if hit then
       if pr.kind == "pshell" then
-        explode(pr.x, max(pr.y, 0.3), pr.z, true, 0)
+        explode(pr.x, math.max(pr.y, 0.3), pr.z, true, 0)
         splash_damage(pr.x, pr.y, pr.z, 11, 16)
       else
-        explode(pr.x, max(pr.y, 0.2), pr.z, pr.kind ~= "rocket", pr.dmg)
+        explode(pr.x, math.max(pr.y, 0.2), pr.z, pr.kind ~= "rocket", pr.dmg)
       end
       deli(PROJ, i)
-    elseif pr.t > 400 or abs(pr.x) > 900 or abs(pr.z) > 900 then
+    elseif pr.t > 400 or math.abs(pr.x) > 900 or math.abs(pr.z) > 900 then
       deli(PROJ, i)
     end
   end
@@ -1163,7 +1166,7 @@ splash_damage = function(x, y, z, radius, dmg)
     if e.hp > 0 and e.kind ~= "corpse" and e.kind ~= "wreck"
         and e.kind ~= "crate" then
       local dx, dy, dz = e.x - x, e.y - y + 1, e.z - z
-      local d = sqrt(dx * dx + dy * dy + dz * dz)
+      local d = math.sqrt(dx * dx + dy * dy + dz * dz)
       if d < radius + e.r then
         damage_entity(e, i, dmg * (1 - d / (radius + e.r)) + 1)
       end
@@ -1174,18 +1177,18 @@ end
 damage_player = function(dmg, sx, sy, sz)
   if ST ~= "play" then return end
   P.hp = P.hp - dmg
-  P.dmg_flash = min(1.4, P.dmg_flash + dmg * 0.05 + 0.25)
+  P.dmg_flash = math.min(1.4, P.dmg_flash + dmg * 0.05 + 0.25)
   P.hit_x, P.hit_y, P.hit_z = sx or 0, sy or 0, sz or 0
   if P.hp <= 0 then
     P.hp = 0
     ST = "over"
     STT = 0
-    music(-1, 400)
+    music_stop(400)
     explode(0, CAMH, -3, true, 0)
     P.dmg_flash = 0.9       -- 终局红闪随后自然衰减
     if P.score > HI then
       HI = P.score
-      dset(0, HI)
+      progress.high_score = HI; assert(save(progress))
     end
   end
 end
@@ -1201,7 +1204,6 @@ local function ray_hits(ox, oy, oz, dx, dy, dz, cx, cy, cz, r)
   if mx * mx + my * my + mz * mz > rr * rr then return nil end
   return tb
 end
-
 
 -- 武器 -----------------------------------------------------------------------
 local function aim_dir(spread)
@@ -1226,7 +1228,6 @@ local function aim_on_target()
   end
   return false
 end
-
 
 local function fire_mg()
   if P.reloading then return end
@@ -1378,7 +1379,7 @@ local function move_forward(e, s)
 end
 
 local function dist_player(e)
-  return sqrt(e.x * e.x + e.z * e.z)
+  return math.sqrt(e.x * e.x + e.z * e.z)
 end
 
 set_state = function(e, st)
@@ -1393,7 +1394,7 @@ local function soldier_anim(e, phase, amp)
   local s = sin(phase)
   parts[4].z = s * amp
   parts[5].z = -s * amp
-  parts[1].y = 1.05 + abs(s) * 0.045
+  parts[1].y = 1.05 + math.abs(s) * 0.045
 end
 
 -- 步兵：涉水登陆 → 冲锋 → 跪射三轮 → 起身继续逼近（hold_d 逐轮收缩）
@@ -1465,7 +1466,7 @@ AI.soldier = {
             local parts = e.parts
             parts[4].y, parts[5].y = 0.38, 0.38
             parts[4].hy, parts[5].hy = 0.38, 0.38
-            e.hold_d = max(10, (e.hold_d or 26) - 6)
+            e.hold_d = math.max(10, (e.hold_d or 26) - 6)
             return "advance"
           end
           e.ft = rnd(110, 210)
@@ -1522,7 +1523,7 @@ AI.tank = {
         local diff = track_turret(e)
         ease_face(e, 0.06)
         e.ft = e.ft - 1
-        if e.ft <= 0 and abs(diff) < 0.06 then
+        if e.ft <= 0 and math.abs(diff) < 0.06 then
           e.ft = 220
           tank_fire(e)
         end
@@ -1555,7 +1556,7 @@ AI.apc = {
         e.ft = 34
       end,
       update = function(e)
-        e.door = min(1, e.door + 1 / 30)
+        e.door = math.min(1, e.door + 1 / 30)
         local parts = e.parts
         parts[6].y = 1.0 - e.door * 0.92
         parts[6].z = 2.2 + e.door * 1.0
@@ -1613,7 +1614,7 @@ AI.helo = {
       update = function(e)
         face_player(e)
         e.y = e.alt0 + sin(e.t * 1.3 + e.ph * 7) * 1.2
-        local d = max(1, dist_player(e))
+        local d = math.max(1, dist_player(e))
         local px, pz = -e.z / d, e.x / d
         local sdir = sin(e.t * 0.23 + e.ph * 20)
         e.x = e.x + px * sdir * 3 * 0.1667
@@ -1782,7 +1783,7 @@ AI.craft = {
         e.ft = 60
       end,
       update = function(e)
-        e.door = min(1, e.door + 1 / 40)
+        e.door = math.min(1, e.door + 1 / 40)
         local parts = e.parts
         parts[2].y = 0.5 - e.door * 0.35
         parts[2].z = -3.8 - e.door * 1.2
@@ -1800,10 +1801,10 @@ AI.craft = {
       end,
       update = function(e)
         local parts = e.parts
-        e.door = max(0, e.door - 1 / 40)
+        e.door = math.max(0, e.door - 1 / 40)
         parts[2].y = 0.5 - e.door * 0.35
         parts[2].z = -3.8 - e.door * 1.2
-        local d = max(1, dist_player(e))
+        local d = math.max(1, dist_player(e))
         e.x = e.x + e.x / d * e.spd * 0.1667
         e.z = e.z + e.z / d * e.spd * 0.1667
         if d > 420 then e.dead = true end
@@ -1832,9 +1833,9 @@ AI.crate = {
     landed = {
       update = function(e)
         if e.stt > 40 then
-          P.ammo = min(600, P.ammo + 150)
-          P.shells = min(30, P.shells + 5)
-          P.hp = min(100, P.hp + 20)
+          P.ammo = math.min(600, P.ammo + 150)
+          P.shells = math.min(30, P.shells + 5)
+          P.hp = math.min(100, P.hp + 20)
           P.heal_flash = 1
           sfx(S_SUPPLY)
           STT_BANNER = { "补给已送达", 100, PAL.green }
@@ -1904,7 +1905,7 @@ local function update_entities()
     if helo_alive then
       sfx(S_HELO, 6)
     else
-      sfx(-1, 6)
+      voice_stop(6)
     end
   end
 end
@@ -1918,39 +1919,39 @@ local function wave_composition(n)
     add(q, { t = t, kind = kind, opts = opts })
     cnt[kind] = (cnt[kind] or 0) + 1
   end
-  for i = 1, min(10, 4 + n * 2) do
+  for i = 1, math.min(10, 4 + n * 2) do
     local az = rnd(-0.16, 0.16) + (n >= 3 and rnd(-0.1, 0.1) or 0)
     push(rnd(0, dur * 0.8), "soldier",
          { x = sin(az) * rnd(150, 240), z = -cos(az) * rnd(150, 240) })
   end
-  for i = 1, (n >= 2 and min(3, flr(n / 2)) or 0) do
+  for i = 1, (n >= 2 and math.min(3, math.floor(n / 2)) or 0) do
     local az = rnd(-0.13, 0.13)
     push(i * 240 + rnd(0, 120), "apc", { x = sin(az) * 380, z = -cos(az) * 380 })
   end
-  for i = 1, (n >= 2 and 1 + flr((n - 2) / 3) or 0) do
+  for i = 1, (n >= 2 and 1 + math.floor((n - 2) / 3) or 0) do
     local az = rnd(-0.13, 0.13)
     push(i * 260 + rnd(0, 120), "craft", { x = sin(az) * 400, z = -cos(az) * 400 })
   end
-  for i = 1, (n >= 2 and flr(n / 2) or 0) do
+  for i = 1, (n >= 2 and math.floor(n / 2) or 0) do
     local az = rnd(-0.15, 0.15)
     push(rnd(300, dur), "tank", { x = sin(az) * 260, z = -cos(az) * 260 })
   end
-  for i = 1, (n >= 3 and flr((n - 1) / 3) or 0) do
+  for i = 1, (n >= 3 and math.floor((n - 1) / 3) or 0) do
     local az = rnd(-0.2, 0.2)
     push(rnd(200, dur * 0.9), "helo", { x = sin(az) * 330, z = -cos(az) * 330 })
   end
   if n >= 3 then
-    for i = 1, min(3, 1 + flr((n - 3) / 2)) do
+    for i = 1, math.min(3, 1 + math.floor((n - 3) / 2)) do
       push(rnd(150, dur * 0.9), "fighter", { x = rnd(-90, 90), z = -360 })
     end
   end
   if n >= 4 then
-    for i = 1, min(2, flr((n - 2) / 3)) do
+    for i = 1, math.min(2, math.floor((n - 2) / 3)) do
       push(rnd(200, dur * 0.85), "bomber", { x = rnd(-70, 70), z = -360 })
     end
   end
   if n >= 5 then
-    for i = 1, min(2, 1 + flr((n - 5) / 4)) do
+    for i = 1, math.min(2, 1 + math.floor((n - 5) / 4)) do
       push(rnd(300, dur * 0.8), "transport", { x = rnd(-50, 50), z = -400 })
     end
   end
@@ -2009,7 +2010,7 @@ local function update_wave()
     ST = "clear"
     STT = 0
     P.score = P.score + 1000 + WAVE * 250
-    music(-1, 500)
+    music_stop(500)
     sfx(S_SUPPLY)
   end
 end
@@ -2020,8 +2021,8 @@ local rot_ramp, el_ramp = 0, 0   -- 长按加速：短按微调、按住约半�
 
 local function update_player()
   local rot = 0
-  if dir(0) then rot = rot - 1 end
-  if dir(1) then rot = rot + 1 end
+  if dir("left") then rot = rot - 1 end
+  if dir("right") then rot = rot + 1 end
   if snap_t >= 0 then
     snap_t = snap_t + 1
     local f = snap_t / 10
@@ -2035,36 +2036,36 @@ local function update_player()
     if rot == 0 then
       rot_ramp = 0
     else
-      rot_ramp = min(30, rot_ramp + 1)
+      rot_ramp = math.min(30, rot_ramp + 1)
       -- 起步 5 幀超微调（约 0.3°/幀），之后照常加速
       local k = rot_ramp <= 5 and 0.0009
         or (0.0018 + 0.0062 * (rot_ramp - 5) / 25)
       CAM.yaw = CAM.yaw + rot * k
     end
-    if btnp(8) then
+    if btnp("lb") then
       snap_from, snap_to, snap_t = CAM.yaw, CAM.yaw - 0.25, 0
-    elseif btnp(9) then
+    elseif btnp("rb") then
       snap_from, snap_to, snap_t = CAM.yaw, CAM.yaw + 0.25, 0
     end
   end
   CAM.yaw = wrap(CAM.yaw)
   local el = 0
-  if dir(2) then el = el + 1 end
-  if dir(3) then el = el - 1 end
+  if dir("up") then el = el + 1 end
+  if dir("down") then el = el - 1 end
   if el == 0 then
     el_ramp = 0
   else
-    el_ramp = min(24, el_ramp + 1)
+    el_ramp = math.min(24, el_ramp + 1)
     local k = el_ramp <= 4 and 0.0008
       or (0.0015 + 0.0035 * (el_ramp - 4) / 20)
-    CAM.elev = max(-0.065, min(0.243, CAM.elev + el * k))
+    CAM.elev = math.max(-0.065, math.min(0.243, CAM.elev + el * k))
   end
   if P.mg_t > 0 then P.mg_t = P.mg_t - 1 end
   if P.cannon_t > 0 then P.cannon_t = P.cannon_t - 1 end
   if P.recoil > 0 then P.recoil = P.recoil - 0.5 end
-  if btn(4) and P.mg_t <= 0 then fire_mg() end
-  if btn(5) then fire_cannon() end
-  if btnp(6) and not P.reloading and P.belt < 100 and P.ammo > 0 then
+  if btn("a") and P.mg_t <= 0 then fire_mg() end
+  if btn("b") then fire_cannon() end
+  if btnp("x") and not P.reloading and P.belt < 100 and P.ammo > 0 then
     P.reloading = true
     P.reload_t = 90
     sfx(S_RELOAD, 4)
@@ -2073,7 +2074,7 @@ local function update_player()
     P.reload_t = P.reload_t - 1
     if P.reload_t <= 0 then
       P.reloading = false
-      P.belt = min(100, P.ammo)
+      P.belt = math.min(100, P.ammo)
     end
   end
   if P.dmg_flash > 0 then P.dmg_flash = P.dmg_flash - 0.035 end
@@ -2087,8 +2088,8 @@ end
 local function draw_crosshair()
   local on = aim_on_target()
   local cc = on and PAL.gold or 7
-  local spread = 5 + min(6, P.recoil * 1.4)
-  if on then spread = min(spread, 4) end
+  local spread = 5 + math.min(6, P.recoil * 1.4)
+  if on then spread = math.min(spread, 4) end
   line(CX - spread - 4, CY, CX - spread + 1, CY, cc)
   line(CX + spread - 1, CY, CX + spread + 4, CY, cc)
   line(CX, CY - spread - 4, CX, CY - spread + 1, cc)
@@ -2108,12 +2109,12 @@ local function draw_hud()
   rectfill(0, 234, 256, 1, PAL.dgray)
   print("生命", 6, 240, 7)
   rectfill(40, 239, 74, 7, PAL.dgray)
-  local hpw = flr(P.hp / 100 * 72)
+  local hpw = math.floor(P.hp / 100 * 72)
   local hpc = P.hp > 60 and 34 or (P.hp > 30 and 30 or 59)
   if hpw > 0 then rectfill(41, 240, hpw, 5, hpc) end
   print("机枪", 126, 240, 7)
   print(string.format("%03d", P.ammo), 158, 240, P.ammo < 60 and PAL.red2 or PAL.pale)
-  local belt4 = flr(P.belt / 100 * 24)
+  local belt4 = math.floor(P.belt / 100 * 24)
   if belt4 > 0 then rectfill(158, 248, belt4, 2, 29) end
   print("炮", 196, 240, 7)
   print(string.format("%02d", P.shells), 210, 240,
@@ -2125,11 +2126,11 @@ local function draw_hud()
   line(247, 40, 247, 196, PAL.dgray)
   local ey = 196 - (CAM.elev + 0.065) / 0.308 * 156
   rectfill(244, ey - 1, 6, 3, 7)
-  rectfill(241, 196 - flr(0.065 / 0.308 * 156) - 1, 12, 1, PAL.lgray)
+  rectfill(241, 196 - math.floor(0.065 / 0.308 * 156) - 1, 12, 1, PAL.lgray)
   if P.reloading then
     print("装填中", CX - 20, 146, PAL.gold)
     rectfill(CX - 20, 158, 40, 3, PAL.dgray)
-    rectfill(CX - 19, 159, flr((90 - P.reload_t) / 90 * 38), 1, 30)
+    rectfill(CX - 19, 159, math.floor((90 - P.reload_t) / 90 * 38), 1, 30)
   end
   draw_crosshair()
 end
@@ -2183,7 +2184,7 @@ local function draw_scene()
     local e = ENT[i]
     local cz = e.x * SA - e.z * CA
     local cx = e.x * CA + e.z * SA
-    if cz > 3 and abs(cx) < cz * 0.7 + 24 and cz < FAR + 60 then
+    if cz > 3 and math.abs(cx) < cz * 0.7 + 24 and cz < FAR + 60 then
       n = n + 1
       DRAW_LIST[n] = e
       e._d = cz
@@ -2299,13 +2300,13 @@ local function draw_title()
   rectfill(0, 12, 256, 2, 1)
   sspr(0, 960, 128, 16, 0, 42, 256, 32)
   sspr(0, 976, 32, 16, 96, 84, 64, 32)
-  print("FC-16 战地特别版", CX - tw("FC-16 战地特别版") / 2, 122, PAL.sky1)
+  print("FC-16 战地特别版", CX - textw("FC-16 战地特别版") / 2, 122, PAL.sky1)
   -- 开始提示稳定不闪烁；操作表移至 Ⓨ 帮助页
   local s = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
-  print(s, CX - tw(s) / 2 + 1, 176, 0)
-  print(s, CX - tw(s) / 2, 175, 7)
+  print(s, CX - textw(s) / 2 + 1, 176, 0)
+  print(s, CX - textw(s) / 2, 175, 7)
   local hs = "最高纪录 " .. string.format("%06d", HI)
-  print(hs, CX - tw(hs) / 2, 206, PAL.gold)
+  print(hs, CX - textw(hs) / 2, 206, PAL.gold)
 end
 
 -- 帮助页：完整操作表（标题 Ⓨ 进入，Ⓑ 返回；View 仅调试画面开关，不列出）
@@ -2316,7 +2317,7 @@ local function draw_help()
   fillp()
   rectfill(24, 26, 208, 204, PAL.black)
   rect(24, 26, 208, 204, PAL.gold)
-  print("操作说明", CX - tw("操作说明") / 2, 36, PAL.gold)
+  print("操作说明", CX - textw("操作说明") / 2, 36, PAL.gold)
   local rows = {
     { btnicon("left") .. btnicon("right"), "转向" },
     { btnicon("up") .. btnicon("down"), "俯仰" },
@@ -2332,7 +2333,7 @@ local function draw_help()
     print(r[2], 112, y, 7)
   end
   local s = btnicon("b") .. " 返回"
-  print(s, CX - tw(s) / 2, 208, PAL.palgray)
+  print(s, CX - textw(s) / 2, 208, PAL.palgray)
 end
 
 local function draw_banner()
@@ -2344,17 +2345,17 @@ local function draw_banner()
     return
   end
   local s = b[1]
-  local w = tw(s) + 16
+  local w = textw(s) + 16
   rectfill(CX - w / 2, 150, w, 20, PAL.black)
   rect(CX - w / 2, 150, w, 20, b[3] or PAL.gold)
-  print(s, CX - tw(s) / 2, 152, b[3] or PAL.gold)
+  print(s, CX - textw(s) / 2, 152, b[3] or PAL.gold)
 end
 
 -- 受击 / 回复提示：只画屏幕四周一圈，不遮挡战场
 local function draw_vignette(col, k)
   if k <= 0 then return end
-  local t = 2 + flr(k * 12)
-  local t2 = max(2, flr(t * 0.5))
+  local t = 2 + math.floor(k * 12)
+  local t2 = math.max(2, math.floor(t * 0.5))
   rectfill(0, 0, 256, t2, col)
   rectfill(0, 256 - t2, 256, t2, col)
   rectfill(0, 0, t2, 256, col)
@@ -2362,10 +2363,14 @@ local function draw_vignette(col, k)
   local w = t - t2
   if w > 0 then
     fillp(0x5A5A)
-    rectfill(0, t2, 256, w, col * 256 + col)
-    rectfill(0, 256 - t, 256, w, col * 256 + col)
-    rectfill(t2, t2, w, 256 - t2 * 2, col * 256 + col)
-    rectfill(256 - t, t2, w, 256 - t2 * 2, col * 256 + col)
+    fillp(0x5A5A, col)
+    rectfill(0, t2, 256, w, col)
+    fillp(0x5A5A, col)
+    rectfill(0, 256 - t, 256, w, col)
+    fillp(0x5A5A, col)
+    rectfill(t2, t2, w, 256 - t2 * 2, col)
+    fillp(0x5A5A, col)
+    rectfill(256 - t, t2, w, 256 - t2 * 2, col)
     fillp()
   end
 end
@@ -2375,12 +2380,16 @@ end
 local function draw_dmg_border(k)
   if k <= 0 then return end
   local col = k > 0.45 and PAL.red2 or PAL.blood
-  local t = 2 + flr(k * 4)
+  local t = 2 + math.floor(k * 4)
   fillp(0x5A5A)
-  rectfill(0, 0, 256, t, col * 256 + col)
-  rectfill(0, 256 - t, 256, t, col * 256 + col)
-  rectfill(0, 0, t, 256, col * 256 + col)
-  rectfill(256 - t, 0, t, 256, col * 256 + col)
+  fillp(0x5A5A, col)
+  rectfill(0, 0, 256, t, col)
+  fillp(0x5A5A, col)
+  rectfill(0, 256 - t, 256, t, col)
+  fillp(0x5A5A, col)
+  rectfill(0, 0, t, 256, col)
+  fillp(0x5A5A, col)
+  rectfill(256 - t, 0, t, 256, col)
   fillp()
   -- 方向弧带只在袭击者出屏时绘制（看得见的目标无需提示）；
   -- 前方半球按投影方向放置，与袭击者实际屏幕方位一致；背后（投影 nil）退回方位角
@@ -2388,7 +2397,7 @@ local function draw_dmg_border(k)
   local rel
   if sx then
     if sx > 6 and sx < 250 and sy > 6 and sy < 226 then return end
-    rel = wrap(atan2(128 - sy, sx - 128))
+    rel = wrap(atan2(sx - 128, 128 - sy))
   else
     rel = wrap(heading(P.hit_x, P.hit_z) - CAM.yaw)
   end
@@ -2431,7 +2440,7 @@ function _init()
   init_sky()
   capture_text("抢滩登陆战", 80, 960)
   capture_text("2002", 32, 976)
-  HI = dget(0)
+  HI = progress.high_score
   spawn("soldier", -26, -90, { spd = 2 })
   spawn("soldier", 14, -120, { spd = 2 })
   spawn("soldier", 42, -70, { spd = 2.4 })
@@ -2445,7 +2454,7 @@ function _update()
     CAM.elev = 0.02
     update_entities()
     update_particles()
-    if STT > 90 or btnp(4) or btnp(11) then
+    if STT > 90 or btnp("a") or btnp("menu") then
       ST = "title"
       STT = 0
     end
@@ -2454,14 +2463,14 @@ function _update()
     CAM.elev = 0.02
     update_entities()
     update_particles()
-    if btnp(4) then
+    if btnp("a") then
       srand(frame())            -- 按下时刻播种，每局布阵不同（回放仍确定）
       reset_game()
       start_wave(1)
     end
-    if btnp(7) then ST = "help" end
+    if btnp("y") then ST = "help" end
   elseif ST == "help" then
-    if btnp(5) or btnp(7) then ST = "title" end
+    if btnp("b") or btnp("y") then ST = "title" end
   elseif ST == "intro" then
     if STT > 130 then
       ST = "play"
@@ -2473,19 +2482,19 @@ function _update()
     update_projectiles()
     update_particles()
     update_wave()
-    if btnp(11) then
+    if btnp("menu") then
       ST = "pause"
-      music(-1, 200)
+      music_stop(200)
     end
-    if btnp(10) then DEBUG_BUDGET = not DEBUG_BUDGET end
+    if btnp("view") then DEBUG_BUDGET = not DEBUG_BUDGET end
   elseif ST == "clear" then
     update_entities()
     update_particles()
     update_projectiles()
     if STT > 170 then
-      P.hp = min(100, P.hp + 30)
-      P.shells = min(30, P.shells + 8)
-      P.belt = min(100, P.ammo)
+      P.hp = math.min(100, P.hp + 30)
+      P.shells = math.min(30, P.shells + 8)
+      P.belt = math.min(100, P.ammo)
       start_wave(WAVE + 1)
     end
   elseif ST == "over" then
@@ -2496,7 +2505,7 @@ function _update()
     if P.heal_flash > 0 then P.heal_flash = P.heal_flash - 0.02 end
     SHX = SHX * 0.85
     SHY = SHY * 0.85
-    if STT > 120 and btnp(4) then
+    if STT > 120 and btnp("a") then
       reset_game()
       ST = "title"
       STT = 0
@@ -2505,11 +2514,11 @@ function _update()
       spawn("tank", -70, -170, { spd = 2 })
     end
   elseif ST == "pause" then
-    if btnp(11) or btnp(4) then
+    if btnp("menu") or btnp("a") then
       ST = "play"
       music(song_pat, 300, 0x0F)
     end
-    if btnp(6) then
+    if btnp("x") then
       reset_game()
       start_wave(1)
     end
@@ -2530,21 +2539,21 @@ function _draw()
     draw_hud()
     rectfill(48, 92, 160, 84, PAL.black)
     rect(48, 92, 160, 84, PAL.gold)
-    print("暂停", CX - tw("暂停") / 2, 100, PAL.gold)
+    print("暂停", CX - textw("暂停") / 2, 100, PAL.gold)
     local s
     s = btnicon("a") .. " 继续战斗"
-    print(s, CX - tw(s) / 2, 124, 7)
+    print(s, CX - textw(s) / 2, 124, 7)
     s = btnicon("x") .. " 重新开始"
-    print(s, CX - tw(s) / 2, 144, 7)
+    print(s, CX - textw(s) / 2, 144, 7)
     s = btnicon("menu") .. " 返回战场"
-    print(s, CX - tw(s) / 2, 164, PAL.palgray)
+    print(s, CX - textw(s) / 2, 164, PAL.palgray)
   else
     draw_scene()
     if P.dmg_flash > 0 then
-      draw_dmg_border(min(1, P.dmg_flash / 1.1))
+      draw_dmg_border(math.min(1, P.dmg_flash / 1.1))
     end
     if P.heal_flash > 0 then
-      draw_vignette(34, min(1, P.heal_flash / 0.8))
+      draw_vignette(34, math.min(1, P.heal_flash / 0.8))
     end
     if ST == "intro" then
       if STT < 110 then
@@ -2552,14 +2561,14 @@ function _draw()
         local sub = "敌军来袭"
         rectfill(CX - 104, 92, 208, 72, PAL.black)
         rect(CX - 104, 92, 208, 72, PAL.red2)
-        print(s, CX - tw(s) / 2, 100, 7)
-        print(sub, CX - tw(sub) / 2, 116, PAL.gold)
+        print(s, CX - textw(s) / 2, 100, 7)
+        print(sub, CX - textw(sub) / 2, 116, PAL.gold)
         -- 兵力预告（自动折行）
         local line, ly = "", 136
         for word in WAVE_DESC:gmatch("%S+") do
           local trial = line == "" and word or (line .. "  " .. word)
-          if tw(trial) > 192 and line ~= "" then
-            print(line, CX - tw(line) / 2, ly, PAL.palgray)
+          if textw(trial) > 192 and line ~= "" then
+            print(line, CX - textw(line) / 2, ly, PAL.palgray)
             ly = ly + 14
             line = word
           else
@@ -2567,7 +2576,7 @@ function _draw()
           end
         end
         if line ~= "" then
-          print(line, CX - tw(line) / 2, ly, PAL.palgray)
+          print(line, CX - textw(line) / 2, ly, PAL.palgray)
         end
       end
       draw_hud()
@@ -2576,22 +2585,22 @@ function _draw()
       local sub = "奖励 " .. (1000 + WAVE * 250)
       rectfill(CX - 70, 96, 140, 44, PAL.black)
       rect(CX - 70, 96, 140, 44, 30)
-      print(s, CX - tw(s) / 2, 104, 7)
-      print(sub, CX - tw(sub) / 2, 120, PAL.gold)
+      print(s, CX - textw(s) / 2, 104, 7)
+      print(sub, CX - textw(sub) / 2, 120, PAL.gold)
       draw_hud()
     elseif ST == "over" then
       rectfill(0, 60, 256, 120, PAL.black)
       local s1 = "阵地失守"
-      print(s1, CX - tw(s1) / 2, 70, PAL.red2)
+      print(s1, CX - textw(s1) / 2, 70, PAL.red2)
       local s2 = "坚持到第 " .. WAVE .. " 波"
-      print(s2, CX - tw(s2) / 2, 96, 7)
+      print(s2, CX - textw(s2) / 2, 96, 7)
       local s3 = "得分 " .. string.format("%06d", P.score)
-      print(s3, CX - tw(s3) / 2, 116, PAL.gold)
+      print(s3, CX - textw(s3) / 2, 116, PAL.gold)
       local s4 = "击毁 " .. P.kill
-      print(s4, CX - tw(s4) / 2, 134, PAL.palgray)
+      print(s4, CX - textw(s4) / 2, 134, PAL.palgray)
       if STT > 120 then
         local s5 = "按 " .. btnicon("a") .. " 返回标题"
-        print(s5, CX - tw(s5) / 2, 164, 7)
+        print(s5, CX - textw(s5) / 2, 164, 7)
       end
     else
       draw_hud()

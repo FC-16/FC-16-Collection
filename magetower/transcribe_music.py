@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""魔塔 BGM 转录（demo/magetower/transcribe_music.py）
+"""魔塔 BGM 转录（magetower/transcribe_music.py）
 
 按目标卡带把原曲转录为 FC-16 芯片谱面并写回对应 .lua 的标记区间。
 

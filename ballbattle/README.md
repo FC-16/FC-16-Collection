@@ -16,8 +16,7 @@ FC-16 幻想主机上的完整 Agar.io 类演示卡带：1024×1024 竞技场里
   34.6 px/s，r=45 约 17.9 px/s，相差近一倍），分身前冲也按各自球半径套用同一曲线。
 - **总质量 600 即胜利**；被吃光所有分身则进入死亡结算。Ⓐ 再来一局，Start 回标题。
 - **开局保护**：前 3 秒玩家不可被吞（青色脉动环提示），避免出生即遭秒吞。
-- 最高纪录（峰值质量 / 最长生存 / 最高吞噬）`dset(0..2)` + `fflush` 持久化，
-  音乐开关存槽位 3。
+- 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。
 
 ## 多球机制（Ⓐ 分身 / Ⓧ 吐球 / 聚心合体）
 
@@ -47,8 +46,8 @@ FC-16 幻想主机上的完整 Agar.io 类演示卡带：1024×1024 竞技场里
 | ⬅⬆⬇➡ | 向该方向加速（斜向归一；松开缓慢滑行并聚向质心） |
 | Ⓐ | 对局中分身 / 标题开始 / 结算后再来一局 |
 | Ⓧ | 对局中吐球（全部分身各吐一颗） |
-| Start | 结算画面回标题 |
-| Select | 音乐开关（标题 / 对局 / 胜利庆祝中均可） |
+| Menu | 结算画面回标题 |
+| View | 音乐开关（标题 / 对局 / 胜利庆祝中均可） |
 
 ## AI 三层状态机
 
@@ -88,19 +87,20 @@ FC-16 幻想主机上的完整 Agar.io 类演示卡带：1024×1024 竞技场里
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "球球大作战" --author "FrostMiKu" \
-  --version 1 --code ballbattle/ballbattle.lua --cover 30 \
-  --out ballbattle/ballbattle.fc16 --png carts/ballbattle.fc16.png
-cargo run -p fc16-host -- ballbattle/ballbattle.fc16
+python3 tools/build_all.py ballbattle
+../FC-16/target/debug/fc16 ballbattle/ballbattle.fc16
 ```
 
 headless 验证（零输入不会开局；用 `--script` 注入 Ⓐ 开始，注意 seed 0 会被宿主
 映射为随机种子，固定请用 `--seed 1`）：
 
 ```bash
-cargo run -p fc16-host -- ballbattle/ballbattle.fc16 --frames 300 \
+../FC-16/target/debug/fc16 ballbattle/ballbattle.fc16 --frames 300 \
   --screenshot out.png
-printf '60 key 4\n62 key -\n100 key 4\n102 key -\n280 key 6\n282 key -\n' > script.txt
-cargo run -p fc16-host -- ballbattle/ballbattle.fc16 --frames 900 \
+printf '60 key a\n62 key -\n100 key a\n102 key -\n280 key x\n282 key -\n' > script.txt
+../FC-16/target/debug/fc16 ballbattle/ballbattle.fc16 --frames 900 \
   --seed 1 --script script.txt --screenshot out.png
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

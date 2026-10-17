@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "雷霆战机",
+    "author": "FrostMiKu",
+    "saveId": "thunder",
+    "version": 2,
+    "flags": 0,
+    "output": "thunder.fc16",
+    "release": "thunder.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "thunder.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

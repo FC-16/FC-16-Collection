@@ -1,3 +1,9 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {stars = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, best_scores = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, music_on = true}
+end
+
 -- 愤怒的小鸟（FC-16 demo 卡带）
 -- 弹弓物理破坏：拉弓发射小鸟，用撞击冲量拆毁木/石/冰结构，消灭所有猪即可过关。
 -- 美术与音乐均为原创致敬风格；物理使用 SPEC §10 内置确定性 2D 物理（AABB+圆）。
@@ -16,20 +22,20 @@ local GROUND_Y = 224           -- 地表顶部 y
 local FORK_X, FORK_Y = 44, 170 -- 弹弓皮兜静止点
 local BIRD_R = 6               -- 小鸟碰撞半径
 local PIG_R = 5                -- 小猪碰撞半径
-local V_MIN, V_MAX = 140, 430  -- 发射速度区间（px/s）；默认力度恰打在场中结构上
+local V_MIN, V_MAX = 140 / 60, 430 / 60  -- 发射速度区间（px/帧）；默认力度恰打在场中结构上
 local DEF_ANG, DEF_POW = 45, 0.3
-local IMPACT_MIN = 60          -- 低于该接近速度不产生伤害（px/s）
+local IMPACT_MIN = 1          -- 低于该接近速度不产生伤害（px/帧）
 local PIG_SCORE = 5000
 local BIRD_BONUS = 10000       -- 过关时每只剩余鸟的奖励分
 local TNT_R = 54               -- 炸药桶爆炸半径
 
 -- 材料：1 木 2 石 3 冰（mf 为质量因子，作用于默认面积质量）
 local MAT = {
-  { name = "木", hp = 100, mf = 1.0, fric = 6, rest = 0.08, score = 500,
+  { name = "木", hp = 100, mf = 1.0, score = 500,
     deb = { 19, 18, 17 }, hit_sfx = 2, brk_sfx = 5 },
-  { name = "石", hp = 260, mf = 2.2, fric = 6, rest = 0.04, score = 800,
+  { name = "石", hp = 260, mf = 2.2, score = 800,
     deb = { 5, 4, 3 }, hit_sfx = 3, brk_sfx = 6 },
-  { name = "冰", hp = 45, mf = 0.5, fric = 1, rest = 0.02, score = 300,
+  { name = "冰", hp = 45, mf = 0.5, score = 300,
     deb = { 43, 44, 42 }, hit_sfx = 4, brk_sfx = 7 },
 }
 
@@ -120,7 +126,7 @@ local HINT_PLAY = btnicon("a") .. " 按住拉弓　" .. btnicon("dpad") .. " 调
 
 local function u8(a, val) poke(a, val % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 local WAVEFORM_DATA = {
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
@@ -142,14 +148,14 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- 写一条 SFX（SPEC §5.2：144B = 头 16B + 32 步 × 4B）
 -- notes 为逐步音高（0=休止，写卡带前换算为新 0-95 并用音量 0 表休止）
 local function init_sfx(id, notes, wave, vol, spd, lps)
   local base = 0x0C0000 + id * 144
-  poke2(base, (spd == 0 and 1 or spd or 2) * 4) -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (spd == 0 and 1 or spd or 2) * 4) -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   if lps then u8(base + 3, lps) u8(base + 4, #notes - 1) u8(base + 5, 1) end
   for i = 0, 31 do
@@ -157,7 +163,7 @@ local function init_sfx(id, notes, wave, vol, spd, lps)
     local p = notes[i + 1]
     if p and p > 0 then
       u8(a, p - 1)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, vol)
       u8(a + 3, 0)
     else
@@ -225,27 +231,6 @@ local function init_audio()
   u8(0x0C5380, 4)  -- MUSIC LEN = 4 行
 end
 
--- ================================================================ 物理/向量适配（SPEC §9/§10，v0.177）
-
--- 旧 vec2 构造器 v(x,y) 与 v.len/v.norm 的兼容层；分量只读，改动需重建向量
-local v = setmetatable({
-  len  = vector.magnitude,
-  norm = vector.normalize,
-}, { __call = function(_, x, y) return vector.create(x, y) end })
-
--- 速度读取/写入：pstate(id) → position, velocity；写入走 pmove 保留位置
-local function body_vel(id) return select(2, pstate(id)) end
-local function set_vel(id, vel)
-  local pos = pstate(id)
-  pmove(id, pos, vel)
-end
-
--- 接触回调注册（旧 b:hit(cb) → phit(id, cb)）
-local function body_hit(id, cb) phit(id, cb) end
-
--- 旧质量模型保留用于伤害结算：面积/256 × 系数（新引擎按固定出厂手感求解）
-local function circle_mass(r) return r * r * 3.14159265 / 256 end
-
 -- ================================================================ 精灵烘焙
 
 -- 逐像素写 16×16 瓦片：fn(x, y) 返回色号或 nil（透明）
@@ -269,7 +254,7 @@ local function seg_d(px, py, ax, ay, bx, by)
   end
   local qx, qy = ax + dx * tt, ay + dy * tt
   local ex, ey = px - qx, py - qy
-  return sqrt(ex * ex + ey * ey)
+  return math.sqrt(ex * ex + ey * ey)
 end
 
 local function bake_sprites()
@@ -281,29 +266,29 @@ local function bake_sprites()
       return 60
     end
     -- 头顶双羽
-    local f1 = sqrt((x - 6.2) * (x - 6.2) + (y - 2.2) * (y - 2.2))
-    local f2 = sqrt((x - 8.4) * (x - 8.4) + (y - 1.4) * (y - 1.4))
+    local f1 = math.sqrt((x - 6.2) * (x - 6.2) + (y - 2.2) * (y - 2.2))
+    local f2 = math.sqrt((x - 8.4) * (x - 8.4) + (y - 1.4) * (y - 1.4))
     if f1 < 1.1 or f2 < 1.1 then return 58 end
     if f1 < 1.7 or f2 < 1.7 then return 62 end
     -- 喙
-    if x >= 12 and abs(y - 8.9) < (x - 10.8) * 0.75 then
-      if abs(y - 8.9) < 0.5 then return 25 end
+    if x >= 12 and math.abs(y - 8.9) < (x - 10.8) * 0.75 then
+      if math.abs(y - 8.9) < 0.5 then return 25 end
       return 29
     end
     -- 身体
     local dx, dy = x - 7.4, y - 8.6
-    local d = sqrt(dx * dx + dy * dy)
+    local d = math.sqrt(dx * dx + dy * dy)
     if d > 6.3 then return nil end
     if d > 5.3 then return 62 end
     -- 白肚
     local bx, by = (x - 8.4) / 3.1, (y - 10.6) / 2.3
     if bx * bx + by * by <= 1 then return 21 end
     -- 眼睛
-    local e1 = sqrt((x - 9.5) * (x - 9.5) + (y - 6.3) * (y - 6.3))
-    local e2 = sqrt((x - 11.8) * (x - 11.8) + (y - 6.5) * (y - 6.5))
+    local e1 = math.sqrt((x - 9.5) * (x - 9.5) + (y - 6.3) * (y - 6.3))
+    local e2 = math.sqrt((x - 11.8) * (x - 11.8) + (y - 6.5) * (y - 6.5))
     if e1 < 1.5 or e2 < 1.3 then
-      local p1 = sqrt((x - 10.2) * (x - 10.2) + (y - 6.5) * (y - 6.5))
-      local p2 = sqrt((x - 12.4) * (x - 12.4) + (y - 6.7) * (y - 6.7))
+      local p1 = math.sqrt((x - 10.2) * (x - 10.2) + (y - 6.5) * (y - 6.5))
+      local p2 = math.sqrt((x - 12.4) * (x - 12.4) + (y - 6.7) * (y - 6.7))
       if p1 < 0.7 or p2 < 0.6 then return 0 end
       return 7
     end
@@ -315,30 +300,30 @@ local function bake_sprites()
   -- 小猪（绿，大鼻，竖耳）
   bake(2, function(x, y)
     -- 耳朵
-    local a1 = sqrt((x - 4.7) * (x - 4.7) + (y - 3.5) * (y - 3.5))
-    local a2 = sqrt((x - 11.3) * (x - 11.3) + (y - 3.5) * (y - 3.5))
+    local a1 = math.sqrt((x - 4.7) * (x - 4.7) + (y - 3.5) * (y - 3.5))
+    local a2 = math.sqrt((x - 11.3) * (x - 11.3) + (y - 3.5) * (y - 3.5))
     if a1 < 1.2 or a2 < 1.2 then return 34 end
     if a1 < 1.8 or a2 < 1.8 then return 36 end
     local dx, dy = x - 8, y - 8.6
-    local d = sqrt(dx * dx + dy * dy)
+    local d = math.sqrt(dx * dx + dy * dy)
     if d > 6.4 then return nil end
     if d > 5.5 then return 36 end
     -- 鼻子
     local sx, sy = (x - 8) / 2.7, (y - 9.8) / 2.1
     local sd = sx * sx + sy * sy
     if sd <= 1 then
-      local n1 = sqrt((x - 6.9) * (x - 6.9) + (y - 9.8) * (y - 9.8))
-      local n2 = sqrt((x - 9.1) * (x - 9.1) + (y - 9.8) * (y - 9.8))
+      local n1 = math.sqrt((x - 6.9) * (x - 6.9) + (y - 9.8) * (y - 9.8))
+      local n2 = math.sqrt((x - 9.1) * (x - 9.1) + (y - 9.8) * (y - 9.8))
       if n1 < 0.55 or n2 < 0.55 then return 35 end
       return 33
     end
     if sd <= 1.5 then return 35 end
     -- 眼睛
-    local e1 = sqrt((x - 5.4) * (x - 5.4) + (y - 6.6) * (y - 6.6))
-    local e2 = sqrt((x - 10.6) * (x - 10.6) + (y - 6.6) * (y - 6.6))
+    local e1 = math.sqrt((x - 5.4) * (x - 5.4) + (y - 6.6) * (y - 6.6))
+    local e2 = math.sqrt((x - 10.6) * (x - 10.6) + (y - 6.6) * (y - 6.6))
     if e1 < 1.3 or e2 < 1.3 then
-      local p1 = sqrt((x - 5.8) * (x - 5.8) + (y - 6.8) * (y - 6.8))
-      local p2 = sqrt((x - 10.2) * (x - 10.2) + (y - 6.8) * (y - 6.8))
+      local p1 = math.sqrt((x - 5.8) * (x - 5.8) + (y - 6.8) * (y - 6.8))
+      local p2 = math.sqrt((x - 10.2) * (x - 10.2) + (y - 6.8) * (y - 6.8))
       if p1 < 0.55 or p2 < 0.55 then return 0 end
       return 7
     end
@@ -418,8 +403,8 @@ local function puff(x, y, n, c, spd, life, grav)
     parts[#parts + 1] = {
       x = x, y = y,
       vx = cos(a) * s, vy = sin(a) * s - spd * 0.25,
-      life = flr(rnd(life * 0.6, life)),
-      c = c, g = grav, sz = flr(rnd(1, 2.7)),
+      life = math.floor(rnd(life * 0.6, life)),
+      c = c, g = grav, sz = math.floor(rnd(1, 2.7)),
     }
   end
 end
@@ -465,8 +450,8 @@ local function draw_floats()
   for i = 1, #floats do
     local f = floats[i]
     local s = f.txt
-    print(s, f.x - tw(s) / 2 + 1, f.y + 1, 0)
-    print(s, f.x - tw(s) / 2, f.y, f.c)
+    print(s, f.x - textw(s) / 2 + 1, f.y + 1, 0)
+    print(s, f.x - textw(s) / 2, f.y, f.c)
   end
 end
 
@@ -499,7 +484,7 @@ local take_damage -- 前向声明
 -- 从实体表中移除并删除物理体
 local function detach(e)
   local bid = e.b
-  pdel(e.b)
+  e.b:del()
   by_id[bid] = nil
   if e.kind == "pig" then del(pigs, e)
   elseif e.kind == "tnt" then del(tnts, e)
@@ -508,7 +493,7 @@ end
 
 -- 炸药桶爆炸：径向冲量 + 范围伤害 + 演出
 local function explode_tnt(e)
-  local p = pstate(e.b)
+  local p = e.b
   local cx, cy = p.x, p.y
   detach(e)
   sfx(9)
@@ -524,17 +509,16 @@ local function explode_tnt(e)
   end
   if bird then victims[#victims + 1] = bird end
   for i = 1, #victims do
-    local ent = victims[i] -- 勿名 v：会遮蔽全局 vec2 构造器 v()
     if not ent.dead then
-      local vp = pstate(ent.b)
+      local vp = ent.b
       local dx, dy = vp.x - cx, vp.y - cy - 4
-      local d = sqrt(dx * dx + dy * dy)
+      local d = math.sqrt(dx * dx + dy * dy)
       if d < TNT_R then
-        local dd = max(d, 6)
+        local dd = math.max(d, 6)
         local nx, ny = dx / dd, dy / dd
         if d < 1 then nx, ny = 0, -1 end
         local k = 1 - dd / TNT_R
-        set_vel(ent.b, body_vel(ent.b) + v(nx * 430 * k, ny * 430 * k - 60 * k))
+        do local velocity = vector.create(ent.b.vx, ent.b.vy) + vector.create(nx * (430 / 60) * k, ny * (430 / 60) * k - k); ent.b.vx, ent.b.vy = velocity.x, velocity.y end
         if ent.kind ~= "bird" then
           ent.cd = 0
           take_damage(ent, 320 * k)
@@ -544,13 +528,12 @@ local function explode_tnt(e)
   end
 end
 
--- 标记破坏：碰撞回调可能成对触发，若一方回调立即 pdel 自己，
 -- 另一方的回调再读 other.id 就会踩到已删除的 body。
 -- 因此回调内只做标记与演出，物理体统一延迟到下一幀 update 删除。
 local function mark_destroy(e)
   if e.dead then return end
   e.dead = true
-  local p = pstate(e.b)
+  local p = e.b
   if e.kind == "pig" then
     pigs_left = pigs_left - 1
     add_score(PIG_SCORE, p.x, p.y - 8, 30)
@@ -572,7 +555,7 @@ local function mark_destroy(e)
     local md = MAT[e.mat]
     add_score(md.score, p.x, p.y - 6, 22)
     play_sfx(md.brk_sfx)
-    local n = mid(4, flr(e.w * e.h / 22), 14)
+    local n = mid(4, math.floor(e.w * e.h / 22), 14)
     for i = 1, n do
       puff(p.x + rnd(-e.w / 2, e.w / 2), p.y + rnd(-e.h / 2, e.h / 2),
         1, md.deb[i % 3 + 1], 2.4, 34, 0.14)
@@ -595,11 +578,11 @@ end
 
 -- 冲量伤害入口（j 为冲量数值）
 take_damage = function(e, j)
-  if e.dead or state ~= "play" then return end
+  if e.dead or e.kind == "bird" or state ~= "play" then return end
   if gt < (e.cd or 0) then return end
   e.cd = gt + 5
   e.hp = e.hp - j
-  local p = pstate(e.b)
+  local p = e.b
   if j > 25 then
     puff(p.x, p.y, 3, 6, 1.0, 16, 0.02)
   end
@@ -607,31 +590,56 @@ take_damage = function(e, j)
     local md = MAT[e.mat]
     if j > 40 then play_sfx(md.hit_sfx) end
   end
-  if j > 180 then shake_t = max(shake_t, 6) end
+  if j > 180 then shake_t = math.max(shake_t, 6) end
   if e.hp <= 0 then mark_destroy(e) end
 end
 
--- 碰撞回调工厂：按步进前速度快照计算撞击冲量
-local function make_hit_cb(e)
-  return function(other, n)
-    if state ~= "play" or e.dead then return end
-    local sv = prevel[e.b]
-    if not sv then return end
-    local ovx, ovy = 0, 0
-    local oent = by_id[other]
-    if oent then
-      local ov = prevel[other]
-      if ov then ovx, ovy = ov[1], ov[2] end
+-- 伤害由游戏耐久规则计算；碰撞与位置由当前街机物理对象提供。
+local function impact(e, other, nx, ny)
+  if state ~= "play" or e.dead then return end
+  local sv = prevel[e.b]
+  if not sv then return end
+  local ov = prevel[other] or {0, 0}
+  local closing = (ov[1] - sv[1]) * nx + (ov[2] - sv[2]) * ny
+  if closing < IMPACT_MIN then return end
+  local target = by_id[other]
+  local mass = target and e.mass * target.mass / (e.mass + target.mass) or e.mass
+  take_damage(e, closing * mass * 60)
+  if target and not target.dead then take_damage(target, closing * mass * 60) end
+end
+
+local function bind_entity(e)
+  e.b.data = e
+  if e.b.kind == "actor" then
+    e.b:on_block(function(other, nx, ny) impact(e, other, nx, ny) end)
+    e.b:on_enter(function(other)
+      local target = by_id[other]
+      if target and not target.dead then
+        local sv, ov = prevel[e.b] or {0, 0}, prevel[other] or {0, 0}
+        local dx, dy = sv[1] - ov[1], sv[2] - ov[2]
+        local speed = math.sqrt(dx * dx + dy * dy)
+        if speed >= IMPACT_MIN then take_damage(e, speed * target.mass * 60) end
+      end
+    end, 4)
+  end
+end
+
+-- 可破坏结构使用 solid；游戏在提交速度前用 sweep 判断支撑与落下距离。
+local function update_structure()
+  for _, list in ipairs({blocks, tnts}) do
+    for _, e in ipairs(list) do
+      if not e.dead then
+        local b = e.b
+        local vx, vy = b.vx * 0.98, b.vy + (slow_t > 0 and 0.25 * 0.35 or 0.25)
+        local other, fraction, nx, ny = b:sweep(vx, vy, 1)
+        if other then
+          prevel[b] = {vx, vy}
+          impact(e, other, nx, ny)
+          vx, vy = vx * fraction, vy * fraction
+        end
+        b.vx, b.vy = vx, vy
+      end
     end
-    -- 接近速度：对方沿 n（指向自己）逼近自己的分量；n 为作用在自己上的推开方向
-    local closing = (ovx - sv[1]) * n.x + (ovy - sv[2]) * n.y
-    if closing < IMPACT_MIN then return end
-    local m = e.mass
-    if oent then
-      local mo = oent.mass
-      m = m * mo / (m + mo)
-    end
-    take_damage(e, closing * m)
   end
 end
 
@@ -641,7 +649,7 @@ local function snap_list(list)
   for i = 1, #list do
     local e = list[i]
     if not e.dead then
-      local vel = body_vel(e.b)
+      local vel = vector.create(e.b.vx, e.b.vy)
       prevel[e.b] = { vel.x, vel.y }
     end
   end
@@ -653,17 +661,17 @@ local function snap_vels()
   snap_list(pigs)
   snap_list(tnts)
   if bird then
-    local vel = body_vel(bird.b)
+    local vel = vector.create(bird.b.vx, bird.b.vy)
     prevel[bird.b] = { vel.x, vel.y }
   end
 end
 
 local function teardown()
   for _, list in ipairs({ blocks, pigs, tnts }) do
-    for i = #list, 1, -1 do pdel(list[i].b) end
+    for i = #list, 1, -1 do list[i].b:del() end
   end
-  if bird then pdel(bird.b) bird = nil end
-  if ground_b then pdel(ground_b) ground_b = nil end
+  if bird then bird.b:del() bird = nil end
+  if ground_b then ground_b:del() ground_b = nil end
   blocks, pigs, tnts, by_id, prevel = {}, {}, {}, {}, {}
   parts, floats = {}, {}
 end
@@ -673,36 +681,44 @@ local function start_level(n)
   cur_lv = n
   local lv = LV[n]
   -- 地面（宽出屏，防侧漏）
-  ground_b = pbox(v(140, GROUND_Y + 12), v(440, 24), "wall")
+  ppause(false) pgrav(0, 0.25)
+  ground_b = pbox(-80, GROUND_Y, 440, 24, "solid")
+  ground_b.layer = 1
   -- 方块
   for i = 1, #lv.bl do
     local d = lv.bl[i]
     local md = MAT[d[5]]
-    local b = pbox(v(d[1], d[2]), v(d[3], d[4]), "move")
+    local b = pbox(d[1], d[2], d[3], d[4], "solid")
+    b:box(d[3], d[4], -d[3] / 2, -d[4] / 2)
+    b.layer = 1
     local e = { b = b, kind = "block", mat = d[5], w = d[3], h = d[4],
                 mass = d[3] * d[4] / 256 * md.mf,
                 hp = md.hp, hp0 = md.hp, dead = false }
-    body_hit(b, make_hit_cb(e))
+    bind_entity(e)
     blocks[#blocks + 1] = e
     by_id[b] = e
   end
   -- 猪
   for i = 1, #lv.pg do
     local d = lv.pg[i]
-    local b = pcirc(v(d[1], d[2]), PIG_R, "move")
-    local e = { b = b, kind = "pig", mass = circle_mass(PIG_R),
+    local b = pbox(d[1], d[2], PIG_R * 2, PIG_R * 2)
+    b:box(PIG_R * 2, PIG_R * 2, -PIG_R, -PIG_R)
+    b.layer = 2 b.mask = 1
+    local e = { b = b, kind = "pig", mass = PIG_R * PIG_R * math.pi / 256,
                 hp = 30, hp0 = 30, dead = false }
-    body_hit(b, make_hit_cb(e))
+    bind_entity(e)
     pigs[#pigs + 1] = e
     by_id[b] = e
   end
   -- 炸药桶
   for i = 1, #lv.tn do
     local d = lv.tn[i]
-    local b = pbox(v(d[1], d[2]), v(16, 16), "move")
+    local b = pbox(d[1], d[2], 16, 16, "solid")
+    b:box(16, 16, -8, -8)
+    b.layer = 1
     local e = { b = b, kind = "tnt", mass = 0.8,
                 hp = 22, hp0 = 22, dead = false, fuse = 0 }
-    body_hit(b, make_hit_cb(e))
+    bind_entity(e)
     tnts[#tnts + 1] = e
     by_id[b] = e
   end
@@ -720,7 +736,7 @@ end
 -- ================================================================ 弹弓与发射
 
 local function aim_dir()
-  return v(cos(aim_ang / 360), -sin(aim_ang / 360))
+  return vector.create(cos(aim_ang / 360), -sin(aim_ang / 360))
 end
 
 local function pouch_pos()
@@ -736,10 +752,13 @@ end
 local function fire()
   local px, py = pouch_pos()
   local d = aim_dir()
-  local b = pcirc(v(px, py), BIRD_R, "move")
-  set_vel(b, d * launch_speed())
+  local b = pbox(px, py, BIRD_R * 2, BIRD_R * 2)
+  b:box(BIRD_R * 2, BIRD_R * 2, -BIRD_R, -BIRD_R)
+  b.layer = 4 b.mask = 1 b.bounce = 0.25
+  do local velocity = d * launch_speed(); b.vx, b.vy = velocity.x, velocity.y end
   bird = { b = b, kind = "bird", mass = 0.45, trail = {}, fly_t = 0, still = 0, dead = false }
   by_id[b] = bird
+  bind_entity(bird)
   birds_left = birds_left - 1
   phase = "fly"
   sfx(1)
@@ -765,21 +784,20 @@ end
 
 local function update_bird()
   local bd = bird.b
-  local p = pstate(bd)
+  local p = bd
   bird.fly_t = bird.fly_t + 1
   if bird.fly_t % 3 == 0 then
     bird.trail[#bird.trail + 1] = { x = p.x, y = p.y }
     if #bird.trail > 42 then deli(bird.trail, 1) end
   end
-  local sp = v.len(body_vel(bd))
-  if sp < 14 then bird.still = bird.still + 1 else bird.still = 0 end
+  local sp = vector.magnitude(vector.create(bd.vx, bd.vy))
+  if sp < 14 / 60 then bird.still = bird.still + 1 else bird.still = 0 end
   if bird.fly_t > 330 or bird.still > 42
     or p.x > 340 or p.x < -60 or p.y > 300 then
     if p.y <= 300 and p.x >= -60 and p.x <= 340 then
       puff(p.x, p.y, 8, 6, 1.2, 22, 0.02)
     end
-    local bid = bd -- id 即句柄：pdel 后再访问会报“已删除”
-    pdel(bd)
+    bd:del()
     by_id[bid] = nil
     after_bird()
   end
@@ -790,7 +808,7 @@ local function scene_calm()
   for _, list in ipairs({ blocks, pigs, tnts }) do
     for i = 1, #list do
       local e = list[i]
-      if not e.dead and v.len(body_vel(e.b)) > 18 then return false end
+      if not e.dead and vector.magnitude(vector.create(e.b.vx, e.b.vy)) > 18 / 60 then return false end
     end
   end
   return true
@@ -809,9 +827,9 @@ local function settle_win()
   new_best = score > (best[cur_lv] or 0)
   if n > (stars[cur_lv] or 0) then stars[cur_lv] = n end
   if new_best then best[cur_lv] = score end
-  dset(cur_lv, stars[cur_lv] or 0)
-  dset(NLEVEL + cur_lv, best[cur_lv] or 0)
-  fflush()
+  progress.stars[cur_lv] = stars[cur_lv] or 0; assert(save(progress))
+  progress.best_scores[cur_lv] = best[cur_lv] or 0; assert(save(progress))
+
   state = "settle"
   settle_t = 0
   sfx(10)
@@ -825,48 +843,17 @@ local function settle_lose()
 end
 
 -- 暂停冻结（物理每幀自动步进，靠零重力+零速度冻结世界）
-local frozen
-local function freeze_list(list)
-  for i = 1, #list do
-    local e = list[i]
-    if not e.dead then
-      local pv = body_vel(e.b)
-      frozen[#frozen + 1] = { e.b, pv.x, pv.y }
-      set_vel(e.b, v(0, 0))
-    end
-  end
-end
-
-local function pause_freeze()
-  frozen = {}
-  freeze_list(blocks)
-  freeze_list(pigs)
-  freeze_list(tnts)
-  if bird then
-    local pv = body_vel(bird.b)
-    frozen[#frozen + 1] = { bird.b, pv.x, pv.y }
-    set_vel(bird.b, v(0, 0))
-  end
-  pgrav(v(0, 0))
-end
-
-local function pause_unfreeze()
-  for i = 1, #frozen do
-    local f = frozen[i]
-    set_vel(f[1], v(f[2], f[3]))
-  end
-  frozen = nil
-  pgrav(v(0, 900))
-end
+local function pause_freeze() ppause(true) end
+local function pause_unfreeze() ppause(false) end
 
 -- ================================================================ 更新
 
 local function update_select()
-  if dirp(0) then sel = (sel - 2) % NLEVEL + 1 sfx(12) end
-  if dirp(1) then sel = sel % NLEVEL + 1 sfx(12) end
-  if dirp(2) then sel = (sel - 6) % NLEVEL + 1 sfx(12) end
-  if dirp(3) then sel = (sel + 4) % NLEVEL + 1 sfx(12) end
-  if btnp(4) then
+  if dirp("left") then sel = (sel - 2) % NLEVEL + 1 sfx(12) end
+  if dirp("right") then sel = sel % NLEVEL + 1 sfx(12) end
+  if dirp("up") then sel = (sel - 6) % NLEVEL + 1 sfx(12) end
+  if dirp("down") then sel = (sel + 4) % NLEVEL + 1 sfx(12) end
+  if btnp("a") then
     if unlocked(sel) then
       start_level(sel)
       sfx(12)
@@ -874,17 +861,17 @@ local function update_select()
       sfx(11)
     end
   end
-  if btnp(5) or btnp(11) then state = "title" sfx(12) end
+  if btnp("b") or btnp("menu") then state = "title" sfx(12) end
 end
 
 local function update_pause()
-  if dirp(3) then pause_sel = pause_sel % 3 + 1 sfx(12) end
-  if dirp(2) then pause_sel = (pause_sel + 1) % 3 + 1 sfx(12) end
+  if dirp("down") then pause_sel = pause_sel % 3 + 1 sfx(12) end
+  if dirp("up") then pause_sel = (pause_sel + 1) % 3 + 1 sfx(12) end
   -- 上 = (n+1)%3+1，下 = n%3+1，循环三选一
-  if btnp(11) or btnp(5) then
+  if btnp("menu") or btnp("b") then
     pause_unfreeze()
     state = "play"
-  elseif btnp(4) then
+  elseif btnp("a") then
     pause_unfreeze()
     if pause_sel == 1 then
       state = "play"
@@ -906,7 +893,7 @@ local function update_settle()
     if settle_t == 55 and shown_stars >= 2 then sfx(13) end
     if settle_t == 80 and shown_stars >= 3 then sfx(13) end
   end
-  if settle_t > 45 and btnp(4) then
+  if settle_t > 45 and btnp("a") then
     if won then
       if cur_lv < NLEVEL then
         start_level(cur_lv + 1)
@@ -916,7 +903,7 @@ local function update_settle()
     else
       start_level(cur_lv)
     end
-  elseif settle_t > 45 and btnp(11) then
+  elseif settle_t > 45 and btnp("menu") then
     state = "select"
     sel = cur_lv
   end
@@ -925,6 +912,7 @@ end
 local function update_play()
   gt = gt + 1
   snap_vels()
+  update_structure()
 
   -- 最后一击慢动作（速度衰减 + 低重力，结束后恢复）
   if slow_t > 0 then
@@ -932,35 +920,35 @@ local function update_play()
     local function slow_list(list)
       for i = 1, #list do
         local e = list[i]
-        if not e.dead then set_vel(e.b, body_vel(e.b) * 0.55) end
+        if not e.dead then do local velocity = vector.create(e.b.vx, e.b.vy) * 0.55; e.b.vx, e.b.vy = velocity.x, velocity.y end end
       end
     end
     slow_list(blocks)
     slow_list(pigs)
     slow_list(tnts)
-    if bird then set_vel(bird.b, body_vel(bird.b) * 0.55) end
-    pgrav(v(0, 900 * 0.35))  -- 旧 gravity_scale=0.35 对全部体等效
-    if slow_t == 0 then pgrav(v(0, 900)) end
+    if bird then do local velocity = vector.create(bird.b.vx, bird.b.vy) * 0.55; bird.b.vx, bird.b.vy = velocity.x, velocity.y end end
+    pgrav(0, 0.25 * 0.35)
+    if slow_t == 0 then pgrav(0, 0.25) end
   end
 
   -- 阶段机
   if phase == "ready" then
     if aim_lock then
-      if not btn(4) then aim_lock = false end
-    elseif btn(4) then
+      if not btn("a") then aim_lock = false end
+    elseif btn("a") then
       phase = "aim"
     end
   elseif phase == "aim" then
     local changed = false
-    if dir(0) then aim_ang = max(10, aim_ang - 0.55) changed = true end
-    if dir(1) then aim_ang = min(80, aim_ang + 0.55) changed = true end
-    if dir(3) then aim_pow = max(0, aim_pow - 0.007) changed = true end
-    if dir(2) then aim_pow = min(1, aim_pow + 0.007) changed = true end
+    if dir("left") then aim_ang = math.max(10, aim_ang - 0.55) changed = true end
+    if dir("right") then aim_ang = math.min(80, aim_ang + 0.55) changed = true end
+    if dir("down") then aim_pow = math.max(0, aim_pow - 0.007) changed = true end
+    if dir("up") then aim_pow = math.min(1, aim_pow + 0.007) changed = true end
     if changed and gt % 4 == 0 then play_sfx(0) end
-    if btnp(5) then
+    if btnp("b") then
       phase = "ready"
       aim_ang, aim_pow = DEF_ANG, DEF_POW
-    elseif not btn(4) then
+    elseif not btn("a") then
       fire()
     end
   elseif phase == "fly" then
@@ -994,7 +982,7 @@ local function update_play()
     for i = #list, 1, -1 do
       local e = list[i]
       if not e.dead then
-        local p = pstate(e.b)
+        local p = e.b
         if p.y > 300 or p.x < -60 or p.x > 360 then
           if e.kind == "pig" then
             e.dead = true
@@ -1005,7 +993,7 @@ local function update_play()
             end
           end
           local bid = e.b
-          pdel(e.b)
+          e.b:del()
           by_id[bid] = nil
           deli(list, i)
         end
@@ -1025,22 +1013,22 @@ end
 
 function _update()
   t = t + 1
-  if btnp(10) then
+  if btnp("view") then
     music_on = not music_on
-    dset(40, music_on and 0 or 1)
-    if music_on then music(0, 500, 0x70) else music(-1, 200) end
+    progress.music_on = music_on; assert(save(progress))
+    if music_on then music(0, 500, 0x70) else music_stop(200) end
   end
   if state == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then state = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then state = "title" end
   elseif state == "title" then
-    if btnp(4) or btnp(11) then state = "select" sfx(12) end
-    if btnp(7) then state = "help" sfx(12) end
+    if btnp("a") or btnp("menu") then state = "select" sfx(12) end
+    if btnp("y") then state = "help" sfx(12) end
   elseif state == "help" then
-    if btnp(5) or btnp(7) then state = "title" sfx(12) end
+    if btnp("b") or btnp("y") then state = "title" sfx(12) end
   elseif state == "select" then
     update_select()
   elseif state == "play" then
-    if btnp(11) then
+    if btnp("menu") then
       state = "pause"
       pause_sel = 1
       pause_freeze()
@@ -1116,7 +1104,7 @@ end
 -- ================================================================ 绘制：实体
 
 local function draw_block(e)
-  local p = pstate(e.b)
+  local p = e.b
   local x0 = p.x - e.w / 2
   local y0 = p.y - e.h / 2
   local ratio = e.hp / e.hp0
@@ -1147,7 +1135,8 @@ local function draw_block(e)
   else -- 冰（抖色半透明感）
     rectfill(x0, y0, e.w, e.h, 42)
     fillp(0x5a5a)
-    rectfill(x0, y0, e.w, e.h / 2 + 1, 44 * 256 + 42)
+    fillp(0x5a5a, 44)
+    rectfill(x0, y0, e.w, e.h / 2 + 1, 42)
     fillp()
     rect(x0, y0, e.w, e.h, 40)
     pset(x0 + 2, y0 + 2, 44)
@@ -1155,11 +1144,11 @@ local function draw_block(e)
   end
   -- 裂纹（受损表现）
   if ratio < 0.99 then
-    local seed = e.b * 37
+    local seed = e.b.id * 37
     local n = ratio < 0.34 and 3 or (ratio < 0.67 and 2 or 1)
     for i = 1, n do
-      local cx = x0 + ((seed + i * 53) % max(e.w - 4, 1)) + 2
-      local cy = y0 + ((seed + i * 29) % max(e.h - 4, 1)) + 2
+      local cx = x0 + ((seed + i * 53) % math.max(e.w - 4, 1)) + 2
+      local cy = y0 + ((seed + i * 29) % math.max(e.h - 4, 1)) + 2
       line(cx, cy, cx + 2, cy + 2, e.mat == 3 and 7 or 2)
       line(cx + 2, cy + 2, cx + 4, cy, e.mat == 3 and 7 or 2)
     end
@@ -1167,7 +1156,7 @@ local function draw_block(e)
 end
 
 local function draw_tnt(e)
-  local p = pstate(e.b)
+  local p = e.b
   local x0, y0 = p.x - 8, p.y - 8
   rectfill(x0, y0, 16, 16, 59)
   rect(x0, y0, 16, 16, 61)
@@ -1176,7 +1165,7 @@ local function draw_tnt(e)
   rectfill(x0 + 7, y0 + 6, 2, 3, 22)
   rectfill(x0 + 11, y0 + 6, 2, 3, 22)
   line(x0 + 8, y0, x0 + 8, y0 - 3, 18)
-  if e.dead and flr(t / 3) % 2 == 0 then
+  if e.dead and math.floor(t / 3) % 2 == 0 then
     circfill(x0 + 8, y0 - 4, 2, 31)
     pset(x0 + 6, y0 - 5, 30)
     pset(x0 + 10, y0 - 4, 30)
@@ -1184,7 +1173,7 @@ local function draw_tnt(e)
 end
 
 local function draw_pig(e)
-  local p = pstate(e.b)
+  local p = e.b
   spr(2, p.x - 8, p.y - 8)
   -- 受伤表情：血量过半画裂纹状皱眉
   if e.hp < e.hp0 * 0.5 then
@@ -1204,16 +1193,16 @@ local function draw_trajectory()
   local vx, vy = d.x * launch_speed(), d.y * launch_speed()
   local n = 0
   for i = 1, 90 do
-    vy = vy + 900 / 60
-    px = px + vx / 60
-    py = py + vy / 60
+    vy = vy + 0.25
+    px = px + vx
+    py = py + vy
     if py > GROUND_Y or px > 256 then break end
     if i % 7 == 3 then
       n = n + 1
       if n > 9 then break end
       local c = (n % 2 == 0) and 7 or 8
       if aim_pow > 0.97 then c = 31 end
-      circfill(px, py, max(2.2 - n * 0.15, 1), c)
+      circfill(px, py, math.max(2.2 - n * 0.15, 1), c)
     end
   end
 end
@@ -1223,7 +1212,7 @@ local function draw_power_bar()
   local bx, by, bh = 12, 138, 62
   rect(bx - 1, by - 1, 8, bh + 2, 0)
   rectfill(bx, by, 6, bh, 15)
-  local fh = flr(bh * aim_pow)
+  local fh = math.floor(bh * aim_pow)
   local c = 41
   if aim_pow > 0.66 then c = 59 elseif aim_pow > 0.33 then c = 29 else c = 34 end
   rectfill(bx, by + bh - fh, 6, fh, c)
@@ -1246,31 +1235,33 @@ local function draw_hud()
   end
   -- 关卡（顶中）
   local cs = "第" .. cur_lv .. "关"
-  shadow_print(cs, 128 - tw(cs) / 2, 3, 22)
+  shadow_print(cs, 128 - textw(cs) / 2, 3, 22)
   -- 剩余猪（右上）
   sspr(32, 0, 16, 16, 238, 2, 12, 12)
   shadow_print("×" .. pigs_left, 222, 3, 7)
   -- 底部提示（拉弓时显示角度力度，其余时刻一行图标）
   local hs
   if phase == "aim" then
-    hs = btnicon("dpad") .. " 角度 " .. flr(aim_ang) .. "　力度 " .. flr(aim_pow * 100)
+    hs = btnicon("dpad") .. " 角度 " .. math.floor(aim_ang) .. "　力度 " .. math.floor(aim_pow * 100)
   else
     hs = HINT_PLAY
   end
   fillp(0xa5a5)
-  rectfill(0, 240, 256, 16, 0 * 256 + 15)
+  fillp(0xa5a5, 0)
+  rectfill(0, 240, 256, 16, 15)
   fillp()
-  shadow_print(hs, 128 - tw(hs) / 2, 241, 6)
+  shadow_print(hs, 128 - textw(hs) / 2, 241, 6)
 end
 
 local function draw_pause()
   fillp(0x5a5a)
-  rectfill(0, 0, 256, 256, 1 * 256 + 15)
+  fillp(0x5a5a, 1)
+  rectfill(0, 0, 256, 256, 15)
   fillp()
   local px, py, pw, ph = 68, 84, 120, 92
   rectfill(px, py, pw, ph, 15)
   rect(px, py, pw, ph, 30)
-  shadow_print("菜单", 128 - tw("菜单") / 2, py + 8, 22)
+  shadow_print("菜单", 128 - textw("菜单") / 2, py + 8, 22)
   local opts = { "继续", "重开本关", "选关界面" }
   for i = 1, 3 do
     local c = i == pause_sel and 30 or 6
@@ -1283,44 +1274,45 @@ end
 
 local function draw_settle()
   fillp(0x5a5a)
-  rectfill(0, 0, 256, 256, 1 * 256 + 15)
+  fillp(0x5a5a, 1)
+  rectfill(0, 0, 256, 256, 15)
   fillp()
   local px, py, pw, ph = 36, 58, 184, 130
   rectfill(px, py, pw, ph, 15)
   rect(px, py, pw, ph, 30)
   if won then
-    shadow_print("过关！", 128 - tw("过关！") / 2, py + 10, 30)
+    shadow_print("过关！", 128 - textw("过关！") / 2, py + 10, 30)
     -- 星星逐个亮起
     for i = 1, 3 do
       local lit = settle_t > 20 + i * 25 and i <= shown_stars
       draw_star(88 + (i - 1) * 40, py + 48, 14, lit and 30 or 3)
     end
     -- 分数滚动
-    local shown = flr(score * min(1, settle_t / 50))
+    local shown = math.floor(score * math.min(1, settle_t / 50))
     local ss2 = "分数 " .. shown
-    shadow_print(ss2, 128 - tw(ss2) / 2, py + 74, 7)
+    shadow_print(ss2, 128 - textw(ss2) / 2, py + 74, 7)
     if settle_t > 55 then
-      if new_best and flr(t / 8) % 2 == 0 then
+      if new_best and math.floor(t / 8) % 2 == 0 then
         local nb = "新纪录！"
-        shadow_print(nb, 128 - tw(nb) / 2, py + 94, 59)
+        shadow_print(nb, 128 - textw(nb) / 2, py + 94, 59)
       else
         local bs = "最佳 " .. (best[cur_lv] or 0)
-        shadow_print(bs, 128 - tw(bs) / 2, py + 94, 22)
+        shadow_print(bs, 128 - textw(bs) / 2, py + 94, 22)
       end
     end
     local nxt = cur_lv < NLEVEL and (btnicon("a") .. " 下一关") or (btnicon("a") .. " 再玩一次")
-    shadow_print(nxt, 128 - tw(nxt) / 2, py + 112, 6)
+    shadow_print(nxt, 128 - textw(nxt) / 2, py + 112, 6)
   else
-    shadow_print("失败…", 128 - tw("失败…") / 2, py + 10, 59)
+    shadow_print("失败…", 128 - textw("失败…") / 2, py + 10, 59)
     local ps = "剩余小猪 " .. pigs_left .. " 只"
-    shadow_print(ps, 128 - tw(ps) / 2, py + 48, 7)
+    shadow_print(ps, 128 - textw(ps) / 2, py + 48, 7)
     local ss3 = "分数 " .. score
-    shadow_print(ss3, 128 - tw(ss3) / 2, py + 70, 7)
+    shadow_print(ss3, 128 - textw(ss3) / 2, py + 70, 7)
     local rs = btnicon("a") .. " 重试"
-    shadow_print(rs, 128 - tw(rs) / 2, py + 112, 6)
+    shadow_print(rs, 128 - textw(rs) / 2, py + 112, 6)
   end
   local ss = btnicon("menu") .. " 选关"
-  shadow_print(ss, 128 - tw(ss) / 2, py + 112 + 16 - 2, 9)
+  shadow_print(ss, 128 - textw(ss) / 2, py + 112 + 16 - 2, 9)
 end
 
 -- Splash：纯主视觉封面（0-90 帧）——弹弓大鸟 + 猪 + 大 logo，零菜单零提示
@@ -1337,7 +1329,7 @@ local function draw_splash()
   end
   print(s, 38, 36, 63)
   local s2 = "FC-16・弹弓物理破坏"
-  shadow_print(s2, 128 - tw(s2) / 2, 84, 7)
+  shadow_print(s2, 128 - textw(s2) / 2, 84, 7)
   draw_parts()
 end
 
@@ -1357,13 +1349,13 @@ local function draw_title()
   end
   print(s, 38, 36, 63)
   local s3 = "拉弓发射　拆塔砸猪"
-  shadow_print(s3, 128 - tw(s3) / 2, 102, 22)
+  shadow_print(s3, 128 - textw(s3) / 2, 102, 22)
   -- 开始提示（稳定不闪烁；y 避开弹弓上的大鸟）
   local s4 = "按 " .. btnicon("a") .. " 开始　" .. btnicon("y") .. " 操作说明"
-  shadow_print(s4, 128 - tw(s4) / 2 + 1, 173, 0)
-  shadow_print(s4, 128 - tw(s4) / 2, 172, 30)
+  shadow_print(s4, 128 - textw(s4) / 2 + 1, 173, 0)
+  shadow_print(s4, 128 - textw(s4) / 2, 172, 30)
   local s5 = "共获 ★ " .. total_stars()
-  shadow_print(s5, 128 - tw(s5) / 2, 236, 6)
+  shadow_print(s5, 128 - textw(s5) / 2, 236, 6)
   draw_parts()
 end
 
@@ -1371,12 +1363,13 @@ end
 local function draw_help()
   draw_bg()
   fillp(0x5a5a)
-  rectfill(0, 0, 256, 256, 1 * 256 + 15)
+  fillp(0x5a5a, 1)
+  rectfill(0, 0, 256, 256, 15)
   fillp()
   local px, py, pw, ph = 36, 34, 184, 188
   rectfill(px, py, pw, ph, 15)
   rect(px, py, pw, ph, 30)
-  shadow_print("操作说明", 128 - tw("操作说明") / 2, py + 10, 30)
+  shadow_print("操作说明", 128 - textw("操作说明") / 2, py + 10, 30)
   local rows = {
     { btnicon("a"), "按住拉弓・松开发射" },
     { btnicon("left") .. btnicon("right"), "调整角度" },
@@ -1391,20 +1384,20 @@ local function draw_help()
     print(r[2], px + 52, y, 7)
   end
   local s = "用撞击冲量拆毁结构，消灭所有小猪即过关"
-  shadow_print(s, 128 - tw(s) / 2, py + ph - 30, 22)
+  shadow_print(s, 128 - textw(s) / 2, py + ph - 30, 22)
   s = btnicon("b") .. " 返回"
-  shadow_print(s, 128 - tw(s) / 2, py + ph - 16, 6)
+  shadow_print(s, 128 - textw(s) / 2, py + ph - 16, 6)
 end
 
 local function draw_select()
   draw_bg()
   local s = "选择关卡"
-  shadow_print(s, 128 - tw(s) / 2, 8, 7)
+  shadow_print(s, 128 - textw(s) / 2, 8, 7)
   local ts = "共获 ★ " .. total_stars()
-  shadow_print(ts, 128 - tw(ts) / 2, 28, 6)
+  shadow_print(ts, 128 - textw(ts) / 2, 28, 6)
   for i = 1, NLEVEL do
     local gx = 22 + ((i - 1) % 5) * 46
-    local gy = 60 + flr((i - 1) / 5) * 66
+    local gy = 60 + math.floor((i - 1) / 5) * 66
     local ok = unlocked(i)
     rectfill(gx, gy, 42, 46, ok and 15 or 12)
     rect(gx, gy, 42, 46, i == sel and 30 or (ok and 11 or 13))
@@ -1413,7 +1406,7 @@ local function draw_select()
     end
     local c = ok and (i == sel and 30 or 7) or 5
     local ns = string.format("%02d", i)
-    print(ns, gx + 21 - tw(ns) / 2, gy + 4, c)
+    print(ns, gx + 21 - textw(ns) / 2, gy + 4, c)
     if ok then
       for st = 1, 3 do
         draw_star(gx + 11 + (st - 1) * 10, gy + 30, 4,
@@ -1426,9 +1419,9 @@ local function draw_select()
   local info = unlocked(sel)
     and ("第" .. sel .. "关・" .. LV[sel].name .. "　鸟 ×" .. LV[sel].birds)
     or "先通过前一关解锁"
-  shadow_print(info, 128 - tw(info) / 2, 202, 22)
+  shadow_print(info, 128 - textw(info) / 2, 202, 22)
   local h = btnicon("a") .. " 选择　" .. btnicon("menu") .. " 返回"
-  shadow_print(h, 128 - tw(h) / 2, 224, 6)
+  shadow_print(h, 128 - textw(h) / 2, 224, 6)
 end
 
 -- ================================================================ 主绘制
@@ -1460,7 +1453,7 @@ local function draw_play()
       local tr = bird.trail[i]
       circfill(tr.x, tr.y, i > 30 and 1 or 2, 7)
     end
-    local p = pstate(bird.b)
+    local p = bird.b
     draw_bird_at(p.x, p.y)
   end
   -- 待发射的鸟
@@ -1486,10 +1479,10 @@ local function draw_play()
   draw_parts()
   draw_floats()
   -- 最后一击横幅
-  if win_t > 0 and flr(t / 4) % 2 == 0 then
+  if win_t > 0 and math.floor(t / 4) % 2 == 0 then
     local s = "全部消灭！"
-    print(s, 128 - tw(s) / 2 + 1, 91, 0)
-    print(s, 128 - tw(s) / 2, 90, 31)
+    print(s, 128 - textw(s) / 2 + 1, 91, 0)
+    print(s, 128 - textw(s) / 2, 90, 31)
   end
   draw_hud()
   if state == "pause" then draw_pause() end
@@ -1502,7 +1495,7 @@ function _draw()
     for i = 0, 63 do pal(i, 7, 1) end
   end
   if shake_t > 0 then
-    camera(flr(rnd(5)) - 2, flr(rnd(5)) - 2)
+    camera(math.floor(rnd(5)) - 2, math.floor(rnd(5)) - 2)
   else
     camera(0, 0)
   end
@@ -1527,10 +1520,10 @@ function _init()
   srand(20260910)
   bake_sprites()
   init_audio()
-  music_on = flr(dget(40)) == 0
+  music_on = progress.music_on
   for i = 1, NLEVEL do
-    stars[i] = flr(dget(i)) -- dget 返回定点数，转整数避免拼接出 ".0"
-    best[i] = flr(dget(NLEVEL + i))
+    stars[i] = math.floor(progress.stars[i])
+    best[i] = math.floor(progress.best_scores[i])
   end
   if music_on then music(0, 500, 0x70) end -- ch4-6 交给音乐
   state = "splash"

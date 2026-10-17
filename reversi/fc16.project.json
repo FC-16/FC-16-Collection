@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "黑白棋",
+    "author": "FrostMiKu",
+    "saveId": "",
+    "version": 1,
+    "flags": 0,
+    "output": "reversi.fc16",
+    "release": "reversi.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "reversi.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

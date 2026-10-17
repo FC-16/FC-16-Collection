@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "螺旋隧道",
+    "author": "FrostMiKu",
+    "saveId": "tunnel",
+    "version": 1,
+    "flags": 0,
+    "output": "tunnel.fc16",
+    "release": "tunnel.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "tunnel.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

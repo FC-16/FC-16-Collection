@@ -1,0 +1,23 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "洞窟物语·序章",
+    "author": "FrostMiKu",
+    "saveId": "",
+    "version": 1,
+    "flags": 0,
+    "output": "cave-story.fc16",
+    "release": "cave-story.fc16.png",
+    "coverFrame": 120
+  },
+  "code": "build/cart.lua",
+  "sections": {
+    "sprites": "build/sprites.bin",
+    "maps": "build/maps.bin",
+    "sfx": "build/sfx.bin",
+    "waveforms": "build/waveforms.bin",
+    "sflags": "build/sflags.bin",
+    "custom": "build/custom.bin"
+  },
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

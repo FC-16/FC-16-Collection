@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "飞行棋",
+    "author": "FrostMiKu",
+    "saveId": "ludo",
+    "version": 1,
+    "flags": 0,
+    "output": "ludo.fc16",
+    "release": "ludo.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "ludo.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

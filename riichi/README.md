@@ -66,8 +66,8 @@ AI 决策为确定性规则（同分按固定顺序打破），不产生非法�
 | Ⓑ | 取消立直宣言 / 关闭杠菜单 / 鸣牌时过 |
 | Ⓧ | 杠菜单（暗杠 / 加杠） |
 | Ⓨ | 立直宣言（仅听牌后可打出的牌生效） |
-| Start | 暂停（继续 / 役种表 / 退出对局） |
-| Select | BGM 开关 |
+| Menu | 暂停（继续 / 役种表 / 退出对局） |
+| View | BGM 开关 |
 
 多人热座时切换操作者会出现遮蔽画面（"轮到 P3"），非当前操作者的手牌以
 牌背显示，鸣牌 / 立直 / 和牌提示仅对当前行动者可见。
@@ -90,18 +90,16 @@ AI 决策为确定性规则（同分按固定顺序打破），不产生非法�
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "日本麻将" --author "FrostMiKu" \
-  --version 1 --save-id riichi --code riichi/riichi.lua --cover 30 \
-  --out riichi/riichi.fc16 --png carts/riichi.fc16.png
-cargo run -p fc16-host -- riichi/riichi.fc16
+python3 tools/build_all.py riichi
+../FC-16/target/debug/fc16 riichi/riichi.fc16
 ```
 
 自测卡带（会先运行自测再进标题）：
 
 ```bash
-printf '*' > /tmp/t42.bin
-cargo run -p fc16-tools --bin fc16mk -- --name "日本麻将" --author "FrostMiKu" \
-  --version 1 --save-id riichi --code riichi/riichi.lua --custom /tmp/t42.bin \
-  --out /tmp/riichi-test.fc16 --png /tmp/riichi-test.fc16.png
-cargo run -p fc16-host -- /tmp/riichi-test.fc16 --frames 60
+python3 tools/build_all.py riichi
+../FC-16/target/debug/fc16 riichi/riichi.fc16
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

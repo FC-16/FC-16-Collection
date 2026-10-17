@@ -1,0 +1,9 @@
+30 key right
+90 key -
+130 key up
+230 key -
+270 key a
+310 key -
+350 key a
+390 key -
+310 key -

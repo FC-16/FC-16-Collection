@@ -1,0 +1,29 @@
+{
+  "$schema": "../../FC-16/spec/fc16.project.schema.json",
+  "format": 2,
+  "cart": {
+    "name": "Celeste2",
+    "author": "Maddy Thorson, Noel Berry",
+    "saveId": "celeste2",
+    "version": 1,
+    "flags": 0,
+    "output": "celeste2.fc16",
+    "release": "celeste2.fc16.png",
+    "icon": "build/icon.bin",
+    "coverFrame": 300
+  },
+  "code": "main.lua",
+  "sections": {
+    "sprites": "build/sprites.bin",
+    "sfx": "build/sfx.bin",
+    "waveforms": "build/waveforms.bin",
+    "instruments": "build/instruments.bin",
+    "music": "build/music.bin",
+    "sflags": "build/sflags.bin",
+    "custom": "build/custom.bin"
+  },
+  "inputs": [],
+  "files": [
+    "tools/cs2_convert.py"
+  ]
+}

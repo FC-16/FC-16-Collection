@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "cart": {
+    "name": "pacman",
+    "author": "FrostMiKu",
+    "saveId": "pacman",
+    "version": 1,
+    "flags": 0,
+    "output": "pacman.fc16",
+    "release": "pacman.fc16.png",
+    "coverFrame": 30
+  },
+  "code": "pacman.lua",
+  "sections": {},
+  "$schema": "../../FC-16/spec/fc16.project.schema.json"
+}

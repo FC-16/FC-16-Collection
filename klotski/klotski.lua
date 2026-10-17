@@ -1,5 +1,11 @@
+-- 存档只保存游戏进度和选项；帧尾由宿主自动落盘（SPEC §13）。
+local progress = load()
+if type(progress) ~= "table" then
+  progress = {last_level = 1, music_on = true, hints_on = true, best_steps = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
+end
+
 -- =====================================================================
--- FC-16 华容道演示卡带（demo/klotski）
+-- FC-16 华容道演示卡带（klotski）
 --
 -- 规则：4×5 木盘，曹操（2×2）须滑到下方中央出口（底边中 2 格）。
 --   滑块只可滑入相邻空位，不可斜移 / 跳跃 / 穿块；
@@ -14,7 +20,7 @@
 --   ・Ⓛ/Ⓡ 前后关卡・View 音乐开关・Menu 选关
 --
 -- 资产全部程序化：木纹滑块精灵 _init poke 烘焙（16×16 瓦片 3× 绘制），
---   SFX / BGM 按 SPEC §5.2 位写入；每关最佳步数存 dset 槽 0-9。
+-- 存档使用结构化数据（SPEC §13）。
 -- =====================================================================
 
 -- ---------------------------------------------------------------- 常量
@@ -83,8 +89,6 @@ local LEVELS = {
 local NLV = #LEVELS
 
 -- 存档槽：0-9 每关最佳步数 / 10 音乐开关 / 11 提示开关 / 12 上次关卡
-local SLOT_BEST_BASE = 0
-local SLOT_MUSIC, SLOT_HINT, SLOT_LAST = 10, 11, 12
 
 -- 音效编号
 local S_CUR, S_PUSH, S_BAD, S_UNDO = 0, 1, 2, 3
@@ -92,7 +96,7 @@ local S_MENU, S_GO, S_WIN, S_RECORD, S_EXIT, S_TOGGLE = 4, 5, 6, 7, 8, 9
 
 -- ---------------------------------------------------------------- 小工具
 
-local function cprint(s, y, c) print(s, flr((256 - tw(s)) / 2), y, c) end
+local function cprint(s, y, c) print(s, math.floor((256 - textw(s)) / 2), y, c) end
 
 -- 迭代 UTF-8 字符串的单个字符（关卡字符画解析用）
 local function utf8_chars(s)
@@ -111,24 +115,24 @@ end
 
 local function u8(a, v) poke(a, v % 256) end
 
--- v0.99 固件音色 → v0.177 自定义波形（tools/gen_waveforms.py 生成）
+-- 游戏自定义音色预设（64 个 i8 样本，SPEC §5.2）。
 -- 索引 = 自定义波形 0-7；SFX step 的来源编号 = 8 + 索引
 local WAVEFORM_DATA = {
-  -- 0: 旧 ROUND
+  -- 0: ROUND
   {8,16,25,34,42,59,76,84,93,102,110,110,110,118,127,127,127,127,127,118,110,110,110,102,93,84,76,59,42,34,25,16,8,-8,-25,-34,-42,-59,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-118,-110,-110,-110,-102,-93,-84,-76,-59,-42,-34,-25,-8},
-  -- 1: 旧 DOUBLE SAW
+  -- 1: DOUBLE SAW
   {-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0,-93,-84,-76,-76,-76,-68,-59,-50,-42,-34,-25,-25,-25,-16,-8,0,8,16,25,25,25,34,42,50,59,68,76,76,76,84,93,0},
-  -- 2: 旧 BELL
+  -- 2: BELL
   {8,42,76,84,93,93,93,93,93,110,127,127,127,102,76,59,42,59,76,102,127,127,127,110,93,93,93,93,93,84,76,42,8,-34,-76,-84,-93,-93,-93,-93,-93,-110,-127,-127,-127,-102,-76,-59,-42,-59,-76,-102,-127,-127,-127,-110,-93,-93,-93,-93,-93,-84,-76,-34},
-  -- 3: 旧 BASS
+  -- 3: BASS
   {-8,8,25,42,59,68,76,84,93,102,110,118,127,127,127,127,127,118,110,102,93,84,76,59,42,34,25,25,25,16,8,0,-8,-8,-8,-16,-25,-25,-25,-34,-42,-59,-76,-84,-93,-102,-110,-118,-127,-127,-127,-127,-127,-118,-110,-102,-93,-84,-76,-68,-59,-42,-25,-16},
-  -- 4: 旧 HOLLOW
+  -- 4: HOLLOW
   {-8,-8,-8,-8,-8,0,8,25,42,50,59,76,93,110,127,127,127,127,127,110,93,76,59,50,42,25,8,0,-8,-8,-8,-8,-8,0,8,8,8,0,-8,-25,-42,-50,-59,-76,-93,-110,-127,-127,-127,-127,-127,-110,-93,-76,-59,-50,-42,-25,-8,0,8,8,8,0},
-  -- 5: 旧 BIT
+  -- 5: BIT
   {42,42,42,42,42,76,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,76,42,42,42,42,42,0,-42,-42,-42,-76,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-110,-76,-42,-42,-42,0},
-  -- 6: 旧 PULSE 12
+  -- 6: PULSE 12
   {127,127,127,127,127,127,127,0,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,-127,0},
-  -- 7: 旧 REED
+  -- 7: REED
   {8,42,76,93,110,118,127,127,127,127,127,127,127,118,110,110,110,102,93,84,76,76,76,68,59,59,59,50,42,34,25,16,8,-8,-25,-34,-42,-50,-59,-59,-59,-68,-76,-76,-76,-84,-93,-102,-110,-110,-110,-118,-127,-127,-127,-127,-127,-127,-127,-118,-110,-93,-76,-34},
 }
 
@@ -142,21 +146,21 @@ local function init_waveforms()
   end
 end
 
--- 旧固件 16 音色 → 新来源编号：0-7 系统波形、8-15 自定义波形、14=PULSE 12、15=REED
-local WMAP = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
+-- 配器音色表：游戏音色编号对应当前 SFX 波形来源。
+local TIMBRE_SOURCE = { [0] = 0, 1, 2, 3, 4, 14, 5, 15, 8, 9, 10, 11, 12, 13, 6, 6 }
 
 -- 按 SPEC §5.2 布局写一条 SFX（notes 音高表，0 = 休止）
--- 音高为旧固件值（1-96 = C0-B7），写卡带前换算为新 0-95 并用音量 0 表休止
+-- 乐谱采用从 1 编号的半音，0 表示休止；写入时换成 SFX 的从 0 编号音高。
 local function init_sfx(id, notes, wave, vol, speed)
   local base = 0x0C0000 + id * 144
-  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 旧每步帧数(60Hz) → 新 SPD tick(240Hz)
+  poke2(base, (speed == 0 and 1 or speed) * 4)  -- 乐谱步长以 60Hz 帧表示，编码为 240Hz tick
   u8(base + 2, #notes)
   for i = 0, 31 do
     local a = base + 16 + i * 4
     local p = notes[i + 1]
     if p and p > 0 then
       u8(a, p - 1)
-      u8(a + 1, WMAP[wave])
+      u8(a + 1, TIMBRE_SOURCE[wave])
       u8(a + 2, vol)
       u8(a + 3, 0)
     else
@@ -317,7 +321,7 @@ local function load_level(n)
   local code = LEVELS[n][4]
   local seen, idx = {}, 1
   for c in utf8_chars(code) do
-    local x, y = (idx - 1) % BW, flr((idx - 1) / BW)
+    local x, y = (idx - 1) % BW, math.floor((idx - 1) / BW)
     if c ~= "." then
       local left = x > 0 and occ_at(x - 1, y) or 0
       local up = y > 0 and occ_at(x, y - 1) or 0
@@ -424,36 +428,36 @@ local function start_level(n)
   cx, cy = 1, 0
   anim, bump, winf, conf = nil, nil, nil, {}
   mode = "play"
-  dset(SLOT_LAST, n)
-  fflush()
+  progress.last_level = n; assert(save(progress))
+
   if music_on then music(0, 300, 0xE0) end
   sfx(S_GO)
 end
 
 local function goto_select()
   mode = "select"
-  music(-1, 200)
+  music_stop(200)
 end
 
 local function goto_title()
   mode = "title"
-  music(-1, 200)
+  music_stop(200)
 end
 
 local function toggle_music()
   music_on = not music_on
-  dset(SLOT_MUSIC, music_on and 0 or 1)
-  fflush()
+  progress.music_on = music_on; assert(save(progress))
+
   sfx(S_TOGGLE)
   if mode == "play" then
-    if music_on then music(0, 300, 0xE0) else music(-1, 300) end
+    if music_on then music(0, 300, 0xE0) else music_stop(300) end
   end
 end
 
 local function toggle_hint()
   hint_on = not hint_on
-  dset(SLOT_HINT, hint_on and 0 or 1)
-  fflush()
+  progress.hints_on = hint_on; assert(save(progress))
+
   sfx(S_TOGGLE)
 end
 
@@ -511,8 +515,8 @@ end
 -- 方向键按住重复（btnp 无自动重复，自实现节拍）
 local hold_dx, hold_dy, rep_t = 0, 0, 0
 local function dir_repeat()
-  local dx = (dir(1) and 1 or 0) - (dir(0) and 1 or 0)
-  local dy = (dir(3) and 1 or 0) - (dir(2) and 1 or 0)
+  local dx = (dir("right") and 1 or 0) - (dir("left") and 1 or 0)
+  local dy = (dir("down") and 1 or 0) - (dir("up") and 1 or 0)
   if dx ~= 0 then dy = 0 end -- 斜按时取横向单轴
   if dx == 0 and dy == 0 then
     hold_dx, hold_dy, rep_t = 0, 0, 0
@@ -537,8 +541,8 @@ local function spawn_conf(n)
     conf[#conf + 1] = {
       x = rnd(256), y = -4 - rnd(120),
       vy = 0.9 + rnd(1.6), ph = rnd(1),
-      c = CONF_COLS[flr(rnd(#CONF_COLS)) + 1],
-      w = 2 + flr(rnd(2)),
+      c = CONF_COLS[math.floor(rnd(#CONF_COLS)) + 1],
+      w = 2 + math.floor(rnd(2)),
     }
   end
 end
@@ -573,8 +577,8 @@ local function update_play()
         w.record = old > 0 and steps < old
         if old == 0 or steps < old then
           best[lv] = steps
-          dset(SLOT_BEST_BASE + lv - 1, steps)
-          fflush()
+          progress.best_steps[lv] = steps; assert(save(progress))
+
         end
         if w.min_hit then
           sfx(S_RECORD)
@@ -583,14 +587,14 @@ local function update_play()
           sfx(S_WIN)
           spawn_conf(30)
         end
-        music(-1, 800)
+        music_stop(800)
       end
     else -- won：结算界面
-      if btnp(4) then
+      if btnp("a") then
         if lv < NLV then start_level(lv + 1) else goto_select() end
-      elseif btnp(5) then
+      elseif btnp("b") then
         start_level(lv)
-      elseif btnp(11) then
+      elseif btnp("menu") then
         goto_select()
       end
     end
@@ -599,42 +603,42 @@ local function update_play()
   end
   if anim then return end
   -- 全局热键
-  if btnp(10) then toggle_music() return end
-  if btnp(11) then goto_select() return end
-  if btnp(6) then start_level(lv) return end
-  if btnp(7) then toggle_hint() return end
-  if btnp(8) and lv > 1 then start_level(lv - 1) return end
-  if btnp(9) and lv < NLV then start_level(lv + 1) return end
-  if btnp(4) or btnp(5) then do_undo() return end
+  if btnp("view") then toggle_music() return end
+  if btnp("menu") then goto_select() return end
+  if btnp("x") then start_level(lv) return end
+  if btnp("y") then toggle_hint() return end
+  if btnp("lb") and lv > 1 then start_level(lv - 1) return end
+  if btnp("rb") and lv < NLV then start_level(lv + 1) return end
+  if btnp("a") or btnp("b") then do_undo() return end
   dir_repeat()
 end
 
 local function update_select()
-  if dirp(2) and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
-  if dirp(3) and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
-  if dirp(0) and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
-  if dirp(1) and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
-  if btnp(8) and sel_lv > 1 then sel_lv = sel_lv - 3 sfx(S_CUR) end
-  if btnp(9) and sel_lv < NLV then sel_lv = min(sel_lv + 3, NLV) sfx(S_CUR) end
-  if btnp(10) then toggle_music() return end
-  if btnp(5) or btnp(6) then goto_title() return end
-  if btnp(4) or btnp(11) then start_level(sel_lv) end
+  if dirp("up") and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
+  if dirp("down") and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
+  if dirp("left") and sel_lv > 1 then sel_lv = sel_lv - 1 sfx(S_CUR) end
+  if dirp("right") and sel_lv < NLV then sel_lv = sel_lv + 1 sfx(S_CUR) end
+  if btnp("lb") and sel_lv > 1 then sel_lv = sel_lv - 3 sfx(S_CUR) end
+  if btnp("rb") and sel_lv < NLV then sel_lv = math.min(sel_lv + 3, NLV) sfx(S_CUR) end
+  if btnp("view") then toggle_music() return end
+  if btnp("b") or btnp("x") then goto_title() return end
+  if btnp("a") or btnp("menu") then start_level(sel_lv) end
 end
 
 local function update_title()
-  if dirp(2) or dirp(3) then
+  if dirp("up") or dirp("down") then
     title_sel = title_sel == 1 and 2 or 1
     sfx(S_CUR)
   end
-  if btnp(10) then toggle_music() return end
-  if btnp(4) or btnp(11) then
+  if btnp("view") then toggle_music() return end
+  if btnp("a") or btnp("menu") then
     mode = title_sel == 1 and "select" or "help"
     sfx(S_MENU)
   end
 end
 
 local function update_help()
-  if btnp(4) or btnp(5) or btnp(6) or btnp(11) then goto_title() end
+  if btnp("a") or btnp("b") or btnp("x") or btnp("menu") then goto_title() end
 end
 
 function _update()
@@ -648,7 +652,7 @@ function _update()
     if anim.t0 >= anim.dur then anim = nil end
   end
   if mode == "splash" then
-    if t > 90 or btnp(4) or btnp(11) then mode = "title" end
+    if t > 90 or btnp("a") or btnp("menu") then mode = "title" end
   elseif mode == "title" then
     update_title()
   elseif mode == "select" then
@@ -685,7 +689,7 @@ local function draw_board()
     local ay = cell_y(4) + CS - 16
     for r = 0, 2 do
       line(ax - 5 + r, ay + r * 5, ax + 5 - r, ay + r * 5,
-        (r + flr(t / 8)) % 2 == 0 and C_GOLD or C_WOOD_L)
+        (r + math.floor(t / 8)) % 2 == 0 and C_GOLD or C_WOOD_L)
     end
   end
 end
@@ -697,7 +701,7 @@ local function draw_piece(i, ox, oy)
   for py = 0, p.h - 1 do
     for px = 0, p.w - 1 do
       local id = tile_of(p.ch, px, py)
-      sspr((id % 16) * 16, flr(id / 16) * 16, 16, 16,
+      sspr((id % 16) * 16, math.floor(id / 16) * 16, 16, 16,
         cell_x(p.x + px) + ox, cell_y(p.y + py) + oy, CS, CS)
     end
   end
@@ -746,10 +750,10 @@ local function draw_pieces()
     end
     if anim and anim.exit and i == 1 then
       clip(BX - 2, 0, BW * CS + 4, BY + BH * CS) -- 出关裁剪到棋盘内
-      draw_piece(i, flr(ox), flr(oy))
+      draw_piece(i, math.floor(ox), math.floor(oy))
       clip()
     else
-      draw_piece(i, flr(ox), flr(oy))
+      draw_piece(i, math.floor(ox), math.floor(oy))
     end
   end
 end
@@ -773,7 +777,7 @@ local function draw_cursor()
   if i == 0 then return end
   local p = pieces[i]
   corners(cell_x(p.x) - 2, cell_y(p.y) - 2, p.w * CS + 4, p.h * CS + 4, 7,
-    flr(t / 5) % 2 == 0 and C_GOLD_L or C_GOLD)
+    math.floor(t / 5) % 2 == 0 and C_GOLD_L or C_GOLD)
 end
 
 -- 可动块微高亮：块右上角小金点
@@ -792,9 +796,9 @@ local function draw_topbar()
   line(0, 16, 255, 16, C_BAR_LN)
   print(LEVELS[lv][1], 4, 0, C_GOLD)
   local s = "步 " .. steps
-  print(s, 252 - tw(s) - 66, 0, C_WHITE)
+  print(s, 252 - textw(s) - 66, 0, C_WHITE)
   local b = "最佳 " .. (best[lv] > 0 and best[lv] or "-")
-  print(b, 252 - tw(b), 0, C_GRAY)
+  print(b, 252 - textw(b), 0, C_GRAY)
 end
 
 local function draw_sides()
@@ -808,7 +812,7 @@ local function draw_sides()
   local ey = cell_y(4) - 26
   print("出", 240, ey, C_GOLD)
   print("口", 240, ey + 17, C_GOLD)
-  local ay = ey + 36 + (flr(t / 10) % 2) * 3
+  local ay = ey + 36 + (math.floor(t / 10) % 2) * 3
   line(235, ay, 240, ay + 5, C_GOLD)
   line(240, ay + 5, 245, ay, C_GOLD)
   line(235, ay + 8, 240, ay + 13, C_GOLD)
@@ -826,17 +830,18 @@ local function draw_win()
   local w = winf
   if not w or w.phase ~= "won" then return end
   fillp(0xAAAA)
-  rectfill(0, 0, 256, 256, C_BAR * 256 + C_BG)
+  fillp(0xAAAA, C_BAR)
+  rectfill(0, 0, 256, 256, C_BG)
   fillp()
   rrectfill(28, 66, 200, 124, 7, C_RED_D)
   rrect(28, 66, 200, 124, 7, C_GOLD)
-  if w.min_hit and flr(t / 4) % 2 == 0 then
+  if w.min_hit and math.floor(t / 4) % 2 == 0 then
     rrect(26, 64, 204, 128, 8, C_GOLD_L)
   end
   cprint("曹操脱险", 78, C_GOLD)
   cprint("用 " .. steps .. " 步 ・ 最少 " .. LEVELS[lv][2] .. " 步", 100, C_IVORY)
   if w.min_hit then
-    cprint("最少步达成！", 118, flr(t / 3) % 2 == 0 and C_GOLD_L or C_GOLD)
+    cprint("最少步达成！", 118, math.floor(t / 3) % 2 == 0 and C_GOLD_L or C_GOLD)
   elseif w.record then
     cprint("新纪录！", 118, C_GOLD_L)
   else
@@ -883,7 +888,7 @@ local function draw_select()
     local on = sel_lv == n
     if on then
       rectfill(2, y - 2, 252, 19, C_RED_D)
-      if flr(t / 6) % 2 == 0 then print("▶", 6, y, C_GOLD) end
+      if math.floor(t / 6) % 2 == 0 then print("▶", 6, y, C_GOLD) end
     end
     print(LEVELS[n][1], 24, y, on and C_WHITE or C_IVORY)
     print(LEVELS[n][2], 128, y, on and C_GOLD or 21)
@@ -906,7 +911,7 @@ local function draw_splash()
   cls(C_BG)
   -- 大 logo（scale 4：暗红影 + 亮金，匾额气质）
   local chars = { "华", "容", "道" }
-  local cw = tw("华") * 4
+  local cw = textw("华") * 4
   for i = 1, 3 do
     local x = 128 - cw * 1.5 + (i - 1) * (cw + 6)
     print(chars[i], x + 4, 24, C_RED_D, 4)
@@ -929,7 +934,7 @@ local function draw_splash()
   for py = 0, 1 do
     for px = 0, 1 do
       local id = TILE["曹"][py * 2 + px + 1]
-      sspr((id % 16) * 16, flr(id / 16) * 16, 16, 16, bx + px * s, by + py * s, s, s)
+      sspr((id % 16) * 16, math.floor(id / 16) * 16, 16, 16, bx + px * s, by + py * s, s, s)
     end
   end
   rrectfill(bx + 34, by + 74, 60, 44, 5, ct.dark)
@@ -938,7 +943,7 @@ local function draw_splash()
   -- 四卒环绕（scale 2，盘面四角）
   local sid = TILE["卒"][1]
   local st = TINT["卒"]
-  local sx, sy = (sid % 16) * 16, flr(sid / 16) * 16
+  local sx, sy = (sid % 16) * 16, math.floor(sid / 16) * 16
   local spots = { { 30, 100 }, { 194, 100 }, { 30, 204 }, { 194, 204 } }
   for _, q in ipairs(spots) do
     sspr(sx, sy, 16, 16, q[1], q[2], 32, 32)
@@ -953,7 +958,8 @@ local function draw_title()
   draw_board()
   draw_pieces()
   fillp(0x4444)
-  rectfill(0, 0, 256, 256, C_BG * 256 + C_BAR)
+  fillp(0x4444, C_BG)
+  rectfill(0, 0, 256, 256, C_BAR)
   fillp()
   rrectfill(44, 30, 168, 52, 8, C_RED_D)
   rrect(44, 30, 168, 52, 8, C_GOLD)
@@ -1000,10 +1006,10 @@ end
 function _init()
   bake_blocks()
   init_audio()
-  for n = 1, NLV do best[n] = dget(SLOT_BEST_BASE + n - 1) end
-  music_on = dget(SLOT_MUSIC) == 0
-  hint_on = dget(SLOT_HINT) == 0
-  local last = dget(SLOT_LAST)
+  for n = 1, NLV do best[n] = progress.best_steps[n] end
+  music_on = progress.music_on
+  hint_on = progress.hints_on
+  local last = progress.last_level
   sel_lv = (last >= 1 and last <= NLV) and last or 1
   load_level(NLV) -- 标题背景用横刀立马初始盘面
   mode = "splash"

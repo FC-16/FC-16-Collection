@@ -1,6 +1,6 @@
 # 赤色之夜（Crimson Night）
 
-本卡带直接由 `third_party/crimson_night/code.lua` 逐函数迁移为 Lua 5.4 + FC-16
+本卡带直接由 `../FC-16/third_party/crimson_night/code.lua` 逐函数迁移为 pinned Luau + FC-16
 原生 API；没有 PICO-8 兼容层或源码转换器。原作的教程、移动、自动瞄准、左轮六发
 弹仓与换弹、冲刺、敌人、经验宝石、升级三选一、受伤无敌闪烁和死亡后 Menu 重启
 均保留。受击闪红（`pal` 白→红整帧重映射）、敌人死亡溅血（20 粒血珠 + 地面
@@ -15,7 +15,7 @@
 ## 本地化与手感
 
 - 升级三选一的技能/增益名、教程、死亡结算全部中文（字集均在固件字集内）；文本
-  居中一律用 `tw()` 按 Fusion 比例步进计宽（`#str` 是字节数不可用）。
+  居中一律用 `textw()` 按固件实际字宽计量（ASCII 6px 等宽，`#str` 是字节数不可用）。
 - 影子：PICO-8 `ovalfill(x0,y0,x1,y1)` 包围盒签名换算为 FC-16 中心 + 双半轴
   （玩家 / 敌人 / 炸药 / 经验宝石四处），玩家脚下椭圆阴影按原作恢复。
 - 左轮弹仓：黑盘、弹巢旋转与中心图标统一以盘心 `(112,112)` 为圆心，弹壳按正
@@ -29,20 +29,30 @@
 代码层的色彩常量一律经 `COL` 表取值（文件头部）：PICO-8 色号 0–15 → FC-16
 64 色号，由 `convert_assets.py` 按 `assets/palette.dat` 最近色生成（与精灵像素
 转换同源，转换器运行时打印该表）。PICO 白色（7）映射到 FC 7 白，
-因此 `pal(7,8)` 类重映射在移植里写作 `pal(COL[7], COL[8])`。PICO-8 的三角、倾斜锯齿、锯齿、方波、脉冲、Organ、噪声、Phaser 分别使用 FC-16 的 TRIANGLE、TILTED SAW、SAW、SQUARE、PULSE 25、ORGAN、NOISE SHORT、ROUND；自定义乐器降级为 ROUND。转换器不再写入 FC-16 的卡带保留波表区。
+因此 `pal(7,8)` 类重映射在移植里写作 `pal(COL[7], COL[8])`。
 
 ## 音频
 
-PICO-8 音频时钟实测 120Hz（每 tick = 1/120s = 0.5 个 FC-16 帧），转换以此为准：
+PICO-8 音频时钟为 120Hz，FC-16 音频时间轴为 240Hz，转换以此为准：
 
-- **SFX**：68B 记录逐音符解码后写入 144B（头 16B + 32 步 × 4B）。速度 = PICO speed/2 帧；
+- **SFX**：68B 记录逐音符解码后写入 144B（16B 头 + 32×4B）。u16 SPD = PICO speed×2 ticks；
   PICO tracker 的 C0=65.4Hz 对应 FC 科学音高 C2，故整体上移 24 半音
-  （`note = pitch + 25`，0 保留为休止）；
-  音量 ×2；PICO 的逐音效果直接映射到 FC 的 Effect 码。SFX 127
-  为全休止占位，见下。
-- **音乐**：PICO 的 64 行乐谱逐行重建为 64 行 MUSIC；每行在通道 0/3/5/7
-  直接引用对应 SFX，各声部保留自身速度；最左非循环声部控制该行时长。通道 OFF 引用全休止的 SFX 127。
-  原 loop-start 5 / loop-end 16 映射为行 5 的 LOOP_START 与行 16 的 LOOP_BACK。
+  （`note = pitch + 24`，音量 0 才是静音）；
+  音量 `v` 按 `(15*v+3)//7` 映射到 0–15；五项 Filters 从原模式字节逐项解码，
+  PICO 的逐音效果直接映射到 FC 的 Effect 码。
+- **自定义音色**：PICO 来源 8–15 先看所引用 SFX 0–7 的波形模式位；本卡带
+  均未使用波形模式，实际用到的自定义乐器是 4、6，分别转换为 FC 的来源 20、22。
+  乐器自身的 step pitch 保留原始值，仅外层 SFX 音符上移 24；乐器 SPD、32 步、
+  音量、效果和 Filters 均独立保存。未被当作乐器引用的原 SFX 7 仍是普通可播放 SFX。
+- **音乐**：PICO 的 17 个有效乐谱行逐行重建为 FC Music Row；通道 0/3/5/7
+  直接引用原 SFX，通道 OFF 写 0xFF。各轨以原有速度/长度/循环独立推进，
+  LOOP_START/LOOP_BACK/STOP 按原乐谱标志写入。原 PICO 由最左侧非循环声部
+  决定行长，FC 由最长者决定；本卡带 11 行受此差异影响。转换器将较长的后轨
+  SFX 8/7/9/10 分别克隆为 64/65/66/67，并只在 Music 引用的克隆最后一步
+  设置单步循环。各受影响行仍在原左首 SFX 的 1280 tick 结束，而这些克隆首次
+  完成末步最早也要 1792 tick，因此原行长和行内可闻片段均保留。游戏直接播放
+  原 SFX 的行为不变。最晚可闻 step 距克隆末步至少 9 步，四音琶音的三步前瞻
+  也不会碰到新增循环；不满足这个条件的其他卡带会由转换器明确报错。
 - **通道路由**：`music(0, 0, 169)`——通道 0/3/5/7 交给音乐，1/2/4/6 留给音效。
   若不传 mask，music 默认占用全部 8 通道；显式通道音效仍可抢占音乐声部。枪声 1 / 拾取 2 / 升级 4，
   其余自动路由。
@@ -55,34 +65,26 @@ PICO-8 音频时钟实测 120Hz（每 tick = 1/120s = 0.5 个 FC-16 帧），转
 
 ## 构建
 
-卡带资产已由 `tools/convert_assets.py` 转换为 v0.177 格式：`sprites.bin` 直接沿用，
-`maps_new.bin` / `sfx_new.bin` / `music_new.bin` / `sflags_new.bin` 分别由旧格式
-`map.bin` / `sfx_fc16.bin` / `patterns_fc16.bin` / `sflags.bin` 转换生成（历史解码
-管线 `decode_p8png.py` 与 `third_party/skills/pico8-to-fc16/convert_assets.py`
-仅在复现旧格式原始资产时需要）。
-
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- \
-  --name "赤色之夜" --author "Fictionity" --version 1 \
-  --code crimson_night/crimson_night.lua \
-  --sprites crimson_night/sprites.bin --maps crimson_night/maps_new.bin \
-  --sfx crimson_night/sfx_new.bin --music crimson_night/music_new.bin \
-  --sflags crimson_night/sflags_new.bin \
-  --out crimson_night/crimson_night.fc16 \
-  --png carts/crimson_night.fc16.png
+python3 tools/build_all.py crimson_night
+../FC-16/target/debug/fc16 crimson_night/crimson_night.fc16
 ```
 
 ## 验证
 
 ```bash
-cargo run -p fc16-host -- crimson_night/crimson_night.fc16 --frames 4900 \
-  --wav /tmp/cn.wav          # 82s：0–26s 前奏、其后循环段；低音 RMS 周期 40 帧
-cargo run -p fc16-host -- crimson_night/crimson_night.fc16 --seed 1 \
-  --frames 700 --script <(printf '10 key 11\n20 key -\n130 key 11\n140 key -\n') \
+python3 -m unittest discover -s ../FC-16/third_party/skills/pico8-to-fc16 -p test_convert_assets.py
+../FC-16/target/debug/fc16 crimson_night/crimson_night.fc16 --frames 220 \
+  --wav /tmp/cn.wav
+../FC-16/target/debug/fc16 crimson_night/crimson_night.fc16 --seed 1 \
+  --frames 700 --script <(printf '10 key menu\n20 key -\n130 key menu\n140 key -\n') \
   --screenshot /tmp/cn.png   # 站桩挨打：帧 376/496/616 受击（闪红 + 无敌闪烁 + rumble）
 ```
 
 已核对：开场教程两屏、游戏进行（地面/敌人/血渍/子弹/左轮/经验条/影子）、升级
 三选一（卡片框、选中投影、红底选择框、中文名称居中）、死亡结算（红色“游戏结束”、
-红色“开始键”）；音频 WAV 分析确认 10 帧/音节拍、前奏→循环链、枪声瞬态与开火帧
-一致。编辑器 MAP 视图只见作者 34 格涂鸦（行 17..22），无伪影。
+红色“开始键”）。转换器回归检查原始音色字段、循环克隆和行时长；编辑器 MAP
+视图只见作者 34 格涂鸦（行 17..22），无伪影。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

@@ -137,16 +137,14 @@ python mario/convert_level.py L_CastleArea1    # 指定区域
 | Ⓑ | 按住跑动；火力态发射火球 |
 | Ⓐ | 跳（按住跳更高；速度越快跳得越高） |
 | ⬇ | 蹲 / 进入管道 |
-| Start | 暂停 |
-| Select | 音乐开关 |
+| Menu | 暂停 |
+| View | 音乐开关 |
 
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "超级马里奥" --author "FrostMiKu" \
-  --version 1 --save-id mario --code mario/mario.lua --cover 30 \
-  --out mario/mario.fc16 --png carts/mario.fc16.png
-cargo run -p fc16-host -- mario/mario.fc16
+python3 tools/build_all.py mario
+../FC-16/target/debug/fc16 mario/mario.fc16
 ```
 
 `--cover 30` 取标题画面第 90 帧作卡带封面。卡带体积约 133KB（1MiB 预算内：
@@ -159,3 +157,6 @@ python mario/convert_music.py   # 音乐生成段（可选 --check 校验）
 python mario/convert_level.py   # 关卡布局核对（人工转写参考，不直接写回）
 python mario/verify.py          # 无头验证 + 截图（在仓库根目录运行）
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

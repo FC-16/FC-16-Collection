@@ -22,7 +22,7 @@ FC-16 幻想主机上的完整贪吃蛇演示卡带：三种模式、三档速�
 - 连吃窗口 6 秒：窗口内每次进食的音效音高逐级上升（8 级）。
 - 死亡演出：绘制期 + 显示期双重调色映射闪红、头部撞击回弹、震屏，
   身体自尾向头逐节碎裂成粒子，最后头部爆裂并弹出结算面板。
-- 分模式最高分 `dset` + `fflush` 持久化（槽位 0/1/2），音乐开关存槽位 3。
+- 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。
 
 ## 操作
 
@@ -31,7 +31,7 @@ FC-16 幻想主机上的完整贪吃蛇演示卡带：三种模式、三档速�
 | ⬅⬆⬇➡ | 转向（标题画面为选模式 / 速度） |
 | Ⓐ | 标题开始 / Game Over 后再来一局 |
 | Ⓑ 或 Start | 暂停 / 继续 |
-| Select | 音乐开关（标题 / 游戏 / 暂停中均可） |
+| View | 音乐开关（标题 / 游戏 / 暂停中均可） |
 
 ## 音频
 
@@ -43,17 +43,18 @@ A 小调五声 8 小节循环。吃食音高随连吃次数上升，死亡为下
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "贪吃蛇" --author "FrostMiKu" \
-  --version 1 --save-id snake --code snake/snake.lua --cover 30 \
-  --out snake/snake.fc16 --png carts/snake.fc16.png
-cargo run -p fc16-host -- snake/snake.fc16
+python3 tools/build_all.py snake
+../FC-16/target/debug/fc16 snake/snake.fc16
 ```
 
 headless 验证（零输入 400 帧 + 输入脚本长跑，注意 seed 0 会被宿主映射为
 随机种子，固定请用 `--seed 1`）：
 
 ```bash
-cargo run -p fc16-host -- snake/snake.fc16 --frames 400 --screenshot out.png
-cargo run -p fc16-host -- snake/snake.fc16 --frames 6100 --seed 4 \
+../FC-16/target/debug/fc16 snake/snake.fc16 --frames 400 --screenshot out.png
+../FC-16/target/debug/fc16 snake/snake.fc16 --frames 6100 --seed 4 \
   --script script.txt --screenshot out.png
 ```
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。

@@ -17,7 +17,7 @@
 - 计分：得分 = 底分（叫分）× 倍数；炸弹与王炸每打出一个倍数 ×2；
   春天（地主胜且两农民一张未出）与反春（农民胜且地主只出过首手）再 ×2。
   地主赢则 +2×得分、两农民各 -1×得分，输则反向；本卡带只累计你的净积分。
-- 存档：`dset` 槽 0 = 累计积分，槽 1 = 局数（`fflush` 落盘）。
+- 进度、纪录与选项使用 `save/load` 结构化保存；帧尾自动落盘。
 
 ### 简化项
 
@@ -58,17 +58,17 @@
 Ⓐ 确认。要不起时画面会提示「要不起，Ⓨ不要」。
 
 > 牌面使用 balatro 扑克精灵表（`tools/cards.bin`，52 张牌面 + 6 张牌背，
-> 瓦片 0..255；程序化绘制的仅剩大小王）。发布封面统一输出到 `carts/`。
+> 瓦片 0..255；程序化绘制的仅剩大小王）。发布封面统一输出到 `doudizhu/doudizhu.fc16.png`。
 
 ## 构建与运行
 
 ```bash
-cargo run -p fc16-tools --bin fc16mk -- --name "斗地主" --author "FrostMiKu" \
-  --version 1 --save-id doudizhu --code doudizhu/doudizhu.lua \
-  --sprites tools/cards.bin --cover 30 \
-  --out doudizhu/doudizhu.fc16 --png carts/doudizhu.fc16.png
-cargo run -p fc16-host -- doudizhu/doudizhu.fc16
+python3 tools/build_all.py doudizhu
+../FC-16/target/debug/fc16 doudizhu/doudizhu.fc16
 ```
 
 开发期验证参考：`--frames 400 --screenshot` 走查标题/牌桌；用 `--script` 注入
 「Ⓑ 清选 → Ⓐ 抬牌 → Ⓧ 出牌 → Ⓨ 过」的周期输入即可让三家 AI 长跑完整对局并结算。
+
+
+元数据、代码和资源路径以 [fc16.project.json](fc16.project.json) 为准。
